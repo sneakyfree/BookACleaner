@@ -1,0 +1,51 @@
+# Page snapshot
+
+```yaml
+- generic [active] [ref=e1]:
+  - generic [ref=e3]:
+    - generic [ref=e4]:
+      - link "BookACleaner.ai" [ref=e5] [cursor=pointer]:
+        - /url: /
+        - img [ref=e6]
+        - generic [ref=e8]: BookACleaner.ai
+      - heading "Welcome back" [level=3] [ref=e9]
+      - paragraph [ref=e10]: Sign in to your account to continue
+    - generic [ref=e11]:
+      - button "Google Sign In (Coming Soon)" [disabled]:
+        - img
+        - text: Google Sign In (Coming Soon)
+      - generic [ref=e16]: or continue with email
+      - generic [ref=e17]:
+        - generic [ref=e18]: Invalid email or password
+        - generic [ref=e19]:
+          - text: Email
+          - generic [ref=e20]:
+            - img [ref=e21]
+            - textbox "Email" [ref=e24]:
+              - /placeholder: you@example.com
+              - text: maria@demo.com
+        - generic [ref=e25]:
+          - generic [ref=e26]:
+            - generic [ref=e27]: Password
+            - link "Forgot password?" [ref=e28] [cursor=pointer]:
+              - /url: /forgot-password
+          - generic [ref=e29]:
+            - img [ref=e30]
+            - textbox "Password" [ref=e33]:
+              - /placeholder: ••••••••
+              - text: demo1234
+        - button "Sign in" [ref=e34] [cursor=pointer]
+      - paragraph [ref=e35]:
+        - text: Don't have an account?
+        - link "Create one" [ref=e36] [cursor=pointer]:
+          - /url: /register
+  - button "AI Assistant" [ref=e37] [cursor=pointer]:
+    - img [ref=e38]
+    - generic [ref=e40]: AI Assistant
+  - region "Notifications alt+T"
+  - generic [ref=e41]:
+    - img [ref=e43]
+    - button "Open Tanstack query devtools" [ref=e91] [cursor=pointer]:
+      - img [ref=e92]
+  - alert [ref=e140]
+```

@@ -1,0 +1,239 @@
+'use client'
+
+import Link from 'next/link'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import {
+    Calendar,
+    Clock,
+    MapPin,
+    Star,
+    MoreVertical,
+    CheckCircle,
+    XCircle,
+    AlertCircle,
+} from 'lucide-react'
+
+type BookingStatus = 'pending' | 'confirmed' | 'in_progress' | 'completed' | 'cancelled'
+
+const statusConfig = {
+    pending: {
+        label: 'Pending',
+        color: 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-400',
+        icon: AlertCircle,
+    },
+    confirmed: {
+        label: 'Confirmed',
+        color: 'bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-400',
+        icon: CheckCircle,
+    },
+    in_progress: {
+        label: 'In Progress',
+        color: 'bg-purple-100 text-purple-700 dark:bg-purple-500/20 dark:text-purple-400',
+        icon: Clock,
+    },
+    completed: {
+        label: 'Completed',
+        color: 'bg-green-100 text-green-700 dark:bg-green-500/20 dark:text-green-400',
+        icon: CheckCircle,
+    },
+    cancelled: {
+        label: 'Cancelled',
+        color: 'bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-400',
+        icon: XCircle,
+    },
+}
+
+export default function BookingsPage() {
+    // Mock bookings
+    const bookings = [
+        {
+            id: '1',
+            cleaner: { name: "Maria's Cleaning", rating: 4.9 },
+            property: { name: 'Lake House', address: '123 Lake Street' },
+            services: ['Deep Clean'],
+            date: 'Tomorrow',
+            time: '10:00 AM',
+            price: 180,
+            status: 'confirmed' as BookingStatus,
+        },
+        {
+            id: '2',
+            cleaner: { name: 'Sparkle Pro', rating: 4.8 },
+            property: { name: 'Downtown Condo', address: '456 Main Ave' },
+            services: ['Airbnb Turnover'],
+            date: 'Jan 25, 2026',
+            time: '2:00 PM',
+            price: 120,
+            status: 'pending' as BookingStatus,
+        },
+        {
+            id: '3',
+            cleaner: { name: "Maria's Cleaning", rating: 4.9 },
+            property: { name: 'Lake House', address: '123 Lake Street' },
+            services: ['Standard Clean'],
+            date: 'Jan 15, 2026',
+            time: '9:00 AM',
+            price: 100,
+            status: 'completed' as BookingStatus,
+        },
+    ]
+
+    const upcomingBookings = bookings.filter(
+        (b) => b.status === 'pending' || b.status === 'confirmed' || b.status === 'in_progress'
+    )
+    const pastBookings = bookings.filter(
+        (b) => b.status === 'completed' || b.status === 'cancelled'
+    )
+
+    return (
+        <div className="space-y-8">
+            <div className="flex items-center justify-between">
+                <div>
+                    <h1 className="text-2xl font-bold">Bookings</h1>
+                    <p className="text-muted-foreground mt-1">
+                        Manage your cleaning appointments
+                    </p>
+                </div>
+                <Link href="/cleaners">
+                    <Button className="bg-brand-500 hover:bg-brand-600">
+                        Book New Cleaning
+                    </Button>
+                </Link>
+            </div>
+
+            {/* Upcoming Bookings */}
+            <div>
+                <h2 className="text-lg font-semibold mb-4">Upcoming</h2>
+                {upcomingBookings.length > 0 ? (
+                    <div className="space-y-4">
+                        {upcomingBookings.map((booking) => {
+                            const status = statusConfig[booking.status]
+                            const StatusIcon = status.icon
+                            return (
+                                <Card key={booking.id}>
+                                    <CardContent className="p-6">
+                                        <div className="flex items-start justify-between">
+                                            <div className="flex gap-4">
+                                                <div className="w-14 h-14 rounded-xl bg-brand-100 dark:bg-brand-500/20 flex items-center justify-center flex-shrink-0">
+                                                    <Calendar className="w-6 h-6 text-brand-600" />
+                                                </div>
+                                                <div>
+                                                    <div className="flex items-center gap-2">
+                                                        <h3 className="font-semibold">{booking.services.join(', ')}</h3>
+                                                        <span
+                                                            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${status.color}`}
+                                                        >
+                                                            <StatusIcon className="w-3 h-3" />
+                                                            {status.label}
+                                                        </span>
+                                                    </div>
+                                                    <p className="text-muted-foreground text-sm mt-1">
+                                                        {booking.cleaner.name} •{' '}
+                                                        <span className="text-amber-500">
+                                                            <Star className="w-3 h-3 inline fill-current" /> {booking.cleaner.rating}
+                                                        </span>
+                                                    </p>
+                                                    <p className="text-sm flex items-center gap-1 mt-2">
+                                                        <MapPin className="w-3 h-3" />
+                                                        {booking.property.name} - {booking.property.address}
+                                                    </p>
+                                                </div>
+                                            </div>
+                                            <div className="text-right">
+                                                <p className="text-lg font-semibold">${booking.price}</p>
+                                                <p className="text-sm text-muted-foreground">
+                                                    {booking.date}
+                                                </p>
+                                                <p className="text-sm text-muted-foreground flex items-center justify-end gap-1">
+                                                    <Clock className="w-3 h-3" />
+                                                    {booking.time}
+                                                </p>
+                                            </div>
+                                        </div>
+                                        <div className="flex gap-2 mt-4 pt-4 border-t">
+                                            <Button variant="outline" size="sm">
+                                                Message Cleaner
+                                            </Button>
+                                            {booking.status === 'pending' && (
+                                                <Button variant="outline" size="sm" className="text-red-600 hover:text-red-700">
+                                                    Cancel
+                                                </Button>
+                                            )}
+                                            <Button variant="ghost" size="icon" className="ml-auto">
+                                                <MoreVertical className="w-4 h-4" />
+                                            </Button>
+                                        </div>
+                                    </CardContent>
+                                </Card>
+                            )
+                        })}
+                    </div>
+                ) : (
+                    <Card>
+                        <CardContent className="py-12 text-center">
+                            <Calendar className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
+                            <p className="text-muted-foreground">No upcoming bookings</p>
+                            <Link href="/cleaners" className="mt-4 inline-block">
+                                <Button className="bg-brand-500 hover:bg-brand-600">
+                                    Book a Cleaning
+                                </Button>
+                            </Link>
+                        </CardContent>
+                    </Card>
+                )}
+            </div>
+
+            {/* Past Bookings */}
+            {pastBookings.length > 0 && (
+                <div>
+                    <h2 className="text-lg font-semibold mb-4">Past Bookings</h2>
+                    <div className="space-y-4">
+                        {pastBookings.map((booking) => {
+                            const status = statusConfig[booking.status]
+                            const StatusIcon = status.icon
+                            return (
+                                <Card key={booking.id} className="opacity-75">
+                                    <CardContent className="p-6">
+                                        <div className="flex items-start justify-between">
+                                            <div className="flex gap-4">
+                                                <div className="w-14 h-14 rounded-xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center flex-shrink-0">
+                                                    <Calendar className="w-6 h-6 text-slate-400" />
+                                                </div>
+                                                <div>
+                                                    <div className="flex items-center gap-2">
+                                                        <h3 className="font-semibold">{booking.services.join(', ')}</h3>
+                                                        <span
+                                                            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${status.color}`}
+                                                        >
+                                                            <StatusIcon className="w-3 h-3" />
+                                                            {status.label}
+                                                        </span>
+                                                    </div>
+                                                    <p className="text-muted-foreground text-sm mt-1">
+                                                        {booking.cleaner.name} • {booking.property.name}
+                                                    </p>
+                                                    <p className="text-sm text-muted-foreground mt-1">
+                                                        {booking.date} at {booking.time}
+                                                    </p>
+                                                </div>
+                                            </div>
+                                            <div className="text-right">
+                                                <p className="text-lg font-semibold">${booking.price}</p>
+                                                {booking.status === 'completed' && (
+                                                    <Button variant="link" size="sm" className="p-0 h-auto text-brand-600">
+                                                        Leave Review
+                                                    </Button>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </CardContent>
+                                </Card>
+                            )
+                        })}
+                    </div>
+                </div>
+            )}
+        </div>
+    )
+}

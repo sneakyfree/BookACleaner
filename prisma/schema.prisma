@@ -1,0 +1,493 @@
+// BookACleaner.ai Database Schema
+// Prisma ORM for PostgreSQL
+
+generator client {
+  provider             = "prisma-client-py"
+  interface            = "asyncio"
+  recursive_type_depth = 5
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ==================== USERS ====================
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  passwordHash  String?
+  role          UserRole  @default(CLIENT)
+  emailVerified DateTime?
+  phoneVerified DateTime?
+  phone         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  cleanerProfile  CleanerProfile?
+  clientProfile   ClientProfile?
+  verifications   Verification[]
+  sentMessages    Message[]                 @relation("SentMessages")
+  conversations   ConversationParticipant[]
+  reviewsAuthored Review[]                  @relation("ReviewAuthor")
+  reviewsReceived Review[]                  @relation("ReviewSubject")
+
+  @@map("users")
+}
+
+enum UserRole {
+  CLIENT
+  CLEANER
+  ADMIN
+}
+
+// ==================== PROFILES ====================
+
+model CleanerProfile {
+  id               String   @id @default(cuid())
+  userId           String   @unique
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  businessName     String
+  bio              String?  @db.Text
+  profilePhoto     String?
+  verificationTier Int      @default(1)
+  stripeAccountId  String?
+  overallRating    Float    @default(0)
+  totalReviews     Int      @default(0)
+  satisfactionPct  Float    @default(0)
+  jobsCompleted    Int      @default(0)
+  onTimeRate       Float    @default(0)
+  responseTime     Int?
+  repeatClientRate Float    @default(0)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  services        CleanerService[]
+  serviceAreas    ServiceArea[]
+  certifications  Certification[]
+  portfolioPhotos PortfolioPhoto[]
+  availability    Availability[]
+  jobs            Job[]
+  bids            Bid[]
+
+  @@map("cleaner_profiles")
+}
+
+model ClientProfile {
+  id               String   @id @default(cuid())
+  userId           String   @unique
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  displayName      String
+  profilePhoto     String?
+  verificationTier Int      @default(1)
+  stripeCustomerId String?
+  overallRating    Float    @default(0)
+  totalReviews     Int      @default(0)
+  jobsPosted       Int      @default(0)
+  jobsCompleted    Int      @default(0)
+  onTimePaymentRate Float    @default(100)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  properties Property[]
+  jobs       Job[]
+
+  @@map("client_profiles")
+}
+
+// ==================== PROPERTIES ====================
+
+model Property {
+  id                String        @id @default(cuid())
+  clientId          String
+  client            ClientProfile @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  name              String
+  address           String
+  addressLine2      String?
+  city              String
+  state             String
+  zipCode           String
+  country           String        @default("US")
+  sqFt              Int?
+  bedrooms          Int?
+  bathrooms         Float?
+  propertyType      PropertyType?
+  yearBuilt         Int?
+  accessInfo        String?       @db.Text
+  specialNotes      String?       @db.Text
+  airbnbCalendarUrl String?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  jobs     Job[]
+  playbook PropertyPlaybook?
+
+  @@map("properties")
+}
+
+enum PropertyType {
+  HOUSE
+  APARTMENT
+  CONDO
+  TOWNHOUSE
+  CABIN
+  STUDIO
+  OFFICE
+  RETAIL
+  WAREHOUSE
+  OTHER
+}
+
+model PropertyPlaybook {
+  id              String   @id @default(cuid())
+  propertyId      String   @unique
+  property        Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  hostPreferences Json?
+  quirks          Json?
+  cleanerNotes    Json?
+  checklist       Json?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@map("property_playbooks")
+}
+
+// ==================== JOBS & BOOKINGS ====================
+
+model Job {
+  id              String          @id @default(cuid())
+  clientId        String
+  client          ClientProfile   @relation(fields: [clientId], references: [id])
+  cleanerId       String?
+  cleaner         CleanerProfile? @relation(fields: [cleanerId], references: [id])
+  propertyId      String?
+  property        Property?       @relation(fields: [propertyId], references: [id])
+  jobType         JobType         @default(DIRECT)
+  title           String
+  description     String?         @db.Text
+  services        Json
+  scheduledDate   DateTime
+  scheduledTime   String
+  estimatedHours  Float?
+  basePrice       Decimal         @db.Decimal(10, 2)
+  addOnPrice      Decimal         @default(0) @db.Decimal(10, 2)
+  totalPrice      Decimal         @db.Decimal(10, 2)
+  status          JobStatus       @default(PENDING)
+  paymentStatus   PaymentStatus   @default(PENDING)
+  stripePaymentId String?
+  paidAt          DateTime?
+  paidOutAt       DateTime?
+  startedAt       DateTime?
+  completedAt     DateTime?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  bids     Bid[]
+  reviews  Review[]
+  messages Message[]
+
+  @@map("jobs")
+}
+
+enum JobType {
+  DIRECT
+  MARKETPLACE
+  BID
+}
+
+enum JobStatus {
+  PENDING
+  CONFIRMED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+  DISPUTED
+}
+
+enum PaymentStatus {
+  PENDING
+  HELD
+  RELEASED
+  REFUNDED
+  DISPUTED
+}
+
+model Bid {
+  id             String         @id @default(cuid())
+  jobId          String
+  job            Job            @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  cleanerId      String
+  cleaner        CleanerProfile @relation(fields: [cleanerId], references: [id])
+  amount         Decimal        @db.Decimal(10, 2)
+  message        String?        @db.Text
+  estimatedHours Float?
+  status         BidStatus      @default(PENDING)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  @@map("bids")
+}
+
+enum BidStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  WITHDRAWN
+  EXPIRED
+}
+
+// ==================== REVIEWS ====================
+
+model Review {
+  id              String    @id @default(cuid())
+  jobId           String
+  job             Job       @relation(fields: [jobId], references: [id])
+  authorId        String
+  author          User      @relation("ReviewAuthor", fields: [authorId], references: [id])
+  subjectId       String
+  subject         User      @relation("ReviewSubject", fields: [subjectId], references: [id])
+  overallRating   Int
+  categoryRatings Json?
+  text            String?   @db.Text
+  tags            String[]
+  photos          String[]
+  response        String?   @db.Text
+  respondedAt     DateTime?
+  isPublic        Boolean   @default(true)
+  moderatedAt     DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@map("reviews")
+}
+
+// ==================== MESSAGING ====================
+
+model Conversation {
+  id            String                    @id @default(cuid())
+  jobId         String?
+  createdAt     DateTime                  @default(now())
+  updatedAt     DateTime                  @updatedAt
+  lastMessageAt DateTime                  @default(now())
+  participants  ConversationParticipant[]
+  messages      Message[]
+
+  @@map("conversations")
+}
+
+model ConversationParticipant {
+  id             String       @id @default(cuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User         @relation(fields: [userId], references: [id])
+  lastReadAt     DateTime?
+
+  @@unique([conversationId, userId])
+  @@map("conversation_participants")
+}
+
+model Message {
+  id             String         @id @default(cuid())
+  conversationId String
+  conversation   Conversation   @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  senderId       String
+  sender         User           @relation("SentMessages", fields: [senderId], references: [id])
+  jobId          String?
+  job            Job?           @relation(fields: [jobId], references: [id])
+  content        String         @db.Text
+  attachments    String[]
+  channel        MessageChannel @default(APP)
+  createdAt      DateTime       @default(now())
+  deliveredAt    DateTime?
+  readAt         DateTime?
+
+  @@map("messages")
+}
+
+enum MessageChannel {
+  APP
+  SMS
+  EMAIL
+}
+
+// ==================== VERIFICATION ====================
+
+model Verification {
+  id              String             @id @default(cuid())
+  userId          String
+  user            User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type            VerificationType
+  status          VerificationStatus @default(PENDING)
+  documentUrl     String?
+  extractedData   Json?
+  verifiedAt      DateTime?
+  expiresAt       DateTime?
+  rejectionReason String?
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  @@map("verifications")
+}
+
+enum VerificationType {
+  EMAIL
+  PHONE
+  ID
+  BUSINESS_LICENSE
+  INSURANCE
+  IICRC
+  EPA
+  OSHA
+  BACKGROUND_CHECK
+}
+
+enum VerificationStatus {
+  PENDING
+  IN_REVIEW
+  VERIFIED
+  REJECTED
+  EXPIRED
+}
+
+model Certification {
+  id          String          @id @default(cuid())
+  cleanerId   String
+  cleaner     CleanerProfile  @relation(fields: [cleanerId], references: [id], onDelete: Cascade)
+  type        String
+  name        String
+  issuer      String
+  certNumber  String?
+  issuedDate  DateTime?
+  expiresAt   DateTime?
+  documentUrl String?
+  verified    Boolean         @default(false)
+  verifiedAt  DateTime?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  @@map("certifications")
+}
+
+// ==================== SERVICES ====================
+
+model ServiceCategory {
+  id            String    @id @default(cuid())
+  name          String
+  tier          Int
+  description   String?
+  icon          String?
+  requiresCert  Boolean   @default(false)
+  requiredCerts String[]
+  services      Service[]
+
+  @@map("service_categories")
+}
+
+model Service {
+  id               String          @id @default(cuid())
+  categoryId       String
+  category         ServiceCategory @relation(fields: [categoryId], references: [id])
+  name             String
+  description      String?
+  pricingModel     PricingModel    @default(FLAT)
+  basePrice        Decimal?        @db.Decimal(10, 2)
+  pricePerSqFt     Decimal?        @db.Decimal(10, 2)
+  pricePerHour     Decimal?        @db.Decimal(10, 2)
+  estimatedMinutes Int?
+  cleanerServices  CleanerService[]
+
+  @@map("services")
+}
+
+enum PricingModel {
+  FLAT
+  HOURLY
+  SQFT
+  CUSTOM
+}
+
+model CleanerService {
+  id          String         @id @default(cuid())
+  cleanerId   String
+  cleaner     CleanerProfile @relation(fields: [cleanerId], references: [id], onDelete: Cascade)
+  serviceId   String
+  service     Service        @relation(fields: [serviceId], references: [id])
+  customPrice Decimal?       @db.Decimal(10, 2)
+  isActive    Boolean        @default(true)
+
+  @@unique([cleanerId, serviceId])
+  @@map("cleaner_services")
+}
+
+// ==================== AVAILABILITY ====================
+
+model ServiceArea {
+  id          String         @id @default(cuid())
+  cleanerId   String
+  cleaner     CleanerProfile @relation(fields: [cleanerId], references: [id], onDelete: Cascade)
+  zipCode     String
+  city        String?
+  state       String?
+  radiusMiles Int            @default(25)
+
+  @@unique([cleanerId, zipCode])
+  @@map("service_areas")
+}
+
+model Availability {
+  id        String         @id @default(cuid())
+  cleanerId String
+  cleaner   CleanerProfile @relation(fields: [cleanerId], references: [id], onDelete: Cascade)
+  dayOfWeek Int
+  startTime String
+  endTime   String
+
+  @@unique([cleanerId, dayOfWeek])
+  @@map("availability")
+}
+
+model PortfolioPhoto {
+  id        String         @id @default(cuid())
+  cleanerId String
+  cleaner   CleanerProfile @relation(fields: [cleanerId], references: [id], onDelete: Cascade)
+  url       String
+  caption   String?
+  createdAt DateTime       @default(now())
+
+  @@map("portfolio_photos")
+}
+
+// ==================== FEED ====================
+
+model FeedItem {
+  id             String   @id @default(cuid())
+  type           String
+  title          String
+  content        String   @db.Text
+  imageUrl       String?
+  linkUrl        String?
+  targetAudience String   @default("ALL")
+  geoTarget      String[]
+  priority       Int      @default(0)
+  publishedAt    DateTime @default(now())
+  expiresAt      DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  likes FeedLike[]
+
+  @@map("feed_items")
+}
+
+model FeedLike {
+  id        String   @id @default(cuid())
+  itemId    String
+  item      FeedItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  userId    String
+  createdAt DateTime @default(now())
+
+  @@unique([itemId, userId])
+  @@map("feed_likes")
+}
