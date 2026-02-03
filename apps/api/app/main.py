@@ -56,13 +56,30 @@ allowed_origins = [
     "http://localhost:3002",
 ]
 
+# Add frontend URL from environment
+frontend_url = os.getenv("FRONTEND_URL")
+if frontend_url:
+    allowed_origins.append(frontend_url)
+    logger.info(f"Added FRONTEND_URL to CORS: {frontend_url}")
+
+# Add custom CORS origins from environment (JSON array)
+cors_origins_str = os.getenv("CORS_ORIGINS")
+if cors_origins_str:
+    try:
+        import json
+        custom_origins = json.loads(cors_origins_str)
+        allowed_origins.extend(custom_origins)
+        logger.info(f"Added custom CORS origins: {custom_origins}")
+    except json.JSONDecodeError:
+        logger.warning(f"Could not parse CORS_ORIGINS: {cors_origins_str}")
+
 # Add production origins
 if os.getenv("ENVIRONMENT") == "production":
-    allowed_origins = [
+    allowed_origins.extend([
         "https://bookacleaner.ai",
         "https://www.bookacleaner.ai",
         "https://app.bookacleaner.ai",
-    ]
+    ])
 
 app.add_middleware(
     CORSMiddleware,

@@ -42,13 +42,14 @@ async def check_database_health() -> DependencyHealth:
     """Check database connectivity"""
     try:
         from app.database import get_db
+        from sqlalchemy import text
         import time
         
         start = time.perf_counter()
-        # Simple query to verify connection
-        db = await get_db().__anext__()
-        # Execute a simple query
-        await db.execute("SELECT 1")
+        # Get database instance and run a simple query
+        db = await get_db()
+        async with db.session() as session:
+            await session.execute(text("SELECT 1"))
         latency = (time.perf_counter() - start) * 1000
         
         return DependencyHealth(
