@@ -15,6 +15,7 @@ const outfit = Outfit({
 })
 
 export const metadata: Metadata = {
+    metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL || 'https://bookacleaner.ai'),
     title: {
         default: 'BookACleaner.ai | AI-Powered Cleaning Marketplace',
         template: '%s | BookACleaner.ai',

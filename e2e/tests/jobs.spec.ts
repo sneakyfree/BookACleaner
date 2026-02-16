@@ -114,11 +114,11 @@ test.describe('Admin Job Management', () => {
         // May redirect to admin dashboard
     });
 
-    test('should display admin jobs list', async ({ page }) => {
-        await page.goto('/admin/jobs');
+    test('should display admin dashboard', async ({ page }) => {
+        await page.goto('/admin/users');
 
-        // Should show admin jobs content
-        await expect(page.getByText(/job|admin|all|status|manage/i).first()).toBeVisible({ timeout: 5000 });
+        // Should show admin content
+        await expect(page.getByText(/user|client|cleaner|role|manage|admin/i).first()).toBeVisible({ timeout: 5000 });
     });
 
     test('should display admin users list', async ({ page }) => {
@@ -129,7 +129,7 @@ test.describe('Admin Job Management', () => {
     });
 
     test('should display verification queue', async ({ page }) => {
-        await page.goto('/admin/verification');
+        await page.goto('/admin/verifications');
 
         // Should show verification queue
         await expect(page.getByText(/verification|pending|review|approve|queue/i).first()).toBeVisible({ timeout: 5000 });

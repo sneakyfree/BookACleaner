@@ -11,10 +11,38 @@ import {
     Filter,
     ThumbsUp,
     CheckCircle,
+    Eye,
+    Loader2,
 } from 'lucide-react'
+import { toast } from 'sonner'
 
 export default function ClientReviewsPage() {
     const [filter, setFilter] = useState<'all' | 'pending' | 'submitted'>('all')
+    const [revealedReviews, setRevealedReviews] = useState<Record<string, any>>({})
+    const [revealingId, setRevealingId] = useState<string | null>(null)
+
+    const handleRevealReview = async (reviewId: string) => {
+        setRevealingId(reviewId)
+        try {
+            const token = localStorage.getItem('token')
+            const res = await fetch(`/api/v1/reviews/${reviewId}/reveal`, {
+                method: 'POST',
+                headers: { Authorization: `Bearer ${token}` },
+            })
+            if (res.ok) {
+                const data = await res.json()
+                setRevealedReviews(prev => ({ ...prev, [reviewId]: data }))
+                toast.success('Review revealed! You can now see the cleaner\'s review.')
+            } else {
+                const err = await res.json()
+                toast.error(err.detail || 'Unable to reveal review')
+            }
+        } catch {
+            toast.error('Failed to reveal review')
+        } finally {
+            setRevealingId(null)
+        }
+    }
 
     // Mock reviews that client has given
     const reviews = [
@@ -175,12 +203,44 @@ export default function ClientReviewsPage() {
                                         )}
                                     </div>
                                 </div>
-                                {review.status === 'submitted' && (
-                                    <span className="flex items-center gap-1 text-xs text-green-600 bg-green-50 dark:bg-green-500/10 px-2 py-1 rounded-full">
-                                        <CheckCircle className="w-3 h-3" />
-                                        Submitted
-                                    </span>
-                                )}
+                                <div className="flex flex-col items-end gap-2">
+                                    {review.status === 'submitted' && (
+                                        <span className="flex items-center gap-1 text-xs text-green-600 bg-green-50 dark:bg-green-500/10 px-2 py-1 rounded-full">
+                                            <CheckCircle className="w-3 h-3" />
+                                            Submitted
+                                        </span>
+                                    )}
+                                    {review.status === 'submitted' && !revealedReviews[review.id] && (
+                                        <Button
+                                            size="sm"
+                                            variant="outline"
+                                            onClick={() => handleRevealReview(review.id)}
+                                            disabled={revealingId === review.id}
+                                            className="text-xs"
+                                        >
+                                            {revealingId === review.id ? (
+                                                <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                                            ) : (
+                                                <Eye className="w-3 h-3 mr-1" />
+                                            )}
+                                            Reveal Review
+                                        </Button>
+                                    )}
+                                    {revealedReviews[review.id] && (
+                                        <div className="text-xs bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30 rounded-lg p-3 max-w-[200px]">
+                                            <p className="font-medium text-blue-700 dark:text-blue-400 mb-1">Cleaner&apos;s Review</p>
+                                            <div className="flex gap-0.5 mb-1">
+                                                {[...Array(5)].map((_, i) => (
+                                                    <Star
+                                                        key={i}
+                                                        className={`w-3 h-3 ${i < (revealedReviews[review.id].rating || 0) ? 'fill-amber-400 text-amber-400' : 'text-slate-200'}`}
+                                                    />
+                                                ))}
+                                            </div>
+                                            <p className="text-muted-foreground">{revealedReviews[review.id].text || 'No comment'}</p>
+                                        </div>
+                                    )}
+                                </div>
                             </div>
                         </CardContent>
                     </Card>

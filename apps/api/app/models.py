@@ -36,10 +36,48 @@ class JobStatus(str, enum.Enum):
 
 class PaymentStatus(str, enum.Enum):
     PENDING = "pending"
+    AUTHORIZED = "authorized"
     HELD = "held"
+    CAPTURED = "captured"
     RELEASED = "released"
+    TRANSFERRED = "transferred"
     REFUNDED = "refunded"
+    FAILED = "failed"
     DISPUTED = "disputed"
+
+
+class BidStatus(str, enum.Enum):
+    PENDING = "pending"
+    ACCEPTED = "accepted"
+    DECLINED = "declined"
+    WITHDRAWN = "withdrawn"
+
+
+class DisputeStatus(str, enum.Enum):
+    OPEN = "open"
+    INVESTIGATING = "investigating"
+    RESOLVED = "resolved"
+    CLOSED = "closed"
+
+
+class UserStatus(str, enum.Enum):
+    ACTIVE = "active"
+    SUSPENDED = "suspended"
+    BANNED = "banned"
+
+
+class SubscriptionPlan(str, enum.Enum):
+    FREE = "free"
+    PRO = "pro"
+    PREMIUM = "premium"
+
+
+class FlagReason(str, enum.Enum):
+    SPAM = "spam"
+    INAPPROPRIATE = "inappropriate"
+    HARASSMENT = "harassment"
+    FRAUD = "fraud"
+    OTHER = "other"
 
 
 class VerificationStatus(str, enum.Enum):
@@ -78,9 +116,12 @@ class User(Base):
     full_name = Column(String(255), nullable=True)
     phone = Column(String(20), nullable=True)
     avatar_url = Column(String(500), nullable=True)
+    status = Column(String(20), default="active")
     is_verified = Column(Boolean, default=False)
     email_verified_at = Column(DateTime, nullable=True)
     phone_verified_at = Column(DateTime, nullable=True)
+    refresh_token = Column(String(255), nullable=True)
+    refresh_token_expires_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
@@ -251,6 +292,7 @@ class Review(Base):
     response = Column(Text, nullable=True)
     responded_at = Column(DateTime, nullable=True)
     
+    revealed = Column(Boolean, default=False)
     is_public = Column(Boolean, default=True)
     moderated_at = Column(DateTime, nullable=True)
     
@@ -411,3 +453,117 @@ class Notification(Base):
     
     # Relationships
     user = relationship("User", back_populates="notifications")
+
+
+class Bid(Base):
+    __tablename__ = "bids"
+    
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    job_id = Column(String(36), ForeignKey("jobs.id"), nullable=False)
+    cleaner_id = Column(String(36), ForeignKey("cleaner_profiles.id"), nullable=False)
+    
+    amount = Column(Float, nullable=False)
+    message = Column(Text, nullable=True)
+    estimated_hours = Column(Float, nullable=True)
+    status = Column(String(20), default="pending")
+    
+    accepted_at = Column(DateTime, nullable=True)
+    declined_at = Column(DateTime, nullable=True)
+    withdrawn_at = Column(DateTime, nullable=True)
+    
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class Badge(Base):
+    __tablename__ = "badges"
+    
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    name = Column(String(100), unique=True, nullable=False)
+    description = Column(Text, nullable=True)
+    icon_url = Column(String(500), nullable=True)
+    criteria_type = Column(String(50), nullable=False)  # review_count, avg_rating, job_count, tier, etc.
+    criteria_value = Column(Float, nullable=True)
+    
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class UserBadge(Base):
+    __tablename__ = "user_badges"
+    
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    user_id = Column(String(36), ForeignKey("users.id"), nullable=False)
+    badge_id = Column(String(36), ForeignKey("badges.id"), nullable=False)
+    awarded_at = Column(DateTime, default=datetime.utcnow)
+    awarded_reason = Column(String(255), nullable=True)
+
+
+class Dispute(Base):
+    __tablename__ = "disputes"
+    
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    job_id = Column(String(36), ForeignKey("jobs.id"), nullable=False)
+    raised_by = Column(String(36), ForeignKey("users.id"), nullable=False)
+    
+    reason = Column(Text, nullable=False)
+    status = Column(String(20), default="open")
+    resolution_notes = Column(Text, nullable=True)
+    resolved_by = Column(String(36), ForeignKey("users.id"), nullable=True)
+    
+    created_at = Column(DateTime, default=datetime.utcnow)
+    resolved_at = Column(DateTime, nullable=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class Subscription(Base):
+    __tablename__ = "subscriptions"
+    
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    user_id = Column(String(36), ForeignKey("users.id"), nullable=False)
+    stripe_subscription_id = Column(String(255), nullable=True)
+    stripe_customer_id = Column(String(255), nullable=True)
+    
+    plan = Column(String(20), default="free")
+    status = Column(String(20), default="active")  # active, canceled, past_due
+    
+    current_period_start = Column(DateTime, nullable=True)
+    current_period_end = Column(DateTime, nullable=True)
+    
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class FlaggedContent(Base):
+    __tablename__ = "flagged_content"
+    
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    content_type = Column(String(20), nullable=False)  # review, message, feed
+    content_id = Column(String(36), nullable=False)
+    flagged_by = Column(String(36), ForeignKey("users.id"), nullable=False)
+    
+    reason = Column(String(50), nullable=False)
+    details = Column(Text, nullable=True)
+    status = Column(String(20), default="pending")  # pending, reviewed, removed, dismissed
+    
+    reviewed_by = Column(String(36), ForeignKey("users.id"), nullable=True)
+    reviewed_at = Column(DateTime, nullable=True)
+    
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class FeedItem(Base):
+    __tablename__ = "feed_items"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    type = Column(String(50), nullable=False)  # announcement, tip, promo, feature, community
+    title = Column(String(255), nullable=False)
+    content = Column(Text, nullable=False)
+    image_url = Column(String(500), nullable=True)
+    cta_text = Column(String(255), nullable=True)
+    cta_url = Column(String(500), nullable=True)
+    target_roles = Column(JSON, default=lambda: ["client", "cleaner"])
+    priority = Column(Integer, default=0)
+    likes = Column(Integer, default=0)
+    views = Column(Integer, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow)
+

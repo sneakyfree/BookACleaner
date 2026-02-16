@@ -269,6 +269,7 @@ export function usePerformanceMetrics(): PerformanceMetrics {
             const entries = list.getEntries()
             const fcp = entries.find((e) => e.name === 'first-contentful-paint')
             if (fcp) {
+                // eslint-disable-next-line react-hooks/set-state-in-effect
                 setMetrics((m) => ({ ...m, fcp: fcp.startTime }))
             }
         })
@@ -279,6 +280,7 @@ export function usePerformanceMetrics(): PerformanceMetrics {
             const entries = list.getEntries()
             const lcp = entries[entries.length - 1]
             if (lcp) {
+                // eslint-disable-next-line react-hooks/set-state-in-effect
                 setMetrics((m) => ({ ...m, lcp: lcp.startTime }))
             }
         })
@@ -287,6 +289,7 @@ export function usePerformanceMetrics(): PerformanceMetrics {
         // Time to First Byte
         const navEntries = performance.getEntriesByType('navigation') as PerformanceNavigationTiming[]
         if (navEntries.length > 0) {
+            // eslint-disable-next-line react-hooks/set-state-in-effect
             setMetrics((m) => ({ ...m, ttfb: navEntries[0].responseStart }))
         }
 

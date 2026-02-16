@@ -1,8 +1,9 @@
 """
 Newsfeed API for BookACleaner.ai
-Provides personalized content feed for users
+Provides personalized content feed for users.
+Feed items are stored in the database via the FeedItem model.
 """
-from fastapi import APIRouter, HTTPException, Depends, Query
+from fastapi import APIRouter, HTTPException, Depends, Header, Query
 from pydantic import BaseModel
 from typing import Optional, List
 from datetime import datetime
@@ -18,21 +19,6 @@ logger = logging.getLogger(__name__)
 
 # ==================== SCHEMAS ====================
 
-class FeedItem(BaseModel):
-    id: str
-    type: str  # announcement, tip, promo, feature, community
-    title: str
-    content: str
-    image_url: Optional[str] = None
-    cta_text: Optional[str] = None
-    cta_url: Optional[str] = None
-    target_roles: List[str] = ["client", "cleaner"]
-    priority: int = 0
-    likes: int = 0
-    views: int = 0
-    created_at: datetime
-
-
 class CreateFeedItemRequest(BaseModel):
     type: str
     title: str
@@ -44,7 +30,32 @@ class CreateFeedItemRequest(BaseModel):
     priority: int = 0
 
 
-# ==================== DEMO FEED CONTENT ====================
+# ==================== AUTH HELPER ====================
+
+async def get_current_user(authorization: str = Header(None), db = Depends(get_db)):
+    """Get current user from Bearer token"""
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    from jose import jwt, JWTError
+    token = authorization.replace("Bearer ", "")
+    
+    try:
+        payload = jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
+        user_id = payload.get("sub")
+        if not user_id:
+            raise HTTPException(status_code=401, detail="Invalid token")
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    
+    user = await db.user.find_unique(where={"id": user_id})
+    if not user:
+        raise HTTPException(status_code=401, detail="User not found")
+    
+    return user
+
+
+# ==================== SEED DATA ====================
 
 DEMO_FEED_ITEMS = [
     {
@@ -58,7 +69,6 @@ DEMO_FEED_ITEMS = [
         "priority": 100,
         "likes": 234,
         "views": 1523,
-        "created_at": "2026-01-25T10:00:00Z"
     },
     {
         "id": "feed-2",
@@ -72,7 +82,6 @@ DEMO_FEED_ITEMS = [
         "priority": 80,
         "likes": 156,
         "views": 892,
-        "created_at": "2026-01-24T14:00:00Z"
     },
     {
         "id": "feed-3",
@@ -86,7 +95,6 @@ DEMO_FEED_ITEMS = [
         "priority": 90,
         "likes": 89,
         "views": 1245,
-        "created_at": "2026-01-23T09:00:00Z"
     },
     {
         "id": "feed-4",
@@ -99,7 +107,6 @@ DEMO_FEED_ITEMS = [
         "priority": 70,
         "likes": 67,
         "views": 534,
-        "created_at": "2026-01-22T16:00:00Z"
     },
     {
         "id": "feed-5",
@@ -111,7 +118,6 @@ DEMO_FEED_ITEMS = [
         "priority": 60,
         "likes": 312,
         "views": 2341,
-        "created_at": "2026-01-21T12:00:00Z"
     }
 ]
 
@@ -126,21 +132,28 @@ async def get_feed(
     limit: int = Query(20, ge=1, le=50),
     db = Depends(get_db)
 ):
-    """Get personalized news feed"""
+    """Get personalized news feed from database"""
     
-    # Start with demo items (in production, fetch from database)
-    items = DEMO_FEED_ITEMS.copy()
+    # Fetch items from database
+    items = await db.feed_item.find_many()
+    
+    # If no items in DB, seed demo items
+    if not items:
+        logger.info("Seeding feed with demo items...")
+        for demo in DEMO_FEED_ITEMS:
+            await db.feed_item.create(data=demo)
+        items = await db.feed_item.find_many()
     
     # Filter by role
     if role:
-        items = [i for i in items if role in i["target_roles"]]
+        items = [i for i in items if role in (i.get("target_roles") or [])]
     
     # Filter by type
     if type:
-        items = [i for i in items if i["type"] == type]
+        items = [i for i in items if i.get("type") == type]
     
-    # Sort by priority and date
-    items.sort(key=lambda x: (-x["priority"], x["created_at"]), reverse=False)
+    # Sort by priority (desc) then date
+    items.sort(key=lambda x: (-x.get("priority", 0), x.get("created_at") or ""))
     
     # Paginate
     start = (page - 1) * limit
@@ -162,26 +175,28 @@ async def get_feed_item(
 ):
     """Get a specific feed item"""
     
-    for item in DEMO_FEED_ITEMS:
-        if item["id"] == item_id:
-            return item
-    
-    raise HTTPException(status_code=404, detail="Feed item not found")
+    item = await db.feed_item.find_unique(where={"id": item_id})
+    if not item:
+        raise HTTPException(status_code=404, detail="Feed item not found")
+    return item
 
 
 @router.post("/{item_id}/like")
 async def like_feed_item(
     item_id: str,
+    user = Depends(get_current_user),
     db = Depends(get_db)
 ):
-    """Like a feed item"""
+    """Like a feed item (requires auth)"""
     
-    for item in DEMO_FEED_ITEMS:
-        if item["id"] == item_id:
-            item["likes"] += 1
-            return {"success": True, "likes": item["likes"]}
+    item = await db.feed_item.find_unique(where={"id": item_id})
+    if not item:
+        raise HTTPException(status_code=404, detail="Feed item not found")
     
-    raise HTTPException(status_code=404, detail="Feed item not found")
+    new_likes = (item.get("likes") or 0) + 1
+    await db.feed_item.update(where={"id": item_id}, data={"likes": new_likes})
+    
+    return {"success": True, "likes": new_likes}
 
 
 @router.post("/{item_id}/view")
@@ -191,30 +206,33 @@ async def track_view(
 ):
     """Track feed item view"""
     
-    for item in DEMO_FEED_ITEMS:
-        if item["id"] == item_id:
-            item["views"] += 1
-            return {"success": True}
+    item = await db.feed_item.find_unique(where={"id": item_id})
+    if not item:
+        return {"success": False}
     
-    return {"success": False}
+    new_views = (item.get("views") or 0) + 1
+    await db.feed_item.update(where={"id": item_id}, data={"views": new_views})
+    
+    return {"success": True}
 
 
-# Admin endpoints
+# ==================== ADMIN ENDPOINTS ====================
+
 @router.post("")
 async def create_feed_item(
     data: CreateFeedItemRequest,
+    user = Depends(get_current_user),
     db = Depends(get_db)
 ):
     """Create a new feed item (admin only)"""
     
-    new_item = {
-        "id": f"feed-{len(DEMO_FEED_ITEMS) + 1}",
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    new_item = await db.feed_item.create(data={
         **data.dict(),
         "likes": 0,
         "views": 0,
-        "created_at": datetime.utcnow().isoformat()
-    }
-    
-    DEMO_FEED_ITEMS.insert(0, new_item)
+    })
     
     return {"success": True, "item": new_item}

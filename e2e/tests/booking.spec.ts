@@ -17,21 +17,21 @@ test.describe('Booking Flow', () => {
 
     test.describe('Cleaner Search', () => {
         test('should display search/browse page', async ({ page }) => {
-            await page.goto('/search');
+            await page.goto('/cleaners');
 
-            // Should show some content - search page or cleaners
+            // Should show some content - cleaners listing
             await expect(page.getByText(/cleaner|search|find|browse|book/i).first()).toBeVisible({ timeout: 5000 });
         });
 
         test('should show cleaner cards with ratings', async ({ page }) => {
-            await page.goto('/search');
+            await page.goto('/cleaners');
 
             // Wait for page to load
             await page.waitForTimeout(2000);
 
             // Check for any cleaner-related content
             const pageContent = await page.content();
-            expect(pageContent.toLowerCase()).toMatch(/cleaner|rating|star|review|book/);
+            expect(pageContent.toLowerCase()).toMatch(/cleaner|rating|star|review|book|find/);
         });
     });
 

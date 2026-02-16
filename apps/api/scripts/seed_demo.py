@@ -35,6 +35,17 @@ DEMO_CLEANERS = [
 
 PROPERTY_TYPES = ["apartment", "house", "condo", "office", "airbnb"]
 SERVICE_TYPES = ["standard", "deep", "move_in", "move_out", "turnover", "custom"]
+
+# G9 — Full 7-tier service taxonomy
+SERVICE_TAXONOMY = [
+    {"id": "svc-standard",  "name": "Standard Cleaning",       "tier": 1, "base_price": 120, "estimated_hours": 2.5, "description": "Regular maintenance clean — dusting, vacuuming, mopping, kitchen & bathroom wipe-down."},
+    {"id": "svc-deep",      "name": "Deep Cleaning",           "tier": 2, "base_price": 250, "estimated_hours": 4.5, "description": "Intensive deep clean — baseboards, inside appliances, grout scrub, ceiling fans, behind furniture."},
+    {"id": "svc-movein",    "name": "Move-In / Move-Out Clean","tier": 3, "base_price": 300, "estimated_hours": 5.0, "description": "Empty-property deep clean — cabinets interior, window tracks, closets, garage sweep."},
+    {"id": "svc-turnover",  "name": "Airbnb Turnover",         "tier": 4, "base_price": 160, "estimated_hours": 3.0, "description": "Guest-ready reset — linen change, restocking, welcome setup, photography-ready finish."},
+    {"id": "svc-postconstruction", "name": "Post-Construction", "tier": 5, "base_price": 400, "estimated_hours": 6.0, "description": "Construction aftermath — dust removal, adhesive cleanup, window cleaning, debris haul-away."},
+    {"id": "svc-specialty",  "name": "Specialty Service",       "tier": 6, "base_price": 200, "estimated_hours": 3.0, "description": "Carpet shampooing, upholstery cleaning, window washing, pressure washing, or oven detailing."},
+    {"id": "svc-commercial", "name": "Commercial Cleaning",     "tier": 7, "base_price": 500, "estimated_hours": 8.0, "description": "Office/retail space cleaning — common areas, restrooms, break rooms, trash service, floor care."},
+]
 JOB_STATUSES = ["pending", "confirmed", "in_progress", "completed", "cancelled"]
 
 SPECIAL_REQUESTS = [
@@ -286,6 +297,7 @@ def seed_demo_data() -> Dict[str, Any]:
         "jobs": jobs,
         "reviews": reviews,
         "messages": messages,
+        "service_taxonomy": SERVICE_TAXONOMY,
         "summary": {
             "total_clients": len(clients),
             "total_cleaners": len(cleaners),
@@ -293,6 +305,7 @@ def seed_demo_data() -> Dict[str, Any]:
             "total_jobs": len(jobs),
             "total_reviews": len(reviews),
             "total_messages": len(messages),
+            "total_services": len(SERVICE_TAXONOMY),
         },
     }
 
@@ -309,6 +322,7 @@ async def run_seeder():
     print(f"✅ Generated {data['summary']['total_jobs']} jobs")
     print(f"✅ Generated {data['summary']['total_reviews']} reviews")
     print(f"✅ Generated {data['summary']['total_messages']} messages")
+    print(f"✅ Generated {data['summary']['total_services']} service categories")
     print("\n🎉 Demo data seeding complete!")
     
     return data

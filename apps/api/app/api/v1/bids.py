@@ -127,29 +127,26 @@ async def submit_bid(
     if not cleaner:
         raise HTTPException(status_code=400, detail="Cleaner profile not found")
     
-    # Create bid (using a simple JSON field on job for now)
-    # In production, this would be a separate Bid table
-    bid_data = {
-        "id": f"bid-{user['id']}-{job_id}",
+    # Check for existing bid from this cleaner on this job
+    existing = await db.bid.find_first(where={"job_id": job_id, "cleaner_id": cleaner["id"]})
+    if existing:
+        raise HTTPException(status_code=409, detail="You already have a bid on this job")
+    
+    # Create bid in the database
+    bid = await db.bid.create(data={
         "job_id": job_id,
         "cleaner_id": cleaner["id"],
-        "cleaner_name": cleaner.get("business_name") or user.get("full_name"),
-        "cleaner_rating": cleaner.get("rating", 0),
         "amount": data.amount,
         "message": data.message,
         "estimated_hours": data.estimated_hours,
-        "available_start_time": data.available_start_time,
         "status": "pending",
-        "created_at": datetime.utcnow().isoformat()
-    }
+    })
     
-    # For simplicity, store bids in job description as JSON 
-    # In production, use a proper Bid model
-    logger.info(f"Bid submitted: {bid_data}")
+    logger.info(f"Bid {bid['id']} created for job {job_id} by cleaner {cleaner['id']}")
     
     return {
         "success": True,
-        "bid": bid_data,
+        "bid": bid,
         "message": "Bid submitted successfully"
     }
 
@@ -166,12 +163,13 @@ async def list_job_bids(
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     
-    # In production, fetch from Bid table
-    # For now, return mock structure
+    # Fetch real bids from the database
+    bids = await db.bid.find_many(where={"job_id": job_id})
+    
     return {
         "job_id": job_id,
-        "bids": [],
-        "total": 0
+        "bids": bids,
+        "total": len(bids)
     }
 
 
@@ -183,12 +181,41 @@ async def accept_bid(
 ):
     """Accept a bid (client only)"""
     
-    # Parse bid ID to get cleaner and job
-    parts = bid_id.split("-")
-    if len(parts) < 3:
-        raise HTTPException(status_code=400, detail="Invalid bid ID")
+    bid = await db.bid.find_unique(where={"id": bid_id})
+    if not bid:
+        raise HTTPException(status_code=404, detail="Bid not found")
     
-    # In production, fetch bid and verify ownership
+    job = await db.job.find_unique(where={"id": bid["job_id"]})
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    
+    # Only the job's client can accept a bid
+    client = await db.client.find_first(where={"user_id": user["id"]})
+    if not client or client["id"] != job.get("client_id"):
+        raise HTTPException(status_code=403, detail="Only the job owner can accept bids")
+    
+    # Accept the bid
+    await db.bid.update(where={"id": bid_id}, data={
+        "status": "accepted",
+        "accepted_at": datetime.utcnow().isoformat(),
+    })
+    
+    # Assign cleaner to job and update price
+    await db.job.update(where={"id": bid["job_id"]}, data={
+        "cleaner_id": bid["cleaner_id"],
+        "total_price": bid["amount"],
+        "status": "confirmed",
+    })
+    
+    # Decline all other pending bids on this job
+    other_bids = await db.bid.find_many(where={"job_id": bid["job_id"]})
+    for other in other_bids:
+        if other["id"] != bid_id and other.get("status") == "pending":
+            await db.bid.update(where={"id": other["id"]}, data={
+                "status": "declined",
+                "declined_at": datetime.utcnow().isoformat(),
+            })
+    
     return {
         "success": True,
         "message": "Bid accepted. Cleaner has been assigned to the job."
@@ -204,6 +231,15 @@ async def decline_bid(
 ):
     """Decline a bid (client only)"""
     
+    bid = await db.bid.find_unique(where={"id": bid_id})
+    if not bid:
+        raise HTTPException(status_code=404, detail="Bid not found")
+    
+    await db.bid.update(where={"id": bid_id}, data={
+        "status": "declined",
+        "declined_at": datetime.utcnow().isoformat(),
+    })
+    
     return {
         "success": True,
         "message": "Bid declined."
@@ -217,6 +253,20 @@ async def withdraw_bid(
     db = Depends(get_db)
 ):
     """Withdraw own bid (cleaner only)"""
+    
+    bid = await db.bid.find_unique(where={"id": bid_id})
+    if not bid:
+        raise HTTPException(status_code=404, detail="Bid not found")
+    
+    # Verify this is the cleaner's own bid
+    cleaner = await db.cleaner.find_first(where={"user_id": user["id"]})
+    if not cleaner or cleaner["id"] != bid.get("cleaner_id"):
+        raise HTTPException(status_code=403, detail="You can only withdraw your own bids")
+    
+    await db.bid.update(where={"id": bid_id}, data={
+        "status": "withdrawn",
+        "withdrawn_at": datetime.utcnow().isoformat(),
+    })
     
     return {
         "success": True,
@@ -237,9 +287,22 @@ async def list_my_bids(
     if user.get("role") != "cleaner":
         raise HTTPException(status_code=403, detail="Only cleaners can view their bids")
     
-    # In production, fetch from Bid table
+    cleaner = await db.cleaner.find_first(where={"user_id": user["id"]})
+    if not cleaner:
+        return {"bids": [], "total": 0, "page": page}
+    
+    where = {"cleaner_id": cleaner["id"]}
+    if status:
+        where["status"] = status
+    
+    bids = await db.bid.find_many(where=where)
+    bids.sort(key=lambda x: x.get("created_at") or "", reverse=True)
+    
+    start = (page - 1) * limit
+    end = start + limit
+    
     return {
-        "bids": [],
-        "total": 0,
+        "bids": bids[start:end],
+        "total": len(bids),
         "page": page
     }

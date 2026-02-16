@@ -238,3 +238,78 @@ async def respond_to_review(
     )
     
     return updated
+
+
+@router.post("/{review_id}/reveal")
+async def reveal_review(
+    review_id: str,
+    user=Depends(get_current_user),
+    db=Depends(get_db)
+):
+    """Reveal a review (two-sided reveal system).
+    Both parties must reveal, or reviews auto-reveal after 48 hours."""
+    
+    review = await db.review.find_unique(where={"id": review_id})
+    if not review:
+        raise HTTPException(status_code=404, detail="Review not found")
+    
+    if review.get("revealed"):
+        return {"message": "Review already revealed", "review": review}
+    
+    # Get the job to check both sides
+    job = await db.job.find_unique(where={"id": review.get("job_id")})
+    if not job:
+        raise HTTPException(status_code=404, detail="Associated job not found")
+    
+    # Check all reviews for this job
+    job_reviews = await db.review.find_many(where={"job_id": job["id"]})
+    
+    # Both sides have reviewed — reveal all
+    both_sides = len(job_reviews) >= 2
+    if both_sides:
+        for r in job_reviews:
+            await db.review.update(
+                where={"id": r["id"]},
+                data={"revealed": True}
+            )
+        return {"message": "Both reviews revealed", "count": len(job_reviews)}
+    
+    # Auto-reveal after 48 hours
+    created = review.get("created_at")
+    if created:
+        from datetime import timedelta
+        if isinstance(created, str):
+            created = datetime.fromisoformat(created)
+        if datetime.utcnow() - created > timedelta(hours=48):
+            await db.review.update(
+                where={"id": review_id},
+                data={"revealed": True}
+            )
+            return {"message": "Review auto-revealed (48h elapsed)"}
+    
+    return {"message": "Waiting for other party to review before revealing"}
+
+
+@router.get("/{review_id}/badges")
+async def check_badges_after_review(review_id: str, db=Depends(get_db)):
+    """Check and award badges after a review is created."""
+    review = await db.review.find_unique(where={"id": review_id})
+    if not review:
+        raise HTTPException(status_code=404, detail="Review not found")
+    
+    job = await db.job.find_unique(where={"id": review.get("job_id")})
+    if not job or not job.get("cleaner_id"):
+        return {"badges_awarded": []}
+    
+    cleaner = await db.cleaner.find_unique(where={"id": job["cleaner_id"]})
+    if not cleaner:
+        return {"badges_awarded": []}
+    
+    try:
+        from app.services.badge_engine import badge_engine
+        awarded = await badge_engine.evaluate_user(cleaner.get("user_id"), db)
+        return {"badges_awarded": awarded}
+    except Exception as e:
+        logger.error(f"Badge evaluation failed: {e}")
+        return {"badges_awarded": [], "error": str(e)}
+

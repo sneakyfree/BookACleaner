@@ -80,6 +80,13 @@ async def get_current_user(authorization: str = Header(None), db = Depends(get_d
     return user
 
 
+async def get_admin_user(user = Depends(get_current_user)):
+    """Require admin role"""
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return user
+
+
 # ==================== IN-APP NOTIFICATIONS ====================
 
 @router.get("/")
@@ -161,11 +168,11 @@ async def get_unread_count(
     return {"unread_count": len(notifications)}
 
 
-# ==================== SEND NOTIFICATIONS ====================
+# ==================== SEND NOTIFICATIONS (AUTH REQUIRED) ====================
 
 @router.post("/sms")
-async def send_sms(data: SendSMSRequest):
-    """Send a custom SMS message"""
+async def send_sms(data: SendSMSRequest, user = Depends(get_admin_user)):
+    """Send a custom SMS message (admin only)"""
     result = await sms_service.send_sms(data.to, data.message)
     if not result.get("success"):
         raise HTTPException(status_code=500, detail=result.get("error", "SMS failed"))
@@ -173,8 +180,8 @@ async def send_sms(data: SendSMSRequest):
 
 
 @router.post("/email")
-async def send_email(data: SendEmailRequest):
-    """Send a custom email"""
+async def send_email(data: SendEmailRequest, user = Depends(get_admin_user)):
+    """Send a custom email (admin only)"""
     result = await email_service.send_email(data.to, data.subject, data.html_content)
     if not result.get("success"):
         raise HTTPException(status_code=500, detail=result.get("error", "Email failed"))
@@ -182,7 +189,10 @@ async def send_email(data: SendEmailRequest):
 
 
 @router.post("/booking-confirmation")
-async def send_booking_confirmation(data: SendBookingNotificationRequest):
+async def send_booking_confirmation(
+    data: SendBookingNotificationRequest,
+    user = Depends(get_current_user)
+):
     """Send booking confirmation via email and SMS"""
     results = {}
     
@@ -215,7 +225,7 @@ async def send_booking_confirmation(data: SendBookingNotificationRequest):
 
 
 @router.post("/reminder")
-async def send_reminder(data: SendReminderRequest):
+async def send_reminder(data: SendReminderRequest, user = Depends(get_current_user)):
     """Send appointment reminder via email and SMS"""
     results = {}
     
@@ -238,7 +248,8 @@ async def send_reminder(data: SendReminderRequest):
 async def notify_job_started(
     client_phone: str,
     client_email: str,
-    cleaner_name: str
+    cleaner_name: str,
+    user = Depends(get_current_user)
 ):
     """Notify client that job has started"""
     results = {}
@@ -256,7 +267,8 @@ async def notify_job_completed(
     client_name: str,
     cleaner_name: str,
     service: str,
-    job_id: str
+    job_id: str,
+    user = Depends(get_current_user)
 ):
     """Notify client that job is completed and request review"""
     results = {}
@@ -283,7 +295,11 @@ async def notify_job_completed(
 
 
 @router.post("/payment-received")
-async def notify_payment_received(cleaner_phone: str, amount: float):
+async def notify_payment_received(
+    cleaner_phone: str,
+    amount: float,
+    user = Depends(get_current_user)
+):
     """Notify cleaner of payment received"""
     result = await sms_service.send_payment_received(cleaner_phone, amount)
     return result

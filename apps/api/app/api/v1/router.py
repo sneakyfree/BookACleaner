@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from app.api.v1 import auth, users, cleaners, clients, properties, jobs, reviews, messages, payments, uploads, notifications, ai, verification, admin, bids, feed, hitl, explain
+from app.api.v1 import auth, users, cleaners, clients, properties, jobs, reviews, messages, payments, uploads, notifications, ai, verification, admin, bids, feed, hitl, explain, disputes, moderation, route, sponsored
 
 api_router = APIRouter()
 
@@ -22,6 +22,11 @@ api_router.include_router(bids.router, prefix="/bids", tags=["Marketplace Biddin
 api_router.include_router(feed.router, prefix="/feed", tags=["Newsfeed"])
 api_router.include_router(hitl.router, tags=["HITL Approvals"])
 api_router.include_router(explain.router, tags=["Explainability"])
+api_router.include_router(disputes.router, prefix="/disputes", tags=["Disputes"])
+api_router.include_router(moderation.router, prefix="/moderation", tags=["Content Moderation"])
+api_router.include_router(route.router, prefix="/route", tags=["Route Optimization"])
+api_router.include_router(sponsored.router, prefix="/sponsored", tags=["Sponsored Listings"])
+
 
 
 

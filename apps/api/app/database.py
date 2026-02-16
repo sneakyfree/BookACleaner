@@ -17,7 +17,8 @@ from app.models import (
     Base, User, CleanerProfile, ClientProfile, Property, Job, 
     Review, Message, Conversation, ConversationParticipant,
     Verification, Certification, PasswordReset, EmailVerification,
-    PhoneVerification, Notification
+    PhoneVerification, Notification, Bid, Dispute, Badge,
+    UserBadge, Subscription, FlaggedContent, FeedItem
 )
 
 logger = logging.getLogger(__name__)
@@ -78,6 +79,17 @@ class Database:
             except Exception:
                 await session.rollback()
                 raise
+    
+    async def execute(self, query: str, params: dict = None):
+        """Execute raw SQL query (for complex joins / bulk ops)."""
+        from sqlalchemy import text
+        async with self.session() as session:
+            result = await session.execute(text(query), params or {})
+            try:
+                rows = result.mappings().all()
+                return [dict(r) for r in rows]
+            except Exception:
+                return []
     
     async def _seed_if_empty(self):
         """Seed demo data if the database is empty"""
@@ -343,6 +355,34 @@ class Database:
     @property
     def phone_verification(self):
         return TableAccessor(self, PhoneVerification)
+    
+    @property
+    def bid(self):
+        return TableAccessor(self, Bid)
+    
+    @property
+    def dispute(self):
+        return TableAccessor(self, Dispute)
+    
+    @property
+    def badge(self):
+        return TableAccessor(self, Badge)
+    
+    @property
+    def user_badge(self):
+        return TableAccessor(self, UserBadge)
+    
+    @property
+    def subscription(self):
+        return TableAccessor(self, Subscription)
+    
+    @property
+    def flagged_content(self):
+        return TableAccessor(self, FlaggedContent)
+    
+    @property
+    def feed_item(self):
+        return TableAccessor(self, FeedItem)
 
 
 class TableAccessor:

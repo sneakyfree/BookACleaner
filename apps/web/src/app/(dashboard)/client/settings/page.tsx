@@ -16,12 +16,14 @@ import {
     Trash2,
     Plus,
     Check,
+    ExternalLink,
 } from 'lucide-react'
 import { toast } from 'sonner'
 
 export default function ClientSettingsPage() {
     const { data: session } = useSession()
     const [isLoading, setIsLoading] = useState(false)
+    const [portalLoading, setPortalLoading] = useState(false)
     const [activeTab, setActiveTab] = useState<'profile' | 'payment' | 'notifications' | 'security'>('profile')
 
     const [profile, setProfile] = useState({
@@ -50,6 +52,35 @@ export default function ClientSettingsPage() {
         await new Promise((r) => setTimeout(r, 1000))
         toast.success('Profile updated successfully!')
         setIsLoading(false)
+    }
+
+    async function handleManageBilling() {
+        setPortalLoading(true)
+        try {
+            const token = localStorage.getItem('token')
+            const res = await fetch('/api/v1/payments/customer-portal', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${token}`,
+                },
+                body: JSON.stringify({
+                    return_url: window.location.href,
+                }),
+            })
+            if (res.ok) {
+                const data = await res.json()
+                if (data.url) {
+                    window.location.href = data.url
+                }
+            } else {
+                toast.error('Unable to open billing portal')
+            }
+        } catch {
+            toast.error('Failed to connect to billing service')
+        } finally {
+            setPortalLoading(false)
+        }
     }
 
     const tabs = [
@@ -194,6 +225,35 @@ export default function ClientSettingsPage() {
                             </div>
                         </CardContent>
                     </Card>
+
+                    {/* Manage Billing via Stripe Customer Portal */}
+                    <Card>
+                        <CardHeader>
+                            <CardTitle className="text-lg">Subscription & Billing</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    <p className="font-medium">Manage Billing</p>
+                                    <p className="text-sm text-muted-foreground">
+                                        View invoices, update payment method, or cancel subscription
+                                    </p>
+                                </div>
+                                <Button
+                                    onClick={handleManageBilling}
+                                    disabled={portalLoading}
+                                    className="bg-brand-500 hover:bg-brand-600"
+                                >
+                                    {portalLoading ? (
+                                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                    ) : (
+                                        <ExternalLink className="w-4 h-4 mr-2" />
+                                    )}
+                                    Manage Billing
+                                </Button>
+                            </div>
+                        </CardContent>
+                    </Card>
                 </div>
             )}
 
@@ -224,14 +284,14 @@ export default function ClientSettingsPage() {
                                             })
                                         }
                                         className={`w-12 h-6 rounded-full transition-colors ${notifications[item.key as keyof typeof notifications]
-                                                ? 'bg-brand-500'
-                                                : 'bg-slate-200 dark:bg-slate-700'
+                                            ? 'bg-brand-500'
+                                            : 'bg-slate-200 dark:bg-slate-700'
                                             }`}
                                     >
                                         <div
                                             className={`w-5 h-5 rounded-full bg-white shadow transition-transform ${notifications[item.key as keyof typeof notifications]
-                                                    ? 'translate-x-6'
-                                                    : 'translate-x-0.5'
+                                                ? 'translate-x-6'
+                                                : 'translate-x-0.5'
                                                 }`}
                                         />
                                     </button>

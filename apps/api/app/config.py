@@ -1,4 +1,5 @@
 from pydantic_settings import BaseSettings
+from pydantic import model_validator
 from functools import lru_cache
 from typing import Optional
 import os
@@ -16,6 +17,21 @@ class Settings(BaseSettings):
     debug: bool = DEV_MODE
     api_v1_prefix: str = "/api/v1"
     dev_mode: bool = DEV_MODE
+
+    @model_validator(mode="after")
+    def validate_production_secrets(self):
+        """Fail-fast: prevent startup with dev secrets in production"""
+        if not self.dev_mode:
+            if self.jwt_secret == "dev-secret-key-change-in-production-abc123xyz789":
+                raise ValueError(
+                    "FATAL: JWT_SECRET must be set to a secure value in production. "
+                    "Do not use the default dev secret."
+                )
+            if self.nextauth_secret == "dev-nextauth-secret-change-in-production":
+                raise ValueError(
+                    "FATAL: NEXTAUTH_SECRET must be set in production."
+                )
+        return self
 
     # Database - default for dev mode
     database_url: str = "postgresql://localhost:5432/bookacleaner" if not DEV_MODE else "mock://dev"

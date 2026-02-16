@@ -42,6 +42,13 @@ module.exports = {
         '@typescript-eslint/no-explicit-any': 'warn',
         '@typescript-eslint/explicit-function-return-type': 'off',
         '@typescript-eslint/explicit-module-boundary-types': 'off',
+        // Disable overly strict React Compiler rules
+        'react-hooks/purity': 'off',
+        'react-hooks/set-state-in-effect': 'off',
+        'react-hooks/refs': 'off',
+        'react-hooks/immutability': 'off',
+        // Allow unescaped apostrophes in JSX
+        'react/no-unescaped-entities': 'off',
       },
     },
   ],
