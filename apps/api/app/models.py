@@ -567,3 +567,43 @@ class FeedItem(Base):
     views = Column(Integer, default=0)
     created_at = Column(DateTime, default=datetime.utcnow)
 
+
+class ApprovalQueueItem(Base):
+    """Persistent storage for HITL approval requests"""
+    __tablename__ = "approval_queue_items"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    type = Column(String(50), nullable=False)  # verification, payout, dispute, account_deletion, high_value_job, background_check
+    entity_id = Column(String(36), nullable=False)
+    entity_type = Column(String(50), nullable=False)
+    requested_by = Column(String(36), nullable=True)
+    reason = Column(Text, nullable=False)
+    priority = Column(String(20), default="medium")  # low, medium, high, urgent
+    context = Column(JSON, default=dict)
+    status = Column(String(20), default="pending")  # pending, approved, rejected, expired
+    expires_at = Column(DateTime, nullable=True)
+    reviewed_by = Column(String(36), nullable=True)
+    reviewed_at = Column(DateTime, nullable=True)
+    review_notes = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class SponsoredListing(Base):
+    """Persistent storage for sponsored cleaner placements"""
+    __tablename__ = "sponsored_listings"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    cleaner_id = Column(String(36), ForeignKey("cleaner_profiles.id"), nullable=False)
+    status = Column(String(20), default="active")  # active, expired, cancelled
+    priority = Column(Integer, default=1)  # 1=standard, 2=premium, 3=featured
+    duration_days = Column(Integer, default=30)
+    starts_at = Column(DateTime, default=datetime.utcnow)
+    expires_at = Column(DateTime, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Relationships
+    cleaner = relationship("CleanerProfile")
+
+

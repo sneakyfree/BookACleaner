@@ -1,6 +1,7 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { useSession } from 'next-auth/react'
 import Link from 'next/link'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -16,6 +17,7 @@ import {
     Play,
     MoreVertical,
     Filter,
+    Loader2,
 } from 'lucide-react'
 
 type JobStatus = 'pending' | 'confirmed' | 'in_progress' | 'completed' | 'cancelled'
@@ -48,56 +50,101 @@ const statusConfig = {
     },
 }
 
-export default function CleanerJobsPage() {
-    const [filter, setFilter] = useState<'all' | 'pending' | 'upcoming' | 'past'>('all')
+interface ApiJob {
+    id: string
+    title: string
+    description?: string
+    services: string[]
+    scheduled_date: string
+    scheduled_time: string
+    total_price: number
+    status: string
+    client_id?: string
+    property_id?: string
+    cleaner_id?: string
+}
 
-    // Mock jobs
-    const jobs = [
-        {
-            id: '1',
-            client: { name: 'John D.', rating: 4.8 },
-            property: { name: 'Lake House', address: '123 Lake Street, Austin, TX', sqFt: 2200 },
-            services: ['Deep Clean'],
-            date: 'Today',
-            time: '2:00 PM',
-            price: 180,
-            status: 'confirmed' as JobStatus,
-            isUrgent: false,
-        },
-        {
-            id: '2',
-            client: { name: 'Sarah M.', rating: 5.0 },
-            property: { name: 'Downtown Condo', address: '456 Main Ave, Austin, TX', sqFt: 1100 },
-            services: ['Airbnb Turnover'],
-            date: 'Tomorrow',
-            time: '11:00 AM',
-            price: 120,
-            status: 'pending' as JobStatus,
-            isUrgent: true,
-        },
-        {
-            id: '3',
-            client: { name: 'Mike R.', rating: 4.9 },
-            property: { name: 'Beach Cottage', address: '789 Ocean Dr, Galveston, TX', sqFt: 1600 },
-            services: ['Standard Clean'],
-            date: 'Jan 26, 2026',
-            time: '9:00 AM',
-            price: 100,
-            status: 'confirmed' as JobStatus,
-            isUrgent: false,
-        },
-        {
-            id: '4',
-            client: { name: 'Emily K.', rating: 4.7 },
-            property: { name: 'Modern Apartment', address: '321 Tech Blvd, Austin, TX', sqFt: 900 },
-            services: ['Move Out Clean'],
-            date: 'Jan 20, 2026',
-            time: '10:00 AM',
-            price: 200,
-            status: 'completed' as JobStatus,
-            isUrgent: false,
-        },
-    ]
+interface DisplayJob {
+    id: string
+    client: { name: string; rating: number }
+    property: { name: string; address: string; sqFt: number }
+    services: string[]
+    date: string
+    time: string
+    price: number
+    status: JobStatus
+    isUrgent: boolean
+}
+
+export default function CleanerJobsPage() {
+    const { data: session } = useSession()
+    const [filter, setFilter] = useState<'all' | 'pending' | 'upcoming' | 'past'>('all')
+    const [jobs, setJobs] = useState<DisplayJob[]>([])
+    const [loading, setLoading] = useState(true)
+    const [error, setError] = useState<string | null>(null)
+
+    const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+
+    useEffect(() => {
+        const token = (session as any)?.accessToken
+        if (!token) {
+            setLoading(false)
+            return
+        }
+
+        async function fetchJobs() {
+            try {
+                setError(null)
+                const res = await fetch(`${API_URL}/api/v1/jobs/`, {
+                    headers: {
+                        Authorization: `Bearer ${(session as any)?.accessToken}`,
+                    },
+                })
+
+                if (!res.ok) {
+                    throw new Error(`Failed to load jobs (${res.status})`)
+                }
+
+                const data: ApiJob[] = await res.json()
+
+                const mapped: DisplayJob[] = data.map((job) => {
+                    const scheduledDate = job.scheduled_date
+                        ? new Date(job.scheduled_date).toLocaleDateString('en-US', {
+                            month: 'short',
+                            day: 'numeric',
+                            year: 'numeric',
+                        })
+                        : 'TBD'
+
+                    const normalizedStatus = (job.status?.toLowerCase().replace(/ /g, '_') || 'pending') as JobStatus
+
+                    return {
+                        id: job.id,
+                        client: { name: 'Client', rating: 0 },
+                        property: {
+                            name: job.title || 'Cleaning Job',
+                            address: job.description || 'Address on file',
+                            sqFt: 0,
+                        },
+                        services: job.services || [],
+                        date: scheduledDate,
+                        time: job.scheduled_time || 'TBD',
+                        price: job.total_price || 0,
+                        status: normalizedStatus,
+                        isUrgent: normalizedStatus === 'pending',
+                    }
+                })
+
+                setJobs(mapped)
+            } catch (err) {
+                console.error('Failed to fetch jobs:', err)
+                setError(err instanceof Error ? err.message : 'Failed to load jobs')
+            } finally {
+                setLoading(false)
+            }
+        }
+        fetchJobs()
+    }, [API_URL, session])
 
     const filteredJobs = jobs.filter((job) => {
         if (filter === 'all') return true
@@ -108,6 +155,33 @@ export default function CleanerJobsPage() {
     })
 
     const pendingCount = jobs.filter((j) => j.status === 'pending').length
+
+    if (loading) {
+        return (
+            <div className="flex items-center justify-center py-20">
+                <Loader2 className="w-8 h-8 animate-spin text-brand-500" />
+                <span className="ml-3 text-muted-foreground">Loading jobs...</span>
+            </div>
+        )
+    }
+
+    if (error) {
+        return (
+            <div className="space-y-6">
+                <div>
+                    <h1 className="text-2xl font-bold">Jobs</h1>
+                    <p className="text-muted-foreground mt-1">Manage your cleaning jobs and requests</p>
+                </div>
+                <Card className="border-red-200 dark:border-red-800">
+                    <CardContent className="py-8 text-center">
+                        <AlertCircle className="w-10 h-10 mx-auto text-red-500 mb-3" />
+                        <p className="text-red-600 dark:text-red-400 font-medium">{error}</p>
+                        <p className="text-sm text-muted-foreground mt-1">Please try refreshing the page</p>
+                    </CardContent>
+                </Card>
+            </div>
+        )
+    }
 
     return (
         <div className="space-y-6">
@@ -176,7 +250,7 @@ export default function CleanerJobsPage() {
             {/* Jobs List */}
             <div className="space-y-4">
                 {filteredJobs.map((job) => {
-                    const status = statusConfig[job.status]
+                    const status = statusConfig[job.status] || statusConfig.pending
                     const StatusIcon = status.icon
 
                     return (
@@ -190,8 +264,8 @@ export default function CleanerJobsPage() {
                                     <div className="flex gap-4">
                                         <div
                                             className={`w-14 h-14 rounded-xl flex items-center justify-center flex-shrink-0 ${job.status === 'pending'
-                                                    ? 'bg-amber-100 dark:bg-amber-500/20'
-                                                    : 'bg-brand-100 dark:bg-brand-500/20'
+                                                ? 'bg-amber-100 dark:bg-amber-500/20'
+                                                : 'bg-brand-100 dark:bg-brand-500/20'
                                                 }`}
                                         >
                                             <Calendar
@@ -201,7 +275,7 @@ export default function CleanerJobsPage() {
                                         </div>
                                         <div>
                                             <div className="flex items-center gap-2 flex-wrap">
-                                                <h3 className="font-semibold">{job.services.join(', ')}</h3>
+                                                <h3 className="font-semibold">{job.services.join(', ') || job.property.name}</h3>
                                                 <span
                                                     className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${status.color}`}
                                                 >
@@ -215,18 +289,25 @@ export default function CleanerJobsPage() {
                                                 )}
                                             </div>
                                             <p className="text-muted-foreground text-sm mt-1">
-                                                {job.client.name} •{' '}
-                                                <span className="text-amber-500">
-                                                    <Star className="w-3 h-3 inline fill-current" /> {job.client.rating}
-                                                </span>
+                                                {job.client.name}
+                                                {job.client.rating > 0 && (
+                                                    <>
+                                                        {' • '}
+                                                        <span className="text-amber-500">
+                                                            <Star className="w-3 h-3 inline fill-current" /> {job.client.rating}
+                                                        </span>
+                                                    </>
+                                                )}
                                             </p>
                                             <p className="text-sm flex items-center gap-1 mt-2">
                                                 <MapPin className="w-3 h-3" />
                                                 {job.property.address}
                                             </p>
-                                            <p className="text-xs text-muted-foreground mt-1">
-                                                {job.property.sqFt.toLocaleString()} sq ft
-                                            </p>
+                                            {job.property.sqFt > 0 && (
+                                                <p className="text-xs text-muted-foreground mt-1">
+                                                    {job.property.sqFt.toLocaleString()} sq ft
+                                                </p>
+                                            )}
                                         </div>
                                     </div>
 

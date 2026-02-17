@@ -1,6 +1,7 @@
 """
 Human-in-the-Loop (HITL) Approval System
 Manages approval queues for high-risk actions and verification decisions
+Persists all data to the database via ApprovalQueueItem model.
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
@@ -33,9 +34,9 @@ class ApprovalType(str, Enum):
     BACKGROUND_CHECK = "background_check"
 
 
-class ApprovalRequest(BaseModel):
-    """Request for human approval"""
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+class ApprovalRequestSchema(BaseModel):
+    """Schema for creating/returning approval requests"""
+    id: Optional[str] = Field(default_factory=lambda: str(uuid.uuid4()))
     type: ApprovalType
     entity_id: str
     entity_type: str
@@ -44,7 +45,7 @@ class ApprovalRequest(BaseModel):
     priority: Literal["low", "medium", "high", "urgent"] = "medium"
     context: dict = Field(default_factory=dict)
     status: ApprovalStatus = ApprovalStatus.PENDING
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: Optional[datetime] = None
     expires_at: Optional[datetime] = None
     reviewed_by: Optional[str] = None
     reviewed_at: Optional[datetime] = None
@@ -59,14 +60,10 @@ class ApprovalDecision(BaseModel):
 
 class ApprovalQueueResponse(BaseModel):
     """Response for approval queue listing"""
-    items: List[ApprovalRequest]
+    items: List[ApprovalRequestSchema]
     total: int
     pending_count: int
     urgent_count: int
-
-
-# In-memory storage for demo (replace with DB in production)
-_approval_queue: dict[str, ApprovalRequest] = {}
 
 
 @router.get("/queue", response_model=ApprovalQueueResponse)
@@ -76,40 +73,47 @@ async def get_approval_queue(
     priority_filter: Optional[str] = Query(None, alias="priority"),
     limit: int = Query(50, le=100),
     offset: int = Query(0, ge=0),
+    db=Depends(get_db),
 ):
     """Get pending approval queue for admin review"""
-    items = list(_approval_queue.values())
+    # Fetch all items from DB
+    items = await db.approval_queue.find_many()
     
     # Apply filters
     if status_filter:
-        items = [i for i in items if i.status == status_filter]
+        items = [i for i in items if i.get("status") == status_filter.value]
     if type_filter:
-        items = [i for i in items if i.type == type_filter]
+        items = [i for i in items if i.get("type") == type_filter.value]
     if priority_filter:
-        items = [i for i in items if i.priority == priority_filter]
+        items = [i for i in items if i.get("priority") == priority_filter]
     
     # Sort by priority and creation date
     priority_order = {"urgent": 0, "high": 1, "medium": 2, "low": 3}
-    items.sort(key=lambda x: (priority_order.get(x.priority, 2), x.created_at))
+    items.sort(key=lambda x: (priority_order.get(x.get("priority", "medium"), 2), x.get("created_at", "")))
     
     total = len(items)
-    pending_count = len([i for i in items if i.status == ApprovalStatus.PENDING])
-    urgent_count = len([i for i in items if i.priority == "urgent" and i.status == ApprovalStatus.PENDING])
+    pending_items = [i for i in items if i.get("status") == ApprovalStatus.PENDING.value]
+    pending_count = len(pending_items)
+    urgent_count = len([i for i in pending_items if i.get("priority") == "urgent"])
+    
+    # Apply pagination
+    paginated = items[offset:offset + limit]
     
     return ApprovalQueueResponse(
-        items=items[offset:offset + limit],
+        items=[ApprovalRequestSchema(**i) for i in paginated],
         total=total,
         pending_count=pending_count,
         urgent_count=urgent_count,
     )
 
 
-@router.get("/queue/{approval_id}", response_model=ApprovalRequest)
-async def get_approval_request(approval_id: str):
+@router.get("/queue/{approval_id}")
+async def get_approval_request(approval_id: str, db=Depends(get_db)):
     """Get a specific approval request"""
-    if approval_id not in _approval_queue:
+    item = await db.approval_queue.find_unique(where={"id": approval_id})
+    if not item:
         raise HTTPException(status_code=404, detail="Approval request not found")
-    return _approval_queue[approval_id]
+    return item
 
 
 @router.post("/queue/{approval_id}/decide")
@@ -117,27 +121,33 @@ async def decide_approval(
     approval_id: str,
     decision: ApprovalDecision,
     admin_id: str = Query(..., description="ID of the admin making the decision"),
+    db=Depends(get_db),
 ):
     """Approve or reject an approval request"""
-    if approval_id not in _approval_queue:
+    item = await db.approval_queue.find_unique(where={"id": approval_id})
+    if not item:
         raise HTTPException(status_code=404, detail="Approval request not found")
     
-    request = _approval_queue[approval_id]
-    
-    if request.status != ApprovalStatus.PENDING:
+    if item.get("status") != ApprovalStatus.PENDING.value:
         raise HTTPException(
             status_code=400,
-            detail=f"Request already {request.status.value}"
+            detail=f"Request already {item.get('status')}"
         )
     
-    # Update the request
-    request.status = ApprovalStatus.APPROVED if decision.approved else ApprovalStatus.REJECTED
-    request.reviewed_by = admin_id
-    request.reviewed_at = datetime.utcnow()
-    request.review_notes = decision.notes
+    # Update the request in DB
+    new_status = ApprovalStatus.APPROVED.value if decision.approved else ApprovalStatus.REJECTED.value
+    await db.approval_queue.update(
+        where={"id": approval_id},
+        data={
+            "status": new_status,
+            "reviewed_by": admin_id,
+            "reviewed_at": datetime.utcnow(),
+            "review_notes": decision.notes,
+        }
+    )
     
     logger.info(
-        f"HITL Decision: {request.type.value} #{approval_id} "
+        f"HITL Decision: {item.get('type')} #{approval_id} "
         f"{'APPROVED' if decision.approved else 'REJECTED'} by {admin_id}"
     )
     
@@ -150,37 +160,54 @@ async def decide_approval(
     }
 
 
-@router.post("/request", response_model=ApprovalRequest)
-async def create_approval_request(request: ApprovalRequest):
+@router.post("/request")
+async def create_approval_request(request: ApprovalRequestSchema, db=Depends(get_db)):
     """Create a new approval request (internal use)"""
-    _approval_queue[request.id] = request
+    item = await db.approval_queue.create(data={
+        "id": request.id or str(uuid.uuid4()),
+        "type": request.type.value,
+        "entity_id": request.entity_id,
+        "entity_type": request.entity_type,
+        "requested_by": request.requested_by,
+        "reason": request.reason,
+        "priority": request.priority,
+        "context": request.context,
+        "status": request.status.value,
+        "expires_at": request.expires_at,
+    })
     
     logger.info(
-        f"HITL Request Created: {request.type.value} #{request.id} "
+        f"HITL Request Created: {request.type.value} #{item.get('id')} "
         f"priority={request.priority}"
     )
     
-    return request
+    return item
 
 
 @router.get("/stats")
-async def get_approval_stats():
+async def get_approval_stats(db=Depends(get_db)):
     """Get statistics about the approval queue"""
-    items = list(_approval_queue.values())
+    items = await db.approval_queue.find_many()
     
-    pending = [i for i in items if i.status == ApprovalStatus.PENDING]
-    approved = [i for i in items if i.status == ApprovalStatus.APPROVED]
-    rejected = [i for i in items if i.status == ApprovalStatus.REJECTED]
+    pending = [i for i in items if i.get("status") == ApprovalStatus.PENDING.value]
+    approved = [i for i in items if i.get("status") == ApprovalStatus.APPROVED.value]
+    rejected = [i for i in items if i.get("status") == ApprovalStatus.REJECTED.value]
     
     # Average response time for completed items
     completed = approved + rejected
     avg_response_time = None
     if completed:
-        response_times = [
-            (i.reviewed_at - i.created_at).total_seconds()
-            for i in completed
-            if i.reviewed_at
-        ]
+        response_times = []
+        for i in completed:
+            reviewed_at = i.get("reviewed_at")
+            created_at = i.get("created_at")
+            if reviewed_at and created_at:
+                try:
+                    r = datetime.fromisoformat(str(reviewed_at)) if isinstance(reviewed_at, str) else reviewed_at
+                    c = datetime.fromisoformat(str(created_at)) if isinstance(created_at, str) else created_at
+                    response_times.append((r - c).total_seconds())
+                except (ValueError, TypeError):
+                    pass
         if response_times:
             avg_response_time = sum(response_times) / len(response_times)
     
@@ -190,14 +217,14 @@ async def get_approval_stats():
         "approved": len(approved),
         "rejected": len(rejected),
         "by_type": {
-            t.value: len([i for i in items if i.type == t])
+            t.value: len([i for i in items if i.get("type") == t.value])
             for t in ApprovalType
         },
         "by_priority": {
-            "urgent": len([i for i in pending if i.priority == "urgent"]),
-            "high": len([i for i in pending if i.priority == "high"]),
-            "medium": len([i for i in pending if i.priority == "medium"]),
-            "low": len([i for i in pending if i.priority == "low"]),
+            "urgent": len([i for i in pending if i.get("priority") == "urgent"]),
+            "high": len([i for i in pending if i.get("priority") == "high"]),
+            "medium": len([i for i in pending if i.get("priority") == "medium"]),
+            "low": len([i for i in pending if i.get("priority") == "low"]),
         },
         "avg_response_time_seconds": avg_response_time,
     }
@@ -212,19 +239,20 @@ async def request_approval(
     priority: str = "medium",
     context: dict = None,
     requested_by: str = None,
-) -> ApprovalRequest:
+) -> dict:
     """Helper function to request human approval from other modules"""
-    request = ApprovalRequest(
-        type=type,
-        entity_id=entity_id,
-        entity_type=entity_type,
-        reason=reason,
-        priority=priority,
-        context=context or {},
-        requested_by=requested_by,
-    )
-    _approval_queue[request.id] = request
+    from app.database import db as database
+    
+    item = await database.approval_queue.create(data={
+        "type": type.value,
+        "entity_id": entity_id,
+        "entity_type": entity_type,
+        "reason": reason,
+        "priority": priority,
+        "context": context or {},
+        "requested_by": requested_by,
+    })
     
     logger.info(f"Approval requested: {type.value} for {entity_type}:{entity_id}")
     
-    return request
+    return item

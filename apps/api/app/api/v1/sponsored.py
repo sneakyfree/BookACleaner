@@ -1,6 +1,7 @@
 """
 Sponsored Listings API — G1
 Cleaners can boost their visibility via paid sponsored placements.
+Persists all data to the database via SponsoredListing model.
 """
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
@@ -43,38 +44,60 @@ async def create_sponsored_listing(data: CreateSponsoredRequest, db=Depends(get_
     expires = now + timedelta(days=data.duration_days)
 
     # In production, would create Stripe checkout then activate on payment
-    # For now, activate directly
-    listing = {
-        "id": f"spl-{now.strftime('%Y%m%d%H%M%S')}",
+    # For now, activate directly and persist to DB
+    listing = await db.sponsored_listing.create(data={
         "cleaner_id": data.cleaner_id,
         "status": "active",
         "priority": data.priority,
-        "starts_at": now.isoformat(),
-        "expires_at": expires.isoformat(),
-    }
+        "duration_days": data.duration_days,
+        "starts_at": now,
+        "expires_at": expires,
+    })
 
     logger.info(f"Sponsored listing created for cleaner {data.cleaner_id}")
-    return SponsoredListingResponse(**listing)
+    
+    return SponsoredListingResponse(
+        id=listing["id"],
+        cleaner_id=listing["cleaner_id"],
+        status=listing["status"],
+        priority=listing["priority"],
+        starts_at=str(listing["starts_at"]),
+        expires_at=str(listing["expires_at"]),
+    )
 
 
 @router.get("/active")
 async def get_active_sponsored(db=Depends(get_db)):
     """Return currently active sponsored cleaner listings."""
-    # In production, query SponsoredListing table WHERE status='active' AND expires_at > NOW()
-    # For now, return demo data
+    # Query all sponsored listings from DB
+    all_listings = await db.sponsored_listing.find_many(where={"status": "active"})
+    
+    # Filter to only non-expired listings
+    now = datetime.utcnow()
+    active = []
+    for listing in all_listings:
+        expires_at = listing.get("expires_at")
+        if expires_at:
+            try:
+                exp = datetime.fromisoformat(str(expires_at)) if isinstance(expires_at, str) else expires_at
+                if exp > now:
+                    active.append(listing)
+            except (ValueError, TypeError):
+                pass
+    
+    # Sort by priority descending (featured first)
+    active.sort(key=lambda x: x.get("priority", 1), reverse=True)
+    
     return {
         "sponsored": [
             {
-                "cleaner_id": "demo-cleaner-1",
-                "business_name": "Sparkle Clean Pro",
-                "priority": 3,
-                "expires_at": (datetime.utcnow() + timedelta(days=15)).isoformat(),
-            },
-            {
-                "cleaner_id": "demo-cleaner-2",
-                "business_name": "EcoFresh Cleaning",
-                "priority": 2,
-                "expires_at": (datetime.utcnow() + timedelta(days=22)).isoformat(),
-            },
+                "id": l["id"],
+                "cleaner_id": l["cleaner_id"],
+                "priority": l["priority"],
+                "status": l["status"],
+                "starts_at": str(l.get("starts_at", "")),
+                "expires_at": str(l.get("expires_at", "")),
+            }
+            for l in active
         ]
     }

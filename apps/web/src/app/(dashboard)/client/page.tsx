@@ -46,11 +46,20 @@ export default function ClientDashboard() {
     const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
     useEffect(() => {
+        const token = (session as any)?.accessToken
+        if (!token) {
+            setLoading(false)
+            return
+        }
+
         async function fetchData() {
             try {
+                const headers = {
+                    Authorization: `Bearer ${(session as any)?.accessToken}`,
+                }
                 const [jobsRes, propsRes] = await Promise.all([
-                    fetch(`${API_URL}/api/v1/jobs/`),
-                    fetch(`${API_URL}/api/v1/properties/`),
+                    fetch(`${API_URL}/api/v1/jobs/`, { headers }),
+                    fetch(`${API_URL}/api/v1/properties/`, { headers }),
                 ])
 
                 if (jobsRes.ok) {
@@ -69,7 +78,7 @@ export default function ClientDashboard() {
             }
         }
         fetchData()
-    }, [API_URL])
+    }, [API_URL, session])
 
     // Calculate stats from real data
     const pendingJobs = jobs.filter(j => j.status === 'PENDING' || j.status === 'ACCEPTED')

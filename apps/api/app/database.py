@@ -18,7 +18,8 @@ from app.models import (
     Review, Message, Conversation, ConversationParticipant,
     Verification, Certification, PasswordReset, EmailVerification,
     PhoneVerification, Notification, Bid, Dispute, Badge,
-    UserBadge, Subscription, FlaggedContent, FeedItem
+    UserBadge, Subscription, FlaggedContent, FeedItem,
+    ApprovalQueueItem, SponsoredListing
 )
 
 logger = logging.getLogger(__name__)
@@ -383,6 +384,14 @@ class Database:
     @property
     def feed_item(self):
         return TableAccessor(self, FeedItem)
+    
+    @property
+    def approval_queue(self):
+        return TableAccessor(self, ApprovalQueueItem)
+    
+    @property
+    def sponsored_listing(self):
+        return TableAccessor(self, SponsoredListing)
 
 
 class TableAccessor:
