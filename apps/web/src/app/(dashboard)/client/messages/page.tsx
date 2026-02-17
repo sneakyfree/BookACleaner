@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
+import { useSession } from 'next-auth/react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -13,88 +14,253 @@ import {
     Paperclip,
     Image as ImageIcon,
     Star,
+    Loader2,
+    AlertCircle,
 } from 'lucide-react'
 
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+
+interface ApiConversation {
+    id: string
+    job_id?: string
+    last_message?: {
+        content: string
+        sent_at: string
+        sender_id: string
+    } | null
+    unread_count: number
+    updated_at?: string
+}
+
+interface ApiMessage {
+    id: string
+    content: string
+    created_at?: string
+    read_at?: string
+    sender?: {
+        id: string
+        name?: string
+        avatar?: string
+    }
+    is_mine: boolean
+}
+
+interface ApiConversationDetail {
+    id: string
+    job_id?: string
+    messages: ApiMessage[]
+}
+
+interface DisplayConversation {
+    id: string
+    participantName: string
+    participantInitial: string
+    lastMessage: string
+    lastMessageTime: string
+    unread: number
+    jobTitle: string
+}
+
+interface DisplayMessage {
+    id: string
+    senderId: string
+    content: string
+    timestamp: string
+    read: boolean
+}
+
 export default function ClientMessagesPage() {
-    const [selectedConversation, setSelectedConversation] = useState<string | null>('1')
+    const { data: session } = useSession()
+    const [conversations, setConversations] = useState<DisplayConversation[]>([])
+    const [messages, setMessages] = useState<DisplayMessage[]>([])
+    const [selectedConversation, setSelectedConversation] = useState<string | null>(null)
     const [message, setMessage] = useState('')
+    const [loading, setLoading] = useState(true)
+    const [messagesLoading, setMessagesLoading] = useState(false)
+    const [sending, setSending] = useState(false)
+    const [error, setError] = useState<string | null>(null)
     const messagesEndRef = useRef<HTMLDivElement>(null)
+    const currentUserId = useRef<string>('')
 
-    // Mock conversations (client view - talking to cleaners)
-    const conversations = [
-        {
-            id: '1',
-            participant: { name: "Maria's Cleaning", role: 'Cleaner', avatar: null, rating: 4.9 },
-            lastMessage: 'Perfect! I\'ve received the booking.',
-            lastMessageTime: '10 min ago',
-            unread: 0,
-            jobTitle: 'Deep Clean - Lake House',
-        },
-        {
-            id: '2',
-            participant: { name: 'Sparkle Pro', role: 'Cleaner', avatar: null, rating: 4.8 },
-            lastMessage: 'Yes, I can do 9am instead.',
-            lastMessageTime: '2 hours ago',
-            unread: 1,
-            jobTitle: 'Airbnb Turnover',
-        },
-    ]
+    const getHeaders = useCallback(() => ({
+        Authorization: `Bearer ${(session as any)?.accessToken}`,
+        'Content-Type': 'application/json',
+    }), [session])
 
-    const messages = [
-        {
-            id: '1',
-            senderId: 'me',
-            content: 'Hi! I saw your profile and I\'d like to book a deep clean for my lake house.',
-            timestamp: '10:30 AM',
-            read: true,
-        },
-        {
-            id: '2',
-            senderId: 'other',
-            content: 'Hello! I\'d be happy to help. When were you thinking?',
-            timestamp: '10:32 AM',
-            read: true,
-        },
-        {
-            id: '3',
-            senderId: 'me',
-            content: 'Tomorrow at 10am would be ideal. The house is about 2200 sq ft.',
-            timestamp: '10:35 AM',
-            read: true,
-        },
-        {
-            id: '4',
-            senderId: 'other',
-            content: 'That works for me! For a deep clean on a 2200 sq ft home, my rate is $180. Does that work for you?',
-            timestamp: '10:38 AM',
-            read: true,
-        },
-        {
-            id: '5',
-            senderId: 'me',
-            content: 'Yes, that sounds great! I\'ll book it now.',
-            timestamp: '10:40 AM',
-            read: true,
-        },
-        {
-            id: '6',
-            senderId: 'other',
-            content: 'Perfect! I\'ve received the booking.',
-            timestamp: '10:42 AM',
-            read: true,
-        },
-    ]
+    // Fetch conversations
+    useEffect(() => {
+        const token = (session as any)?.accessToken
+        if (!token) {
+            setLoading(false)
+            return
+        }
 
+        async function fetchConversations() {
+            try {
+                setError(null)
+                const res = await fetch(`${API_URL}/api/v1/messages/conversations`, {
+                    headers: { Authorization: `Bearer ${(session as any)?.accessToken}` },
+                })
+
+                if (!res.ok) throw new Error(`Failed to load conversations (${res.status})`)
+
+                const data: ApiConversation[] = await res.json()
+
+                const mapped: DisplayConversation[] = data.map((conv) => {
+                    const timeAgo = (dateStr?: string) => {
+                        if (!dateStr) return ''
+                        const diff = Date.now() - new Date(dateStr).getTime()
+                        const mins = Math.floor(diff / 60000)
+                        if (mins < 1) return 'Just now'
+                        if (mins < 60) return `${mins} min ago`
+                        const hours = Math.floor(mins / 60)
+                        if (hours < 24) return `${hours}h ago`
+                        const days = Math.floor(hours / 24)
+                        return `${days}d ago`
+                    }
+
+                    return {
+                        id: conv.id,
+                        participantName: `Conversation`,
+                        participantInitial: 'C',
+                        lastMessage: conv.last_message?.content || 'No messages yet',
+                        lastMessageTime: timeAgo(conv.last_message?.sent_at || conv.updated_at),
+                        unread: conv.unread_count || 0,
+                        jobTitle: conv.job_id ? `Job #${conv.job_id.slice(0, 8)}` : '',
+                    }
+                })
+
+                setConversations(mapped)
+                if (mapped.length > 0 && !selectedConversation) {
+                    setSelectedConversation(mapped[0].id)
+                }
+            } catch (err) {
+                console.error('Failed to fetch conversations:', err)
+                setError(err instanceof Error ? err.message : 'Failed to load conversations')
+            } finally {
+                setLoading(false)
+            }
+        }
+
+        fetchConversations()
+    }, [session])
+
+    // Fetch messages when conversation selected
+    useEffect(() => {
+        if (!selectedConversation || !(session as any)?.accessToken) return
+
+        async function fetchMessages() {
+            setMessagesLoading(true)
+            try {
+                const res = await fetch(
+                    `${API_URL}/api/v1/messages/conversations/${selectedConversation}`,
+                    { headers: { Authorization: `Bearer ${(session as any)?.accessToken}` } }
+                )
+
+                if (!res.ok) throw new Error(`Failed to load messages (${res.status})`)
+
+                const data: ApiConversationDetail = await res.json()
+
+                const mapped: DisplayMessage[] = (data.messages || []).map((msg) => ({
+                    id: msg.id,
+                    senderId: msg.is_mine ? 'me' : 'other',
+                    content: msg.content,
+                    timestamp: msg.created_at
+                        ? new Date(msg.created_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+                        : '',
+                    read: !!msg.read_at,
+                }))
+
+                setMessages(mapped)
+
+                // Mark as read
+                await fetch(
+                    `${API_URL}/api/v1/messages/conversations/${selectedConversation}/read`,
+                    { method: 'POST', headers: { Authorization: `Bearer ${(session as any)?.accessToken}` } }
+                ).catch(() => { })
+
+            } catch (err) {
+                console.error('Failed to fetch messages:', err)
+            } finally {
+                setMessagesLoading(false)
+            }
+        }
+
+        fetchMessages()
+    }, [selectedConversation, session])
+
+    // Auto-scroll to bottom
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
     }, [messages])
 
     const selectedConvo = conversations.find((c) => c.id === selectedConversation)
 
-    function handleSend() {
-        if (!message.trim()) return
-        console.log('Sending:', message)
+    async function handleSend() {
+        if (!message.trim() || !selectedConversation || sending) return
+
+        const content = message.trim()
         setMessage('')
+        setSending(true)
+
+        // Optimistic update
+        const tempMsg: DisplayMessage = {
+            id: `temp-${Date.now()}`,
+            senderId: 'me',
+            content,
+            timestamp: new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
+            read: false,
+        }
+        setMessages((prev) => [...prev, tempMsg])
+
+        try {
+            const res = await fetch(`${API_URL}/api/v1/messages/send`, {
+                method: 'POST',
+                headers: getHeaders(),
+                body: JSON.stringify({
+                    conversation_id: selectedConversation,
+                    recipient_id: '', // Backend handles routing
+                    content,
+                }),
+            })
+
+            if (!res.ok) throw new Error('Failed to send message')
+
+            const sent = await res.json()
+            // Replace temp message with real one
+            setMessages((prev) =>
+                prev.map((m) => (m.id === tempMsg.id ? { ...m, id: sent.id } : m))
+            )
+        } catch (err) {
+            console.error('Failed to send message:', err)
+            // Remove optimistic message on failure
+            setMessages((prev) => prev.filter((m) => m.id !== tempMsg.id))
+            setMessage(content) // Restore the message
+        } finally {
+            setSending(false)
+        }
+    }
+
+    if (loading) {
+        return (
+            <div className="flex items-center justify-center min-h-[50vh]">
+                <Loader2 className="w-8 h-8 animate-spin text-brand-600" />
+            </div>
+        )
+    }
+
+    if (error) {
+        return (
+            <Card>
+                <CardContent className="py-12 text-center">
+                    <AlertCircle className="w-12 h-12 mx-auto text-red-500 mb-4" />
+                    <p className="text-lg font-medium text-red-600">{error}</p>
+                    <Button className="mt-4" onClick={() => window.location.reload()}>
+                        Try Again
+                    </Button>
+                </CardContent>
+            </Card>
+        )
     }
 
     return (
@@ -112,39 +278,48 @@ export default function ClientMessagesPage() {
                     </div>
                 </CardHeader>
                 <CardContent className="flex-1 overflow-auto p-0">
-                    <div className="divide-y">
-                        {conversations.map((convo) => (
-                            <button
-                                key={convo.id}
-                                onClick={() => setSelectedConversation(convo.id)}
-                                className={`w-full p-4 text-left hover:bg-slate-50 dark:hover:bg-slate-800 transition ${selectedConversation === convo.id ? 'bg-brand-50 dark:bg-brand-500/10' : ''
-                                    }`}
-                            >
-                                <div className="flex gap-3">
-                                    <div className="w-12 h-12 rounded-full bg-brand-100 dark:bg-brand-500/20 flex items-center justify-center flex-shrink-0">
-                                        <span className="text-lg font-semibold text-brand-600">
-                                            {convo.participant.name[0]}
-                                        </span>
-                                    </div>
-                                    <div className="flex-1 min-w-0">
-                                        <div className="flex items-center justify-between">
-                                            <p className="font-medium truncate">{convo.participant.name}</p>
-                                            <span className="text-xs text-muted-foreground">{convo.lastMessageTime}</span>
+                    {conversations.length === 0 ? (
+                        <div className="text-center py-8 text-muted-foreground">
+                            <MessageSquare className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                            <p className="text-sm">No conversations yet</p>
+                        </div>
+                    ) : (
+                        <div className="divide-y">
+                            {conversations.map((convo) => (
+                                <button
+                                    key={convo.id}
+                                    onClick={() => setSelectedConversation(convo.id)}
+                                    className={`w-full p-4 text-left hover:bg-slate-50 dark:hover:bg-slate-800 transition ${selectedConversation === convo.id ? 'bg-brand-50 dark:bg-brand-500/10' : ''
+                                        }`}
+                                >
+                                    <div className="flex gap-3">
+                                        <div className="w-12 h-12 rounded-full bg-brand-100 dark:bg-brand-500/20 flex items-center justify-center flex-shrink-0">
+                                            <span className="text-lg font-semibold text-brand-600">
+                                                {convo.participantInitial}
+                                            </span>
                                         </div>
-                                        <p className="text-xs text-muted-foreground">{convo.jobTitle}</p>
-                                        <p className="text-sm text-muted-foreground truncate mt-1">
-                                            {convo.lastMessage}
-                                        </p>
+                                        <div className="flex-1 min-w-0">
+                                            <div className="flex items-center justify-between">
+                                                <p className="font-medium truncate">{convo.participantName}</p>
+                                                <span className="text-xs text-muted-foreground">{convo.lastMessageTime}</span>
+                                            </div>
+                                            {convo.jobTitle && (
+                                                <p className="text-xs text-muted-foreground">{convo.jobTitle}</p>
+                                            )}
+                                            <p className="text-sm text-muted-foreground truncate mt-1">
+                                                {convo.lastMessage}
+                                            </p>
+                                        </div>
+                                        {convo.unread > 0 && (
+                                            <span className="w-5 h-5 rounded-full bg-brand-500 text-white text-xs flex items-center justify-center">
+                                                {convo.unread}
+                                            </span>
+                                        )}
                                     </div>
-                                    {convo.unread > 0 && (
-                                        <span className="w-5 h-5 rounded-full bg-brand-500 text-white text-xs flex items-center justify-center">
-                                            {convo.unread}
-                                        </span>
-                                    )}
-                                </div>
-                            </button>
-                        ))}
-                    </div>
+                                </button>
+                            ))}
+                        </div>
+                    )}
                 </CardContent>
             </Card>
 
@@ -157,19 +332,14 @@ export default function ClientMessagesPage() {
                                 <div className="flex items-center gap-3">
                                     <div className="w-10 h-10 rounded-full bg-brand-100 dark:bg-brand-500/20 flex items-center justify-center">
                                         <span className="font-semibold text-brand-600">
-                                            {selectedConvo.participant.name[0]}
+                                            {selectedConvo.participantInitial}
                                         </span>
                                     </div>
                                     <div>
-                                        <p className="font-medium">{selectedConvo.participant.name}</p>
-                                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                                            <span className="text-amber-500 flex items-center">
-                                                <Star className="w-3 h-3 fill-current mr-0.5" />
-                                                {selectedConvo.participant.rating}
-                                            </span>
-                                            <span>•</span>
-                                            <span>{selectedConvo.jobTitle}</span>
-                                        </div>
+                                        <p className="font-medium">{selectedConvo.participantName}</p>
+                                        {selectedConvo.jobTitle && (
+                                            <p className="text-sm text-muted-foreground">{selectedConvo.jobTitle}</p>
+                                        )}
                                     </div>
                                 </div>
                                 <Button variant="ghost" size="icon">
@@ -179,28 +349,38 @@ export default function ClientMessagesPage() {
                         </CardHeader>
 
                         <CardContent className="flex-1 overflow-auto p-4 space-y-4">
-                            {messages.map((msg) => (
-                                <div
-                                    key={msg.id}
-                                    className={`flex ${msg.senderId === 'me' ? 'justify-end' : 'justify-start'}`}
-                                >
+                            {messagesLoading ? (
+                                <div className="flex items-center justify-center h-full">
+                                    <Loader2 className="w-6 h-6 animate-spin text-brand-600" />
+                                </div>
+                            ) : messages.length === 0 ? (
+                                <div className="flex items-center justify-center h-full text-muted-foreground">
+                                    <p>No messages yet. Send one to start the conversation!</p>
+                                </div>
+                            ) : (
+                                messages.map((msg) => (
                                     <div
-                                        className={`max-w-[70%] rounded-2xl px-4 py-2 ${msg.senderId === 'me'
+                                        key={msg.id}
+                                        className={`flex ${msg.senderId === 'me' ? 'justify-end' : 'justify-start'}`}
+                                    >
+                                        <div
+                                            className={`max-w-[70%] rounded-2xl px-4 py-2 ${msg.senderId === 'me'
                                                 ? 'bg-brand-500 text-white rounded-br-md'
                                                 : 'bg-slate-100 dark:bg-slate-800 rounded-bl-md'
-                                            }`}
-                                    >
-                                        <p>{msg.content}</p>
-                                        <div
-                                            className={`flex items-center justify-end gap-1 mt-1 text-xs ${msg.senderId === 'me' ? 'text-white/70' : 'text-muted-foreground'
                                                 }`}
                                         >
-                                            <span>{msg.timestamp}</span>
-                                            {msg.senderId === 'me' && <CheckCheck className="w-3 h-3" />}
+                                            <p>{msg.content}</p>
+                                            <div
+                                                className={`flex items-center justify-end gap-1 mt-1 text-xs ${msg.senderId === 'me' ? 'text-white/70' : 'text-muted-foreground'
+                                                    }`}
+                                            >
+                                                <span>{msg.timestamp}</span>
+                                                {msg.senderId === 'me' && <CheckCheck className="w-3 h-3" />}
+                                            </div>
                                         </div>
                                     </div>
-                                </div>
-                            ))}
+                                ))
+                            )}
                             <div ref={messagesEndRef} />
                         </CardContent>
 
@@ -221,10 +401,10 @@ export default function ClientMessagesPage() {
                                 />
                                 <Button
                                     onClick={handleSend}
-                                    disabled={!message.trim()}
+                                    disabled={!message.trim() || sending}
                                     className="bg-brand-500 hover:bg-brand-600"
                                 >
-                                    <Send className="w-4 h-4" />
+                                    {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
                                 </Button>
                             </div>
                         </div>

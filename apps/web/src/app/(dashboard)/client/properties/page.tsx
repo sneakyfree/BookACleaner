@@ -1,5 +1,7 @@
 'use client'
 
+import { useState, useEffect } from 'react'
+import { useSession } from 'next-auth/react'
 import Link from 'next/link'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -11,51 +13,138 @@ import {
     MoreVertical,
     Edit,
     Trash2,
+    Loader2,
+    AlertCircle,
 } from 'lucide-react'
 
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+
+interface ApiProperty {
+    id: string
+    name: string
+    address: string
+    city: string
+    state: string
+    square_feet?: number
+    bedrooms?: number
+    bathrooms?: number
+    last_cleaned_at?: string
+    next_cleaning_at?: string
+    airbnb_linked?: boolean
+}
+
+interface DisplayProperty {
+    id: string
+    name: string
+    address: string
+    city: string
+    state: string
+    sqFt: number
+    bedrooms: number
+    bathrooms: number
+    lastCleaned: string
+    nextCleaning: string | null
+    hasAirbnb: boolean
+}
+
 export default function PropertiesPage() {
-    // Mock data
-    const properties = [
-        {
-            id: '1',
-            name: 'Lake House',
-            address: '123 Lake Street',
-            city: 'Austin',
-            state: 'TX',
-            sqFt: 2200,
-            bedrooms: 4,
-            bathrooms: 2.5,
-            lastCleaned: '2 days ago',
-            nextCleaning: 'Tomorrow',
-            hasAirbnb: true,
-        },
-        {
-            id: '2',
-            name: 'Downtown Condo',
-            address: '456 Main Avenue, Unit 12B',
-            city: 'Austin',
-            state: 'TX',
-            sqFt: 1100,
-            bedrooms: 2,
-            bathrooms: 1,
-            lastCleaned: '1 week ago',
-            nextCleaning: null,
-            hasAirbnb: true,
-        },
-        {
-            id: '3',
-            name: 'Beach Cottage',
-            address: '789 Ocean Drive',
-            city: 'Galveston',
-            state: 'TX',
-            sqFt: 1600,
-            bedrooms: 3,
-            bathrooms: 2,
-            lastCleaned: '3 weeks ago',
-            nextCleaning: null,
-            hasAirbnb: false,
-        },
-    ]
+    const { data: session } = useSession()
+    const [properties, setProperties] = useState<DisplayProperty[]>([])
+    const [loading, setLoading] = useState(true)
+    const [error, setError] = useState<string | null>(null)
+
+    useEffect(() => {
+        const token = (session as any)?.accessToken
+        if (!token) {
+            setLoading(false)
+            return
+        }
+
+        async function fetchProperties() {
+            try {
+                setError(null)
+                const res = await fetch(`${API_URL}/api/v1/properties/`, {
+                    headers: {
+                        Authorization: `Bearer ${(session as any)?.accessToken}`,
+                    },
+                })
+
+                if (!res.ok) {
+                    throw new Error(`Failed to load properties (${res.status})`)
+                }
+
+                const data: ApiProperty[] = await res.json()
+
+                const mapped: DisplayProperty[] = data.map((prop) => {
+                    const timeSince = (dateStr?: string) => {
+                        if (!dateStr) return 'Never'
+                        const diff = Date.now() - new Date(dateStr).getTime()
+                        const days = Math.floor(diff / (1000 * 60 * 60 * 24))
+                        if (days === 0) return 'Today'
+                        if (days === 1) return 'Yesterday'
+                        if (days < 7) return `${days} days ago`
+                        if (days < 30) return `${Math.floor(days / 7)} week${Math.floor(days / 7) > 1 ? 's' : ''} ago`
+                        return `${Math.floor(days / 30)} month${Math.floor(days / 30) > 1 ? 's' : ''} ago`
+                    }
+
+                    const timeUntil = (dateStr?: string) => {
+                        if (!dateStr) return null
+                        const diff = new Date(dateStr).getTime() - Date.now()
+                        const days = Math.floor(diff / (1000 * 60 * 60 * 24))
+                        if (days < 0) return null
+                        if (days === 0) return 'Today'
+                        if (days === 1) return 'Tomorrow'
+                        return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                    }
+
+                    return {
+                        id: prop.id,
+                        name: prop.name || 'Unnamed Property',
+                        address: prop.address || '',
+                        city: prop.city || '',
+                        state: prop.state || '',
+                        sqFt: prop.square_feet || 0,
+                        bedrooms: prop.bedrooms || 0,
+                        bathrooms: prop.bathrooms || 0,
+                        lastCleaned: timeSince(prop.last_cleaned_at),
+                        nextCleaning: timeUntil(prop.next_cleaning_at),
+                        hasAirbnb: prop.airbnb_linked || false,
+                    }
+                })
+
+                setProperties(mapped)
+            } catch (err) {
+                console.error('Failed to fetch properties:', err)
+                setError(err instanceof Error ? err.message : 'Failed to load properties')
+            } finally {
+                setLoading(false)
+            }
+        }
+
+        fetchProperties()
+    }, [API_URL, session])
+
+    if (loading) {
+        return (
+            <div className="flex items-center justify-center min-h-[50vh]">
+                <Loader2 className="w-8 h-8 animate-spin text-brand-600" />
+            </div>
+        )
+    }
+
+    if (error) {
+        return (
+            <Card>
+                <CardContent className="py-12 text-center">
+                    <AlertCircle className="w-12 h-12 mx-auto text-red-500 mb-4" />
+                    <p className="text-lg font-medium text-red-600">{error}</p>
+                    <Button className="mt-4" onClick={() => window.location.reload()}>
+                        Try Again
+                    </Button>
+                </CardContent>
+            </Card>
+        )
+    }
 
     return (
         <div className="space-y-8">
@@ -74,76 +163,95 @@ export default function PropertiesPage() {
                 </Link>
             </div>
 
-            <div className="grid gap-6">
-                {properties.map((property) => (
-                    <Card key={property.id} className="hover:shadow-md transition-shadow">
-                        <CardContent className="p-6">
-                            <div className="flex items-start justify-between">
-                                <div className="flex items-start gap-4">
-                                    <div className="p-3 bg-brand-100 dark:bg-brand-500/20 rounded-xl">
-                                        <Home className="w-6 h-6 text-brand-600 dark:text-brand-400" />
-                                    </div>
-                                    <div>
-                                        <h3 className="text-lg font-semibold">{property.name}</h3>
-                                        <p className="text-muted-foreground flex items-center gap-1 mt-1">
-                                            <MapPin className="w-4 h-4" />
-                                            {property.address}, {property.city}, {property.state}
-                                        </p>
-                                        <div className="flex items-center gap-4 mt-2 text-sm text-muted-foreground">
-                                            <span>{property.sqFt.toLocaleString()} sq ft</span>
-                                            <span>•</span>
-                                            <span>{property.bedrooms} bed</span>
-                                            <span>•</span>
-                                            <span>{property.bathrooms} bath</span>
-                                            {property.hasAirbnb && (
-                                                <>
-                                                    <span>•</span>
-                                                    <span className="text-brand-600">Airbnb linked</span>
-                                                </>
-                                            )}
+            {properties.length === 0 ? (
+                <Card>
+                    <CardContent className="py-12 text-center">
+                        <Home className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
+                        <p className="text-muted-foreground">No properties yet</p>
+                        <Link href="/client/properties/new" className="mt-4 inline-block">
+                            <Button className="bg-brand-500 hover:bg-brand-600">
+                                <Plus className="w-4 h-4 mr-2" />
+                                Add Your First Property
+                            </Button>
+                        </Link>
+                    </CardContent>
+                </Card>
+            ) : (
+                <div className="grid gap-6">
+                    {properties.map((property) => (
+                        <Card key={property.id} className="hover:shadow-md transition-shadow">
+                            <CardContent className="p-6">
+                                <div className="flex items-start justify-between">
+                                    <div className="flex items-start gap-4">
+                                        <div className="p-3 bg-brand-100 dark:bg-brand-500/20 rounded-xl">
+                                            <Home className="w-6 h-6 text-brand-600 dark:text-brand-400" />
+                                        </div>
+                                        <div>
+                                            <h3 className="text-lg font-semibold">{property.name}</h3>
+                                            <p className="text-muted-foreground flex items-center gap-1 mt-1">
+                                                <MapPin className="w-4 h-4" />
+                                                {property.address}{property.city ? `, ${property.city}` : ''}{property.state ? `, ${property.state}` : ''}
+                                            </p>
+                                            <div className="flex items-center gap-4 mt-2 text-sm text-muted-foreground">
+                                                {property.sqFt > 0 && (
+                                                    <>
+                                                        <span>{property.sqFt.toLocaleString()} sq ft</span>
+                                                        <span>•</span>
+                                                    </>
+                                                )}
+                                                <span>{property.bedrooms} bed</span>
+                                                <span>•</span>
+                                                <span>{property.bathrooms} bath</span>
+                                                {property.hasAirbnb && (
+                                                    <>
+                                                        <span>•</span>
+                                                        <span className="text-brand-600">Airbnb linked</span>
+                                                    </>
+                                                )}
+                                            </div>
                                         </div>
                                     </div>
-                                </div>
 
-                                <div className="flex items-center gap-2">
-                                    <Link href={`/client/properties/${property.id}`}>
-                                        <Button variant="outline" size="sm">
-                                            <Edit className="w-4 h-4 mr-1" />
-                                            Edit
-                                        </Button>
-                                    </Link>
-                                    <Button variant="ghost" size="icon">
-                                        <MoreVertical className="w-4 h-4" />
-                                    </Button>
-                                </div>
-                            </div>
-
-                            <div className="flex items-center gap-6 mt-4 pt-4 border-t">
-                                <div className="flex items-center gap-2">
-                                    <Calendar className="w-4 h-4 text-muted-foreground" />
-                                    <span className="text-sm">
-                                        Last cleaned: <strong>{property.lastCleaned}</strong>
-                                    </span>
-                                </div>
-                                {property.nextCleaning ? (
                                     <div className="flex items-center gap-2">
-                                        <span className="w-2 h-2 rounded-full bg-green-500" />
+                                        <Link href={`/client/properties/${property.id}`}>
+                                            <Button variant="outline" size="sm">
+                                                <Edit className="w-4 h-4 mr-1" />
+                                                Edit
+                                            </Button>
+                                        </Link>
+                                        <Button variant="ghost" size="icon">
+                                            <MoreVertical className="w-4 h-4" />
+                                        </Button>
+                                    </div>
+                                </div>
+
+                                <div className="flex items-center gap-6 mt-4 pt-4 border-t">
+                                    <div className="flex items-center gap-2">
+                                        <Calendar className="w-4 h-4 text-muted-foreground" />
                                         <span className="text-sm">
-                                            Next: <strong>{property.nextCleaning}</strong>
+                                            Last cleaned: <strong>{property.lastCleaned}</strong>
                                         </span>
                                     </div>
-                                ) : (
-                                    <Link href={`/book?propertyId=${property.id}`}>
-                                        <Button variant="link" className="text-brand-600 p-0 h-auto">
-                                            Schedule cleaning →
-                                        </Button>
-                                    </Link>
-                                )}
-                            </div>
-                        </CardContent>
-                    </Card>
-                ))}
-            </div>
+                                    {property.nextCleaning ? (
+                                        <div className="flex items-center gap-2">
+                                            <span className="w-2 h-2 rounded-full bg-green-500" />
+                                            <span className="text-sm">
+                                                Next: <strong>{property.nextCleaning}</strong>
+                                            </span>
+                                        </div>
+                                    ) : (
+                                        <Link href={`/book?propertyId=${property.id}`}>
+                                            <Button variant="link" className="text-brand-600 p-0 h-auto">
+                                                Schedule cleaning →
+                                            </Button>
+                                        </Link>
+                                    )}
+                                </div>
+                            </CardContent>
+                        </Card>
+                    ))}
+                </div>
+            )}
         </div>
     )
 }

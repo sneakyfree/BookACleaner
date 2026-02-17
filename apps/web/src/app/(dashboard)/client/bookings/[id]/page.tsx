@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useSession } from 'next-auth/react'
 import { useParams } from 'next/navigation'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -9,6 +10,8 @@ import {
     AlertCircle, MessageSquare, Star, Play, Camera, Loader2
 } from 'lucide-react'
 import Link from 'next/link'
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
 type JobStatus = 'pending' | 'confirmed' | 'in_progress' | 'completed' | 'cancelled' | 'disputed'
 
@@ -42,47 +45,40 @@ const STATUS_CONFIG: Record<JobStatus, { color: string; bg: string; label: strin
 }
 
 export default function JobDetailPage() {
+    const { data: session } = useSession()
     const params = useParams()
     const jobId = params?.id as string
     const [job, setJob] = useState<JobDetail | null>(null)
     const [loading, setLoading] = useState(true)
+    const [error, setError] = useState<string | null>(null)
     const [actionLoading, setActionLoading] = useState(false)
     const [showReviewForm, setShowReviewForm] = useState(false)
     const [reviewRating, setReviewRating] = useState(5)
     const [reviewText, setReviewText] = useState('')
 
     useEffect(() => {
+        const token = (session as any)?.accessToken
+        if (!token) {
+            setLoading(false)
+            return
+        }
         fetchJob()
-    }, [jobId])
+    }, [jobId, session])
 
     const fetchJob = async () => {
         try {
-            const token = localStorage.getItem('token')
-            const res = await fetch(`/api/v1/jobs/${jobId}`, {
+            setError(null)
+            const token = (session as any)?.accessToken
+            const res = await fetch(`${API_URL}/api/v1/jobs/${jobId}`, {
                 headers: { Authorization: `Bearer ${token}` }
             })
-            if (res.ok) {
-                setJob(await res.json())
+            if (!res.ok) {
+                throw new Error(`Failed to load job (${res.status})`)
             }
-        } catch {
-            // Mock data for demo
-            setJob({
-                id: jobId,
-                title: 'Deep Clean - 3BR House',
-                status: 'confirmed',
-                services: ['deep_clean'],
-                total_price: 250,
-                scheduled_date: '2026-02-15',
-                scheduled_time: '10:00 AM',
-                address: '123 Oak Lane',
-                city: 'Austin, TX',
-                description: 'Please pay special attention to kitchen and bathrooms. Pet-friendly products preferred.',
-                cleaner_name: 'CleanPro Services',
-                cleaner_rating: 4.9,
-                client_name: 'John D.',
-                payment_status: 'authorized',
-                created_at: '2026-02-10T14:00:00Z',
-            })
+            setJob(await res.json())
+        } catch (err) {
+            console.error('Failed to fetch job:', err)
+            setError(err instanceof Error ? err.message : 'Failed to load job details')
         } finally {
             setLoading(false)
         }
@@ -91,14 +87,14 @@ export default function JobDetailPage() {
     const handleAction = async (action: string) => {
         setActionLoading(true)
         try {
-            const token = localStorage.getItem('token')
-            await fetch(`/api/v1/jobs/${jobId}/${action}`, {
+            const token = (session as any)?.accessToken
+            await fetch(`${API_URL}/api/v1/jobs/${jobId}/${action}`, {
                 method: 'POST',
                 headers: { Authorization: `Bearer ${token}` }
             })
             fetchJob()
-        } catch {
-            // silently handle
+        } catch (err) {
+            console.error(`Action ${action} failed:`, err)
         } finally {
             setActionLoading(false)
         }
@@ -107,8 +103,8 @@ export default function JobDetailPage() {
     const handleSubmitReview = async () => {
         setActionLoading(true)
         try {
-            const token = localStorage.getItem('token')
-            await fetch('/api/v1/reviews', {
+            const token = (session as any)?.accessToken
+            await fetch(`${API_URL}/api/v1/reviews`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -121,8 +117,8 @@ export default function JobDetailPage() {
                 })
             })
             setShowReviewForm(false)
-        } catch {
-            // handle error
+        } catch (err) {
+            console.error('Failed to submit review:', err)
         } finally {
             setActionLoading(false)
         }
@@ -136,12 +132,12 @@ export default function JobDetailPage() {
         )
     }
 
-    if (!job) {
+    if (error || !job) {
         return (
             <Card>
                 <CardContent className="py-12 text-center">
-                    <AlertCircle className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
-                    <p className="text-lg font-medium">Job not found</p>
+                    <AlertCircle className="w-12 h-12 mx-auto mb-4 text-red-500" />
+                    <p className="text-lg font-medium">{error || 'Job not found'}</p>
                     <Link href="/client/bookings">
                         <Button className="mt-4">Back to Bookings</Button>
                     </Link>

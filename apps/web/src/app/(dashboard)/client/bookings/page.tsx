@@ -1,5 +1,7 @@
 'use client'
 
+import { useState, useEffect } from 'react'
+import { useSession } from 'next-auth/react'
 import Link from 'next/link'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -12,9 +14,38 @@ import {
     CheckCircle,
     XCircle,
     AlertCircle,
+    Loader2,
 } from 'lucide-react'
 
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+
 type BookingStatus = 'pending' | 'confirmed' | 'in_progress' | 'completed' | 'cancelled'
+
+interface ApiJob {
+    id: string
+    status: string
+    services: string[]
+    total_price: number
+    scheduled_date: string
+    scheduled_time?: string
+    description?: string
+    cleaner_name?: string
+    cleaner_rating?: number
+    property_name?: string
+    property_address?: string
+    created_at?: string
+}
+
+interface DisplayBooking {
+    id: string
+    cleaner: { name: string; rating: number }
+    property: { name: string; address: string }
+    services: string[]
+    date: string
+    time: string
+    price: number
+    status: BookingStatus
+}
 
 const statusConfig = {
     pending: {
@@ -45,39 +76,94 @@ const statusConfig = {
 }
 
 export default function BookingsPage() {
-    // Mock bookings
-    const bookings = [
-        {
-            id: '1',
-            cleaner: { name: "Maria's Cleaning", rating: 4.9 },
-            property: { name: 'Lake House', address: '123 Lake Street' },
-            services: ['Deep Clean'],
-            date: 'Tomorrow',
-            time: '10:00 AM',
-            price: 180,
-            status: 'confirmed' as BookingStatus,
-        },
-        {
-            id: '2',
-            cleaner: { name: 'Sparkle Pro', rating: 4.8 },
-            property: { name: 'Downtown Condo', address: '456 Main Ave' },
-            services: ['Airbnb Turnover'],
-            date: 'Jan 25, 2026',
-            time: '2:00 PM',
-            price: 120,
-            status: 'pending' as BookingStatus,
-        },
-        {
-            id: '3',
-            cleaner: { name: "Maria's Cleaning", rating: 4.9 },
-            property: { name: 'Lake House', address: '123 Lake Street' },
-            services: ['Standard Clean'],
-            date: 'Jan 15, 2026',
-            time: '9:00 AM',
-            price: 100,
-            status: 'completed' as BookingStatus,
-        },
-    ]
+    const { data: session } = useSession()
+    const [bookings, setBookings] = useState<DisplayBooking[]>([])
+    const [loading, setLoading] = useState(true)
+    const [error, setError] = useState<string | null>(null)
+
+    useEffect(() => {
+        const token = (session as any)?.accessToken
+        if (!token) {
+            setLoading(false)
+            return
+        }
+
+        async function fetchBookings() {
+            try {
+                setError(null)
+                const res = await fetch(`${API_URL}/api/v1/jobs/`, {
+                    headers: {
+                        Authorization: `Bearer ${(session as any)?.accessToken}`,
+                    },
+                })
+
+                if (!res.ok) {
+                    throw new Error(`Failed to load bookings (${res.status})`)
+                }
+
+                const data: ApiJob[] = await res.json()
+
+                const mapped: DisplayBooking[] = data.map((job) => {
+                    const validStatuses: BookingStatus[] = ['pending', 'confirmed', 'in_progress', 'completed', 'cancelled']
+                    const status: BookingStatus = validStatuses.includes(job.status as BookingStatus)
+                        ? (job.status as BookingStatus)
+                        : 'pending'
+
+                    return {
+                        id: job.id,
+                        cleaner: {
+                            name: job.cleaner_name || 'Unassigned',
+                            rating: job.cleaner_rating || 0,
+                        },
+                        property: {
+                            name: job.property_name || 'Property',
+                            address: job.property_address || '',
+                        },
+                        services: job.services || [],
+                        date: job.scheduled_date
+                            ? new Date(job.scheduled_date).toLocaleDateString('en-US', {
+                                weekday: 'short', month: 'short', day: 'numeric',
+                            })
+                            : 'TBD',
+                        time: job.scheduled_time || 'TBD',
+                        price: job.total_price || 0,
+                        status,
+                    }
+                })
+
+                setBookings(mapped)
+            } catch (err) {
+                console.error('Failed to fetch bookings:', err)
+                setError(err instanceof Error ? err.message : 'Failed to load bookings')
+            } finally {
+                setLoading(false)
+            }
+        }
+
+        fetchBookings()
+    }, [API_URL, session])
+
+    if (loading) {
+        return (
+            <div className="flex items-center justify-center min-h-[50vh]">
+                <Loader2 className="w-8 h-8 animate-spin text-brand-600" />
+            </div>
+        )
+    }
+
+    if (error) {
+        return (
+            <Card>
+                <CardContent className="py-12 text-center">
+                    <AlertCircle className="w-12 h-12 mx-auto text-red-500 mb-4" />
+                    <p className="text-lg font-medium text-red-600">{error}</p>
+                    <Button className="mt-4" onClick={() => window.location.reload()}>
+                        Try Again
+                    </Button>
+                </CardContent>
+            </Card>
+        )
+    }
 
     const upcomingBookings = bookings.filter(
         (b) => b.status === 'pending' || b.status === 'confirmed' || b.status === 'in_progress'
@@ -120,7 +206,7 @@ export default function BookingsPage() {
                                                 </div>
                                                 <div>
                                                     <div className="flex items-center gap-2">
-                                                        <h3 className="font-semibold">{booking.services.join(', ')}</h3>
+                                                        <h3 className="font-semibold">{booking.services.join(', ') || 'Cleaning'}</h3>
                                                         <span
                                                             className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${status.color}`}
                                                         >
@@ -130,13 +216,15 @@ export default function BookingsPage() {
                                                     </div>
                                                     <p className="text-muted-foreground text-sm mt-1">
                                                         {booking.cleaner.name} •{' '}
-                                                        <span className="text-amber-500">
-                                                            <Star className="w-3 h-3 inline fill-current" /> {booking.cleaner.rating}
-                                                        </span>
+                                                        {booking.cleaner.rating > 0 && (
+                                                            <span className="text-amber-500">
+                                                                <Star className="w-3 h-3 inline fill-current" /> {booking.cleaner.rating}
+                                                            </span>
+                                                        )}
                                                     </p>
                                                     <p className="text-sm flex items-center gap-1 mt-2">
                                                         <MapPin className="w-3 h-3" />
-                                                        {booking.property.name} - {booking.property.address}
+                                                        {booking.property.name}{booking.property.address ? ` - ${booking.property.address}` : ''}
                                                     </p>
                                                 </div>
                                             </div>
@@ -160,9 +248,11 @@ export default function BookingsPage() {
                                                     Cancel
                                                 </Button>
                                             )}
-                                            <Button variant="ghost" size="icon" className="ml-auto">
-                                                <MoreVertical className="w-4 h-4" />
-                                            </Button>
+                                            <Link href={`/client/bookings/${booking.id}`} className="ml-auto">
+                                                <Button variant="ghost" size="sm">
+                                                    View Details
+                                                </Button>
+                                            </Link>
                                         </div>
                                     </CardContent>
                                 </Card>
@@ -202,7 +292,7 @@ export default function BookingsPage() {
                                                 </div>
                                                 <div>
                                                     <div className="flex items-center gap-2">
-                                                        <h3 className="font-semibold">{booking.services.join(', ')}</h3>
+                                                        <h3 className="font-semibold">{booking.services.join(', ') || 'Cleaning'}</h3>
                                                         <span
                                                             className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${status.color}`}
                                                         >
@@ -221,9 +311,11 @@ export default function BookingsPage() {
                                             <div className="text-right">
                                                 <p className="text-lg font-semibold">${booking.price}</p>
                                                 {booking.status === 'completed' && (
-                                                    <Button variant="link" size="sm" className="p-0 h-auto text-brand-600">
-                                                        Leave Review
-                                                    </Button>
+                                                    <Link href={`/client/reviews`}>
+                                                        <Button variant="link" size="sm" className="p-0 h-auto text-brand-600">
+                                                            Leave Review
+                                                        </Button>
+                                                    </Link>
                                                 )}
                                             </div>
                                         </div>
