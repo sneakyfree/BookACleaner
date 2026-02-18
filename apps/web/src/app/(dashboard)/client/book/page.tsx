@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useSession } from 'next-auth/react'
 import { useRouter } from 'next/navigation'
+import { loadStripe } from '@stripe/stripe-js'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -12,6 +13,7 @@ import {
 } from 'lucide-react'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY || '')
 
 const SERVICES = [
     { id: 'standard', name: 'Standard Clean', description: 'Regular maintenance cleaning', price: 100, icon: '🧹' },
@@ -144,6 +146,7 @@ export default function BookingWizardPage() {
         try {
             const token = (session as any)?.accessToken
 
+            // Step 1: Create the job
             const res = await fetch(`${API_URL}/api/v1/jobs`, {
                 method: 'POST',
                 headers: {
@@ -159,12 +162,56 @@ export default function BookingWizardPage() {
                 })
             })
 
-            if (res.ok) {
-                const job = await res.json()
-                router.push(`/client/bookings?created=${job.id}`)
-            } else {
+            if (!res.ok) {
                 const data = await res.json()
                 setError(data.detail || 'Failed to create booking')
+                return
+            }
+
+            const job = await res.json()
+
+            // Step 2: Create Stripe Payment Intent
+            const amountInCents = Math.round((estimate?.total || 100) * 100)
+            const paymentRes = await fetch(`${API_URL}/api/v1/payments/create-payment-intent`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`,
+                },
+                body: JSON.stringify({
+                    amount: amountInCents,
+                    jobId: job.id,
+                    customerId: (session as any)?.user?.id || '',
+                    capture_method: 'automatic',
+                }),
+            })
+
+            if (!paymentRes.ok) {
+                // Job created but payment failed — still redirect, show warning
+                router.push(`/client/bookings/${job.id}?payment=pending`)
+                return
+            }
+
+            const { clientSecret } = await paymentRes.json()
+
+            // Step 3: Confirm the payment with Stripe.js
+            const stripe = await stripePromise
+            if (stripe && clientSecret) {
+                const { error: stripeError } = await stripe.confirmPayment({
+                    clientSecret,
+                    confirmParams: {
+                        return_url: `${window.location.origin}/client/bookings/${job.id}?payment=success`,
+                    },
+                })
+
+                if (stripeError) {
+                    // Payment failed but job exists — redirect with status
+                    setError(stripeError.message || 'Payment failed')
+                    return
+                }
+            } else {
+                // Stripe not loaded — redirect with pending payment
+                router.push(`/client/bookings/${job.id}?payment=pending`)
             }
         } catch (err) {
             setError('Failed to connect to server')
@@ -202,8 +249,8 @@ export default function BookingWizardPage() {
                 {[1, 2, 3, 4].map((s) => (
                     <div key={s} className="flex items-center">
                         <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-medium transition-colors ${s === step ? 'bg-emerald-500 text-white' :
-                                s < step ? 'bg-emerald-100 text-emerald-700' :
-                                    'bg-slate-100 text-slate-400'
+                            s < step ? 'bg-emerald-100 text-emerald-700' :
+                                'bg-slate-100 text-slate-400'
                             }`}>
                             {s < step ? <CheckCircle className="w-5 h-5" /> : s}
                         </div>
@@ -240,8 +287,8 @@ export default function BookingWizardPage() {
                                         key={prop.id}
                                         onClick={() => setSelectedProperty(prop.id)}
                                         className={`p-4 rounded-lg border-2 cursor-pointer transition-all ${selectedProperty === prop.id
-                                                ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-500/10'
-                                                : 'border-slate-200 hover:border-slate-300'
+                                            ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-500/10'
+                                            : 'border-slate-200 hover:border-slate-300'
                                             }`}
                                     >
                                         <div className="flex items-center justify-between">
@@ -280,8 +327,8 @@ export default function BookingWizardPage() {
                                     key={service.id}
                                     onClick={() => toggleService(service.id)}
                                     className={`p-4 rounded-lg border-2 cursor-pointer transition-all ${selectedServices.includes(service.id)
-                                            ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-500/10'
-                                            : 'border-slate-200 hover:border-slate-300'
+                                        ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-500/10'
+                                        : 'border-slate-200 hover:border-slate-300'
                                         }`}
                                 >
                                     <div className="flex items-start justify-between">
@@ -309,8 +356,8 @@ export default function BookingWizardPage() {
                                         key={addon.id}
                                         onClick={() => toggleAddOn(addon.id)}
                                         className={`px-3 py-2 rounded-lg border text-sm transition-colors ${selectedAddOns.includes(addon.id)
-                                                ? 'border-emerald-500 bg-emerald-50 text-emerald-700'
-                                                : 'border-slate-200 hover:border-slate-300'
+                                            ? 'border-emerald-500 bg-emerald-50 text-emerald-700'
+                                            : 'border-slate-200 hover:border-slate-300'
                                             }`}
                                     >
                                         {addon.icon} {addon.name} (+${addon.price})
@@ -344,8 +391,8 @@ export default function BookingWizardPage() {
                                             key={date}
                                             onClick={() => setSelectedDate(date)}
                                             className={`p-2 rounded-lg border text-center transition-colors ${selectedDate === date
-                                                    ? 'border-emerald-500 bg-emerald-500 text-white'
-                                                    : 'border-slate-200 hover:border-slate-300'
+                                                ? 'border-emerald-500 bg-emerald-500 text-white'
+                                                : 'border-slate-200 hover:border-slate-300'
                                                 }`}
                                         >
                                             <p className="text-xs">{dayName}</p>
@@ -364,8 +411,8 @@ export default function BookingWizardPage() {
                                         key={time}
                                         onClick={() => setSelectedTime(time)}
                                         className={`p-3 rounded-lg border text-center transition-colors ${selectedTime === time
-                                                ? 'border-emerald-500 bg-emerald-500 text-white'
-                                                : 'border-slate-200 hover:border-slate-300'
+                                            ? 'border-emerald-500 bg-emerald-500 text-white'
+                                            : 'border-slate-200 hover:border-slate-300'
                                             }`}
                                     >
                                         {time}

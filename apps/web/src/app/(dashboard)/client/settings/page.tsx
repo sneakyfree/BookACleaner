@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useSession } from 'next-auth/react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -20,6 +20,8 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+
 export default function ClientSettingsPage() {
     const { data: session } = useSession()
     const [isLoading, setIsLoading] = useState(false)
@@ -27,16 +29,12 @@ export default function ClientSettingsPage() {
     const [activeTab, setActiveTab] = useState<'profile' | 'payment' | 'notifications' | 'security'>('profile')
 
     const [profile, setProfile] = useState({
-        displayName: 'John Doe',
+        displayName: '',
         email: session?.user?.email || '',
-        phone: '+1 (555) 123-4567',
+        phone: '',
     })
 
-    // Mock payment methods
-    const paymentMethods = [
-        { id: '1', brand: 'visa', last4: '4242', expMonth: 12, expYear: 2026, isDefault: true },
-        { id: '2', brand: 'mastercard', last4: '8888', expMonth: 6, expYear: 2025, isDefault: false },
-    ]
+    const [paymentMethods, setPaymentMethods] = useState<any[]>([])
 
     const [notifications, setNotifications] = useState({
         bookingConfirmations: true,
@@ -47,18 +45,80 @@ export default function ClientSettingsPage() {
         emailEnabled: true,
     })
 
+    // Fetch profile + payment methods from API
+    useEffect(() => {
+        const fetchData = async () => {
+            const token = (session as any)?.accessToken
+            if (!token) return
+
+            try {
+                const [profileRes, paymentRes, notifRes] = await Promise.all([
+                    fetch(`${API_URL}/api/v1/users/me/profile`, {
+                        headers: { Authorization: `Bearer ${token}` },
+                    }),
+                    fetch(`${API_URL}/api/v1/payments/payment-methods`, {
+                        headers: { Authorization: `Bearer ${token}` },
+                    }),
+                    fetch(`${API_URL}/api/v1/users/me/notifications`, {
+                        headers: { Authorization: `Bearer ${token}` },
+                    }),
+                ])
+
+                if (profileRes.ok) {
+                    const data = await profileRes.json()
+                    setProfile({
+                        displayName: data.display_name || data.full_name || '',
+                        email: data.email || session?.user?.email || '',
+                        phone: data.phone || '',
+                    })
+                }
+                if (paymentRes.ok) {
+                    const data = await paymentRes.json()
+                    setPaymentMethods(Array.isArray(data) ? data : [])
+                }
+                if (notifRes.ok) {
+                    const data = await notifRes.json()
+                    setNotifications((prev) => ({ ...prev, ...data }))
+                }
+            } catch {
+                // Graceful fallback
+            }
+        }
+        if (session) fetchData()
+    }, [session])
+
     async function handleSaveProfile() {
         setIsLoading(true)
-        await new Promise((r) => setTimeout(r, 1000))
-        toast.success('Profile updated successfully!')
-        setIsLoading(false)
+        try {
+            const token = (session as any)?.accessToken
+            const res = await fetch(`${API_URL}/api/v1/users/me/profile`, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${token}`,
+                },
+                body: JSON.stringify({
+                    display_name: profile.displayName,
+                    phone: profile.phone,
+                }),
+            })
+            if (res.ok) {
+                toast.success('Profile updated successfully!')
+            } else {
+                toast.error('Failed to update profile')
+            }
+        } catch {
+            toast.error('Failed to connect to server')
+        } finally {
+            setIsLoading(false)
+        }
     }
 
     async function handleManageBilling() {
         setPortalLoading(true)
         try {
-            const token = localStorage.getItem('token')
-            const res = await fetch('/api/v1/payments/customer-portal', {
+            const token = (session as any)?.accessToken
+            const res = await fetch(`${API_URL}/api/v1/payments/customer-portal`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',

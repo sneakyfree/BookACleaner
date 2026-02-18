@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useSession } from 'next-auth/react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -19,26 +19,80 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+
 export default function CleanerProfilePage() {
     const { data: session } = useSession()
     const [isLoading, setIsLoading] = useState(false)
+    const [loadingProfile, setLoadingProfile] = useState(true)
 
-    // Mock profile data
     const [profile, setProfile] = useState({
-        businessName: 'Maria\'s Cleaning Service',
-        bio: 'Professional cleaning services with 10+ years of experience. Specializing in residential, Airbnb turnover, and deep cleaning.',
-        phone: '+1 (555) 123-4567',
-        website: 'https://mariascleaning.com',
-        serviceAreas: ['Austin, TX', 'Round Rock, TX', 'Cedar Park, TX'],
-        verificationTier: 3,
+        businessName: '',
+        bio: '',
+        phone: '',
+        website: '',
+        serviceAreas: [] as string[],
+        verificationTier: 1,
     })
+
+    // Fetch profile from API
+    useEffect(() => {
+        const fetchProfile = async () => {
+            const token = (session as any)?.accessToken
+            if (!token) return
+
+            try {
+                const res = await fetch(`${API_URL}/api/v1/users/me/profile`, {
+                    headers: { Authorization: `Bearer ${token}` },
+                })
+                if (res.ok) {
+                    const data = await res.json()
+                    setProfile({
+                        businessName: data.business_name || data.businessName || '',
+                        bio: data.bio || '',
+                        phone: data.phone || '',
+                        website: data.website || '',
+                        serviceAreas: data.service_areas || data.serviceAreas || [],
+                        verificationTier: data.verification_tier || data.verificationTier || 1,
+                    })
+                }
+            } catch {
+                // Graceful fallback — profile may not exist yet
+            } finally {
+                setLoadingProfile(false)
+            }
+        }
+        if (session) fetchProfile()
+    }, [session])
 
     async function handleSave() {
         setIsLoading(true)
-        // Simulate API call
-        await new Promise((r) => setTimeout(r, 1000))
-        toast.success('Profile updated successfully!')
-        setIsLoading(false)
+        try {
+            const token = (session as any)?.accessToken
+            const res = await fetch(`${API_URL}/api/v1/users/me/profile`, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${token}`,
+                },
+                body: JSON.stringify({
+                    business_name: profile.businessName,
+                    bio: profile.bio,
+                    phone: profile.phone,
+                    website: profile.website,
+                    service_areas: profile.serviceAreas,
+                }),
+            })
+            if (res.ok) {
+                toast.success('Profile updated successfully!')
+            } else {
+                toast.error('Failed to update profile')
+            }
+        } catch {
+            toast.error('Failed to connect to server')
+        } finally {
+            setIsLoading(false)
+        }
     }
 
     const tierInfo = {

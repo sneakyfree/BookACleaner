@@ -1,6 +1,7 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { useSession } from 'next-auth/react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import {
@@ -12,8 +13,12 @@ import {
     MapPin,
     DollarSign,
     Briefcase,
+    Loader2,
+    AlertCircle,
 } from 'lucide-react'
 import { addDays, format, startOfWeek, endOfWeek, eachDayOfInterval, isSameDay, isToday } from 'date-fns'
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
 interface Job {
     id: string
@@ -28,58 +33,63 @@ interface Job {
 }
 
 export default function CleanerCalendarPage() {
+    const { data: session } = useSession()
     const [currentDate, setCurrentDate] = useState(new Date())
     const [view, setView] = useState<'week' | 'month'>('week')
     const [selectedDate, setSelectedDate] = useState<Date | null>(null)
+    const [jobs, setJobs] = useState<Job[]>([])
+    const [loading, setLoading] = useState(true)
+    const [error, setError] = useState('')
 
     // Get week range
     const weekStart = startOfWeek(currentDate, { weekStartsOn: 0 })
     const weekEnd = endOfWeek(currentDate, { weekStartsOn: 0 })
     const weekDays = eachDayOfInterval({ start: weekStart, end: weekEnd })
 
-    // Mock jobs
-    const jobs: Job[] = [
-        {
-            id: '1',
-            title: 'Deep Clean',
-            client: 'John D.',
-            property: 'Lake House',
-            address: '123 Lake Street',
-            time: '09:00',
-            duration: 3,
-            price: 180,
-            status: 'confirmed',
-        },
-        {
-            id: '2',
-            title: 'Airbnb Turnover',
-            client: 'Sarah M.',
-            property: 'Downtown Condo',
-            address: '456 Main Ave',
-            time: '14:00',
-            duration: 2,
-            price: 120,
-            status: 'confirmed',
-        },
-        {
-            id: '3',
-            title: 'Standard Clean',
-            client: 'Mike R.',
-            property: 'Beach Cottage',
-            address: '789 Ocean Dr',
-            time: '10:00',
-            duration: 2,
-            price: 100,
-            status: 'pending',
-        },
-    ]
+    // Fetch jobs from API
+    useEffect(() => {
+        const fetchJobs = async () => {
+            const token = (session as any)?.accessToken
+            if (!token) return
 
-    // Map jobs to days (mock - today + 2 and + 3 days)
-    const jobsByDate: Record<string, Job[]> = {
-        [format(addDays(new Date(), 0), 'yyyy-MM-dd')]: [jobs[0]],
-        [format(addDays(new Date(), 1), 'yyyy-MM-dd')]: [jobs[1]],
-        [format(addDays(new Date(), 3), 'yyyy-MM-dd')]: [jobs[2]],
-    }
+            try {
+                setLoading(true)
+                const res = await fetch(`${API_URL}/api/v1/jobs/`, {
+                    headers: { Authorization: `Bearer ${token}` },
+                })
+                if (!res.ok) throw new Error('Failed to load jobs')
+                const data = await res.json()
+
+                const mapped: Job[] = (Array.isArray(data) ? data : []).map((j: any) => ({
+                    id: j.id,
+                    title: j.title || j.services?.join(', ') || 'Cleaning',
+                    client: j.client_name || j.client?.full_name || 'Client',
+                    property: j.property_name || j.property?.name || 'Property',
+                    address: j.address || j.property?.address || '',
+                    time: j.scheduled_time || '09:00',
+                    duration: j.estimated_hours || 2,
+                    price: j.total_price || 0,
+                    status: j.status === 'confirmed' ? 'confirmed' : 'pending',
+                }))
+                setJobs(mapped)
+            } catch (err: any) {
+                setError(err.message || 'Failed to load calendar')
+            } finally {
+                setLoading(false)
+            }
+        }
+        if (session) fetchJobs()
+    }, [session])
+
+    // Group jobs by date
+    const jobsByDate: Record<string, Job[]> = {}
+    jobs.forEach((job: any) => {
+        const dateKey = job.scheduled_date
+            ? format(new Date(job.scheduled_date), 'yyyy-MM-dd')
+            : format(new Date(), 'yyyy-MM-dd')
+        if (!jobsByDate[dateKey]) jobsByDate[dateKey] = []
+        jobsByDate[dateKey].push(job)
+    })
 
     const hours = Array.from({ length: 12 }, (_, i) => i + 8) // 8 AM to 7 PM
 
@@ -176,8 +186,8 @@ export default function CleanerCalendarPage() {
                                                 <div
                                                     key={job.id}
                                                     className={`text-xs px-2 py-1 rounded ${job.status === 'confirmed'
-                                                            ? 'bg-brand-100 text-brand-700 dark:bg-brand-500/20 dark:text-brand-400'
-                                                            : 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-400'
+                                                        ? 'bg-brand-100 text-brand-700 dark:bg-brand-500/20 dark:text-brand-400'
+                                                        : 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-400'
                                                         }`}
                                                 >
                                                     {job.time.slice(0, 5)} {job.title}
@@ -230,8 +240,8 @@ export default function CleanerCalendarPage() {
                                             <div
                                                 key={job.id}
                                                 className={`absolute left-1 right-1 rounded-lg p-2 text-xs ${job.status === 'confirmed'
-                                                        ? 'bg-brand-500 text-white'
-                                                        : 'bg-amber-400 text-amber-900'
+                                                    ? 'bg-brand-500 text-white'
+                                                    : 'bg-amber-400 text-amber-900'
                                                     }`}
                                                 style={{ top: `${topOffset}px`, height: `${height - 4}px` }}
                                             >
@@ -266,8 +276,8 @@ export default function CleanerCalendarPage() {
                                     >
                                         <div
                                             className={`p-3 rounded-lg ${job.status === 'confirmed'
-                                                    ? 'bg-brand-100 dark:bg-brand-500/20'
-                                                    : 'bg-amber-100 dark:bg-amber-500/20'
+                                                ? 'bg-brand-100 dark:bg-brand-500/20'
+                                                : 'bg-amber-100 dark:bg-amber-500/20'
                                                 }`}
                                         >
                                             <Briefcase
@@ -295,8 +305,8 @@ export default function CleanerCalendarPage() {
                                             <p className="text-lg font-bold text-brand-600">${job.price}</p>
                                             <span
                                                 className={`text-xs px-2 py-0.5 rounded-full ${job.status === 'confirmed'
-                                                        ? 'bg-green-100 text-green-700'
-                                                        : 'bg-amber-100 text-amber-700'
+                                                    ? 'bg-green-100 text-green-700'
+                                                    : 'bg-amber-100 text-amber-700'
                                                     }`}
                                             >
                                                 {job.status}

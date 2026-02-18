@@ -189,6 +189,58 @@ async def login(data: LoginRequest, db = Depends(get_db)):
     )
 
 
+class RefreshTokenRequest(BaseModel):
+    access_token: str
+
+
+@router.post("/refresh")
+async def refresh_token(data: RefreshTokenRequest, db = Depends(get_db)):
+    """Refresh an access token. Accepts a (possibly expired) access token and
+    returns a new one if the underlying user is still valid."""
+    try:
+        # Decode token, allowing expired tokens so refresh works even if slightly past expiry
+        payload = jwt.decode(
+            data.access_token,
+            settings.jwt_secret,
+            algorithms=[settings.jwt_algorithm],
+            options={"verify_exp": False},
+        )
+    except JWTError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token",
+        )
+
+    user_id = payload.get("sub")
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token payload",
+        )
+
+    # Verify user still exists
+    user = await db.user.find_unique(where={"id": user_id})
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not found",
+        )
+
+    # Issue fresh access token
+    new_access_token = create_access_token({"sub": user["id"], "role": user["role"]})
+
+    return {
+        "access_token": new_access_token,
+        "token_type": "bearer",
+        "expires_in": settings.access_token_expire_minutes * 60,
+        "user": {
+            "id": user["id"],
+            "email": user["email"],
+            "role": user["role"],
+        },
+    }
+
+
 @router.post("/verify-email")
 async def verify_email(data: VerifyEmailRequest, db = Depends(get_db)):
     """Verify email with token"""

@@ -64,23 +64,20 @@ export default function PaymentsPage() {
                     setEarnings(await earningsRes.json())
                 }
 
-                // Mock payouts for now
-                setPayouts([
-                    {
-                        id: '1',
-                        amount: 150.00,
-                        status: 'completed',
-                        createdAt: new Date(Date.now() - 86400000).toISOString(),
-                        jobTitle: 'Deep Clean - Smith Residence',
-                    },
-                    {
-                        id: '2',
-                        amount: 85.00,
-                        status: 'completed',
-                        createdAt: new Date(Date.now() - 86400000 * 3).toISOString(),
-                        jobTitle: 'Standard Clean - Johnson Home',
-                    },
-                ])
+                // Fetch real payout history
+                try {
+                    const payoutsRes = await fetch(`${API_URL}/api/v1/payments/payouts/`, {
+                        headers: { Authorization: `Bearer ${(session as any)?.accessToken}` },
+                    })
+                    if (payoutsRes.ok) {
+                        const payoutsData = await payoutsRes.json()
+                        setPayouts(Array.isArray(payoutsData) ? payoutsData : [])
+                    } else {
+                        setPayouts([]) // Endpoint may not exist yet — graceful fallback
+                    }
+                } catch {
+                    setPayouts([])
+                }
             } catch (error) {
                 console.error('Failed to fetch payment data:', error)
             } finally {
