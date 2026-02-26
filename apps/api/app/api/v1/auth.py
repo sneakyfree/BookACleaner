@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Header
 from pydantic import BaseModel, EmailStr
 import bcrypt
 from datetime import datetime, timedelta
@@ -407,7 +407,7 @@ async def reset_password(data: ResetPasswordRequest, db = Depends(get_db)):
 
 
 @router.get("/me")
-async def get_current_user(authorization: str = None, db = Depends(get_db)):
+async def get_current_user(authorization: str = Header(None), db = Depends(get_db)):
     """Get current authenticated user"""
     
     if not authorization or not authorization.startswith("Bearer "):

@@ -313,3 +313,92 @@ async def check_badges_after_review(review_id: str, db=Depends(get_db)):
         logger.error(f"Badge evaluation failed: {e}")
         return {"badges_awarded": [], "error": str(e)}
 
+
+class FlagReviewRequest(BaseModel):
+    reason: str  # inappropriate, fake, spam, other
+
+
+@router.post("/{review_id}/flag")
+async def flag_review(
+    review_id: str,
+    data: FlagReviewRequest,
+    user=Depends(get_current_user),
+    db=Depends(get_db),
+):
+    """Flag a review for moderation"""
+    review = await db.review.find_unique(where={"id": review_id})
+    if not review:
+        raise HTTPException(status_code=404, detail="Review not found")
+
+    # Create flagged content entry
+    flagged = await db.flagged_content.create(data={
+        "content_type": "review",
+        "content_id": review_id,
+        "flagged_by": user["id"],
+        "reason": data.reason,
+        "status": "pending",
+    })
+
+    return {"message": "Review flagged for moderation", "flag_id": flagged.get("id")}
+
+
+@router.get("/stats/{cleaner_id}")
+async def get_review_stats(cleaner_id: str, db=Depends(get_db)):
+    """Get computed aggregate review stats for a cleaner"""
+
+    cleaner = await db.cleaner.find_unique(where={"id": cleaner_id})
+    if not cleaner:
+        raise HTTPException(status_code=404, detail="Cleaner not found")
+
+    # Get all jobs for this cleaner
+    jobs = await db.job.find_many(where={"cleaner_id": cleaner_id})
+    job_ids = {j["id"] for j in jobs}
+
+    # Get all reviews for those jobs
+    all_reviews = await db.review.find_many()
+    reviews = [r for r in all_reviews if r.get("job_id") in job_ids]
+
+    if not reviews:
+        return {
+            "cleaner_id": cleaner_id,
+            "total_reviews": 0,
+            "average_rating": 0,
+            "satisfaction_rate": 0,
+            "rating_breakdown": {1: 0, 2: 0, 3: 0, 4: 0, 5: 0},
+            "sub_ratings": {
+                "cleanliness": 0,
+                "communication": 0,
+                "timeliness": 0,
+            },
+        }
+
+    # Compute stats
+    ratings = [r.get("overall_rating", 0) for r in reviews]
+    avg_rating = round(sum(ratings) / len(ratings), 2)
+
+    breakdown = {1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
+    for r in ratings:
+        if r in breakdown:
+            breakdown[r] += 1
+
+    satisfied = len([r for r in ratings if r >= 4])
+    satisfaction_rate = round((satisfied / len(ratings)) * 100, 1)
+
+    # Sub-ratings
+    clean_ratings = [r.get("cleanliness_rating") for r in reviews if r.get("cleanliness_rating")]
+    comm_ratings = [r.get("communication_rating") for r in reviews if r.get("communication_rating")]
+    time_ratings = [r.get("timeliness_rating") for r in reviews if r.get("timeliness_rating")]
+
+    return {
+        "cleaner_id": cleaner_id,
+        "total_reviews": len(reviews),
+        "average_rating": avg_rating,
+        "satisfaction_rate": satisfaction_rate,
+        "rating_breakdown": breakdown,
+        "sub_ratings": {
+            "cleanliness": round(sum(clean_ratings) / len(clean_ratings), 2) if clean_ratings else 0,
+            "communication": round(sum(comm_ratings) / len(comm_ratings), 2) if comm_ratings else 0,
+            "timeliness": round(sum(time_ratings) / len(time_ratings), 2) if time_ratings else 0,
+        },
+    }
+

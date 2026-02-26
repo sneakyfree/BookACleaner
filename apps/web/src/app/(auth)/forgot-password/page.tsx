@@ -59,7 +59,7 @@ export default function ForgotPasswordPage() {
                                 If an account exists for <span className="text-white">{email}</span>, you will receive a password reset email shortly.
                             </p>
                             <Link href="/login">
-                                <Button variant="outline" className="border-white/20 text-white hover:bg-white/10">
+                                <Button variant="outline" className="border-white/20 text-white hover:bg-white/10 min-h-[48px] touch-manipulation">
                                     <ArrowLeft className="w-4 h-4 mr-2" />
                                     Back to login
                                 </Button>
@@ -81,14 +81,14 @@ export default function ForgotPasswordPage() {
                                         value={email}
                                         onChange={(e) => setEmail(e.target.value)}
                                         placeholder="you@example.com"
-                                        className="pl-10 bg-white/5 border-white/10 text-white placeholder:text-white/30 focus:border-brand-500"
+                                        className="pl-10 h-12 bg-white/5 border-white/10 text-white placeholder:text-white/30 focus:border-brand-500"
                                     />
                                 </div>
                             </div>
 
                             <Button
                                 type="submit"
-                                className="w-full bg-brand-500 hover:bg-brand-600 text-white"
+                                className="w-full min-h-[48px] bg-brand-500 hover:bg-brand-600 text-white touch-manipulation"
                                 disabled={isLoading}
                             >
                                 {isLoading ? (
@@ -106,7 +106,7 @@ export default function ForgotPasswordPage() {
                     {!isSuccess && (
                         <p className="text-center text-white/60 text-sm">
                             Remember your password?{' '}
-                            <Link href="/login" className="text-brand-400 hover:text-brand-300 transition">
+                            <Link href="/login" className="text-brand-400 hover:text-brand-300 transition py-1 inline-block touch-manipulation">
                                 Sign in
                             </Link>
                         </p>

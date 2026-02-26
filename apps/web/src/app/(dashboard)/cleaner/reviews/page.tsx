@@ -1,71 +1,151 @@
 'use client'
 
-import { useState } from 'react'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { useState, useEffect } from 'react'
+import { useSession } from 'next-auth/react'
+import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import {
     Star,
-    ThumbsUp,
-    ThumbsDown,
     CheckCircle,
-    AlertCircle,
     MessageSquare,
+    Loader2,
+    AlertCircle,
 } from 'lucide-react'
+import { toast } from 'sonner'
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+
+interface ApiReview {
+    id: string
+    job_id: string
+    overall_rating: number
+    cleanliness_rating?: number
+    communication_rating?: number
+    timeliness_rating?: number
+    text?: string | null
+    tags?: string[]
+    photos?: string[]
+    author?: { name: string; avatar?: string } | null
+    response?: string | null
+    responded_at?: string | null
+    created_at?: string
+}
 
 export default function CleanerReviewsPage() {
-    const stats = {
-        overallRating: 4.9,
-        totalReviews: 156,
-        satisfactionRate: 98,
-        breakdown: {
-            5: 142,
-            4: 10,
-            3: 3,
-            2: 1,
-            1: 0,
-        },
+    const { data: session } = useSession()
+    const [reviews, setReviews] = useState<ApiReview[]>([])
+    const [loading, setLoading] = useState(true)
+    const [error, setError] = useState<string | null>(null)
+    const [respondingTo, setRespondingTo] = useState<string | null>(null)
+    const [responseText, setResponseText] = useState('')
+    const [submitting, setSubmitting] = useState(false)
+
+    useEffect(() => {
+        const token = (session as any)?.accessToken
+        if (!token) {
+            setLoading(false)
+            return
+        }
+
+        async function fetchReviews() {
+            try {
+                setError(null)
+                const res = await fetch(`${API_URL}/api/v1/reviews/`, {
+                    headers: {
+                        Authorization: `Bearer ${(session as any)?.accessToken}`,
+                    },
+                })
+                if (!res.ok) throw new Error(`Failed to load reviews (${res.status})`)
+                const data = await res.json()
+                setReviews(data.reviews || [])
+            } catch (err) {
+                console.error('Failed to fetch reviews:', err)
+                setError(err instanceof Error ? err.message : 'Failed to load reviews')
+            } finally {
+                setLoading(false)
+            }
+        }
+
+        fetchReviews()
+    }, [session])
+
+    // ── Computed stats ──────────────────────────────────────────────
+    const totalReviews = reviews.length
+    const overallRating =
+        totalReviews > 0
+            ? +(reviews.reduce((s, r) => s + (r.overall_rating || 0), 0) / totalReviews).toFixed(1)
+            : 0
+    const breakdown: Record<number, number> = { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 }
+    reviews.forEach((r) => {
+        const rating = r.overall_rating
+        if (rating >= 1 && rating <= 5) breakdown[rating]++
+    })
+    const satisfactionRate =
+        totalReviews > 0
+            ? Math.round(((breakdown[4] + breakdown[5]) / totalReviews) * 100)
+            : 0
+
+    // ── Respond handler ─────────────────────────────────────────────
+    const handleRespond = async (reviewId: string) => {
+        if (!responseText.trim()) {
+            toast.error('Please write a response')
+            return
+        }
+        setSubmitting(true)
+        try {
+            const res = await fetch(`${API_URL}/api/v1/reviews/${reviewId}/respond`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${(session as any)?.accessToken}`,
+                },
+                body: JSON.stringify({ response: responseText }),
+            })
+            if (!res.ok) {
+                const err = await res.json()
+                throw new Error(err.detail || 'Failed to post response')
+            }
+            const updated = await res.json()
+            setReviews((prev) =>
+                prev.map((r) =>
+                    r.id === reviewId
+                        ? { ...r, response: updated.response || responseText, responded_at: new Date().toISOString() }
+                        : r
+                )
+            )
+            toast.success('Response posted!')
+            setRespondingTo(null)
+            setResponseText('')
+        } catch (err) {
+            toast.error(err instanceof Error ? err.message : 'Failed to post response')
+        } finally {
+            setSubmitting(false)
+        }
     }
 
-    const reviews = [
-        {
-            id: '1',
-            client: 'John D.',
-            rating: 5,
-            date: '2 weeks ago',
-            property: 'Lake House',
-            service: 'Deep Clean',
-            text: 'Maria did an amazing job! The house was spotless and she was very professional. Will definitely book again.',
-            tags: ['On Time', 'Thorough', 'Professional'],
-            responded: false,
-        },
-        {
-            id: '2',
-            client: 'Sarah M.',
-            rating: 5,
-            date: '1 month ago',
-            property: 'Downtown Condo',
-            service: 'Airbnb Turnover',
-            text: 'Excellent service. Always on time and very thorough. Been using Maria for my Airbnb turnovers for 6 months now.',
-            tags: ['Quick', 'Reliable', 'Great Communication'],
-            responded: true,
-            response: 'Thank you so much Sarah! It\'s always a pleasure working with you.',
-        },
-        {
-            id: '3',
-            client: 'Mike R.',
-            rating: 4,
-            date: '2 months ago',
-            property: 'Beach Cottage',
-            service: 'Standard Clean',
-            text: 'Good cleaning overall. A couple small spots were missed but overall very happy with the service.',
-            tags: ['Good Value'],
-            responded: false,
-        },
-    ]
+    // ── Loading / Error ─────────────────────────────────────────────
+    if (loading) {
+        return (
+            <div className="flex items-center justify-center min-h-[50vh]">
+                <Loader2 className="w-8 h-8 animate-spin text-brand-600" />
+            </div>
+        )
+    }
 
-    const [respondingTo, setRespondingTo] = useState<string | null>(null)
-    const [response, setResponse] = useState('')
+    if (error) {
+        return (
+            <Card>
+                <CardContent className="py-12 text-center">
+                    <AlertCircle className="w-12 h-12 mx-auto text-red-500 mb-4" />
+                    <p className="text-lg font-medium text-red-600">{error}</p>
+                    <Button className="mt-4" onClick={() => window.location.reload()}>
+                        Try Again
+                    </Button>
+                </CardContent>
+            </Card>
+        )
+    }
 
     return (
         <div className="space-y-8">
@@ -80,20 +160,20 @@ export default function CleanerReviewsPage() {
                     <CardContent className="pt-6 text-center">
                         <div className="flex items-center justify-center gap-1 text-3xl font-bold text-amber-500">
                             <Star className="w-8 h-8 fill-current" />
-                            {stats.overallRating}
+                            {overallRating || '—'}
                         </div>
                         <p className="text-sm text-muted-foreground mt-1">Overall Rating</p>
                     </CardContent>
                 </Card>
                 <Card>
                     <CardContent className="pt-6 text-center">
-                        <p className="text-3xl font-bold">{stats.totalReviews}</p>
+                        <p className="text-3xl font-bold">{totalReviews}</p>
                         <p className="text-sm text-muted-foreground mt-1">Total Reviews</p>
                     </CardContent>
                 </Card>
                 <Card>
                     <CardContent className="pt-6 text-center">
-                        <p className="text-3xl font-bold text-green-500">{stats.satisfactionRate}%</p>
+                        <p className="text-3xl font-bold text-green-500">{satisfactionRate}%</p>
                         <p className="text-sm text-muted-foreground mt-1">Satisfaction Rate</p>
                     </CardContent>
                 </Card>
@@ -108,19 +188,30 @@ export default function CleanerReviewsPage() {
                                         <div
                                             className="h-full bg-amber-400"
                                             style={{
-                                                width: `${(stats.breakdown[star as keyof typeof stats.breakdown] / stats.totalReviews) * 100}%`,
+                                                width: totalReviews > 0 ? `${(breakdown[star] / totalReviews) * 100}%` : '0%',
                                             }}
                                         />
                                     </div>
-                                    <span className="w-8 text-muted-foreground">
-                                        {stats.breakdown[star as keyof typeof stats.breakdown]}
-                                    </span>
+                                    <span className="w-8 text-muted-foreground">{breakdown[star]}</span>
                                 </div>
                             ))}
                         </div>
                     </CardContent>
                 </Card>
             </div>
+
+            {/* Empty State */}
+            {totalReviews === 0 && (
+                <Card>
+                    <CardContent className="py-12 text-center">
+                        <Star className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
+                        <p className="text-lg font-medium">No reviews yet</p>
+                        <p className="text-muted-foreground mt-1">
+                            Complete jobs to start receiving reviews from clients.
+                        </p>
+                    </CardContent>
+                </Card>
+            )}
 
             {/* Reviews List */}
             <div className="space-y-4">
@@ -130,26 +221,34 @@ export default function CleanerReviewsPage() {
                             <div className="flex items-start justify-between">
                                 <div className="flex gap-4">
                                     <div className="w-12 h-12 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center flex-shrink-0">
-                                        <span className="text-lg font-semibold">{review.client[0]}</span>
+                                        <span className="text-lg font-semibold">
+                                            {(review.author?.name || 'A')[0]}
+                                        </span>
                                     </div>
                                     <div>
                                         <div className="flex items-center gap-3">
-                                            <p className="font-semibold">{review.client}</p>
+                                            <p className="font-semibold">{review.author?.name || 'Anonymous'}</p>
                                             <div className="flex text-amber-400">
                                                 {[...Array(5)].map((_, i) => (
                                                     <Star
                                                         key={i}
-                                                        className={`w-4 h-4 ${i < review.rating ? 'fill-current' : 'text-slate-200'}`}
+                                                        className={`w-4 h-4 ${i < review.overall_rating ? 'fill-current' : 'text-slate-200'}`}
                                                     />
                                                 ))}
                                             </div>
                                         </div>
                                         <p className="text-sm text-muted-foreground">
-                                            {review.service} at {review.property} • {review.date}
+                                            {review.created_at
+                                                ? new Date(review.created_at).toLocaleDateString('en-US', {
+                                                    month: 'short',
+                                                    day: 'numeric',
+                                                    year: 'numeric',
+                                                })
+                                                : ''}
                                         </p>
                                     </div>
                                 </div>
-                                {!review.responded && (
+                                {!review.response && (
                                     <Button
                                         variant="outline"
                                         size="sm"
@@ -161,23 +260,25 @@ export default function CleanerReviewsPage() {
                                 )}
                             </div>
 
-                            <p className="mt-4 text-muted-foreground">{review.text}</p>
+                            {review.text && <p className="mt-4 text-muted-foreground">{review.text}</p>}
 
                             {/* Tags */}
-                            <div className="flex flex-wrap gap-2 mt-4">
-                                {review.tags.map((tag) => (
-                                    <span
-                                        key={tag}
-                                        className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-green-50 dark:bg-green-500/10 text-green-700 dark:text-green-400 text-xs"
-                                    >
-                                        <CheckCircle className="w-3 h-3" />
-                                        {tag}
-                                    </span>
-                                ))}
-                            </div>
+                            {review.tags && review.tags.length > 0 && (
+                                <div className="flex flex-wrap gap-2 mt-4">
+                                    {review.tags.map((tag) => (
+                                        <span
+                                            key={tag}
+                                            className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-green-50 dark:bg-green-500/10 text-green-700 dark:text-green-400 text-xs"
+                                        >
+                                            <CheckCircle className="w-3 h-3" />
+                                            {tag}
+                                        </span>
+                                    ))}
+                                </div>
+                            )}
 
-                            {/* Owner Response */}
-                            {review.responded && review.response && (
+                            {/* Existing Response */}
+                            {review.response && (
                                 <div className="mt-4 p-4 rounded-xl bg-brand-50 dark:bg-brand-500/10 border-l-4 border-brand-500">
                                     <p className="text-sm font-medium text-brand-700 dark:text-brand-400 mb-1">
                                         Your Response
@@ -191,8 +292,8 @@ export default function CleanerReviewsPage() {
                                 <div className="mt-4 p-4 rounded-xl bg-slate-50 dark:bg-slate-800/50">
                                     <p className="text-sm font-medium mb-2">Write your response:</p>
                                     <Textarea
-                                        value={response}
-                                        onChange={(e) => setResponse(e.target.value)}
+                                        value={responseText}
+                                        onChange={(e) => setResponseText(e.target.value)}
                                         placeholder="Thank the client and address any concerns..."
                                         rows={3}
                                     />
@@ -200,12 +301,10 @@ export default function CleanerReviewsPage() {
                                         <Button
                                             size="sm"
                                             className="bg-brand-500 hover:bg-brand-600"
-                                            onClick={() => {
-                                                // Would save response
-                                                setRespondingTo(null)
-                                                setResponse('')
-                                            }}
+                                            disabled={submitting}
+                                            onClick={() => handleRespond(review.id)}
                                         >
+                                            {submitting && <Loader2 className="w-3 h-3 mr-1 animate-spin" />}
                                             Post Response
                                         </Button>
                                         <Button
@@ -213,7 +312,7 @@ export default function CleanerReviewsPage() {
                                             size="sm"
                                             onClick={() => {
                                                 setRespondingTo(null)
-                                                setResponse('')
+                                                setResponseText('')
                                             }}
                                         >
                                             Cancel

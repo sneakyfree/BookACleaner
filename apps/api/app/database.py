@@ -1,6 +1,7 @@
 """
 Database module for BookACleaner.ai
-Uses SQLite with SQLAlchemy for persistent storage
+Uses PostgreSQL with SQLAlchemy for persistent storage
+Falls back to SQLite only in DEV_MODE when no DATABASE_URL is set
 """
 import logging
 import os
@@ -19,20 +20,36 @@ from app.models import (
     Verification, Certification, PasswordReset, EmailVerification,
     PhoneVerification, Notification, Bid, Dispute, Badge,
     UserBadge, Subscription, FlaggedContent, FeedItem,
-    ApprovalQueueItem, SponsoredListing
+    ApprovalQueueItem, SponsoredListing, ServiceAgreement
 )
 
 logger = logging.getLogger(__name__)
 
 # Database configuration
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./bookacleaner.db")
+# Priority: DATABASE_URL env var > PostgreSQL default > SQLite fallback (dev only)
+_DEV_MODE = os.getenv("DEV_MODE", "true").lower() == "true"
+_DEFAULT_DB = "sqlite+aiosqlite:///./bookacleaner.db" if _DEV_MODE else "postgresql+asyncpg://bookacleaner:password@localhost:5432/bookacleaner"
+DATABASE_URL = os.getenv("DATABASE_URL", _DEFAULT_DB)
 
-# Create async engine
-engine = create_async_engine(
-    DATABASE_URL,
-    echo=os.getenv("SQL_ECHO", "false").lower() == "true",
-    future=True
-)
+IS_SQLITE = DATABASE_URL.startswith("sqlite")
+
+# Create async engine with appropriate settings
+_engine_kwargs = {
+    "echo": os.getenv("SQL_ECHO", "false").lower() == "true",
+    "future": True,
+}
+
+# PostgreSQL-specific connection pool settings
+if not IS_SQLITE:
+    _engine_kwargs.update({
+        "pool_size": int(os.getenv("DB_POOL_SIZE", "20")),
+        "max_overflow": int(os.getenv("DB_MAX_OVERFLOW", "10")),
+        "pool_timeout": 30,
+        "pool_recycle": 1800,  # Recycle connections every 30 min
+        "pool_pre_ping": True,  # Verify connections before use
+    })
+
+engine = create_async_engine(DATABASE_URL, **_engine_kwargs)
 
 # Create async session factory
 async_session_factory = async_sessionmaker(
@@ -392,6 +409,10 @@ class Database:
     @property
     def sponsored_listing(self):
         return TableAccessor(self, SponsoredListing)
+
+    @property
+    def service_agreement(self):
+        return TableAccessor(self, ServiceAgreement)
 
 
 class TableAccessor:

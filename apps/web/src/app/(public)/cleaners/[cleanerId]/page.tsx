@@ -1,10 +1,11 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import AdSlot from '@/components/ads/AdSlot'
 import {
     Star,
     Shield,
@@ -17,12 +18,14 @@ import {
     Award,
     TrendingUp,
     ThumbsUp,
-    Camera,
     ArrowLeft,
-    Sparkles,
+    Loader2,
+    AlertCircle,
 } from 'lucide-react'
 
-const tierColors = {
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+
+const tierColors: Record<number, string> = {
     1: 'bg-gray-500',
     2: 'bg-blue-500',
     3: 'bg-green-500',
@@ -30,7 +33,7 @@ const tierColors = {
     5: 'bg-purple-500',
 }
 
-const tierNames = {
+const tierNames: Record<number, string> = {
     1: 'Starter',
     2: 'Verified',
     3: 'Professional',
@@ -38,51 +41,98 @@ const tierNames = {
     5: 'Elite',
 }
 
+interface CleanerProfile {
+    id: string
+    businessName: string
+    name?: string
+    bio?: string
+    profilePhoto?: string | null
+    verificationTier: number
+    overallRating: number
+    totalReviews: number
+    completedJobs: number
+    hourlyRate?: number
+    services: string[]
+    serviceAreas: string[]
+    onTimeRate: number
+    repeatClientRate: number
+}
+
+interface ReviewItem {
+    id: string
+    overall_rating: number
+    text?: string
+    created_at?: string
+    author?: { name: string; avatar?: string } | null
+}
+
 export default function CleanerProfilePage() {
     const params = useParams()
     const cleanerId = params.cleanerId as string
 
-    // Mock cleaner data
-    const cleaner = {
-        id: cleanerId,
-        businessName: "Maria's Cleaning Service",
-        bio: 'Professional cleaning services with over 10 years of experience. Specializing in residential cleaning, Airbnb turnovers, and deep cleaning. We use eco-friendly products and take pride in delivering spotless results every time.',
-        profilePhoto: null,
-        verificationTier: 4,
-        overallRating: 4.9,
-        totalReviews: 156,
-        responseTime: 15,
-        jobsCompleted: 423,
-        repeatClientRate: 68,
-        onTimeRate: 99,
-        memberSince: '2022',
-        serviceAreas: ['Austin, TX', 'Round Rock, TX', 'Cedar Park, TX'],
-        services: [
-            { name: 'Standard Clean', price: 100, description: 'Regular cleaning with dusting, vacuuming, mopping' },
-            { name: 'Deep Clean', price: 180, description: 'Thorough cleaning including inside appliances' },
-            { name: 'Airbnb Turnover', price: 120, description: 'Quick turnaround for guest changeovers' },
-            { name: 'Move In/Out', price: 250, description: 'Complete cleaning for empty properties' },
-        ],
-        certifications: ['IICRC Certified', 'EPA Lead-Safe Certified'],
-        badges: ['Top Rated', 'Fast Response', 'Eco-Friendly', 'Background Checked'],
-        reviews: [
-            {
-                id: '1',
-                author: 'John D.',
-                rating: 5,
-                date: '2 weeks ago',
-                text: 'Maria did an amazing job! The house was spotless and she was very professional. Highly recommend!',
-            },
-            {
-                id: '2',
-                author: 'Sarah M.',
-                rating: 5,
-                date: '1 month ago',
-                text: 'Excellent service. Always on time and very thorough. Been using Maria for my Airbnb turnovers for 6 months now.',
-            },
-        ],
-        photos: ['/placeholder1.jpg', '/placeholder2.jpg', '/placeholder3.jpg'],
+    const [cleaner, setCleaner] = useState<CleanerProfile | null>(null)
+    const [reviews, setReviews] = useState<ReviewItem[]>([])
+    const [loading, setLoading] = useState(true)
+    const [error, setError] = useState<string | null>(null)
+
+    useEffect(() => {
+        async function fetchProfile() {
+            try {
+                setError(null)
+
+                // Fetch cleaner profile
+                const profileRes = await fetch(`${API_URL}/api/v1/cleaners/${cleanerId}`)
+                if (!profileRes.ok) throw new Error(`Cleaner not found (${profileRes.status})`)
+                const profileData = await profileRes.json()
+                setCleaner(profileData)
+
+                // Fetch reviews
+                const reviewsRes = await fetch(`${API_URL}/api/v1/cleaners/${cleanerId}/reviews?limit=5`)
+                if (reviewsRes.ok) {
+                    const reviewsData = await reviewsRes.json()
+                    setReviews(reviewsData.reviews || [])
+                }
+            } catch (err) {
+                console.error('Failed to fetch cleaner:', err)
+                setError(err instanceof Error ? err.message : 'Failed to load cleaner profile')
+            } finally {
+                setLoading(false)
+            }
+        }
+
+        if (cleanerId) fetchProfile()
+    }, [cleanerId])
+
+    if (loading) {
+        return (
+            <div className="min-h-screen bg-slate-50 dark:bg-slate-900 flex items-center justify-center">
+                <Loader2 className="w-8 h-8 animate-spin text-brand-600" />
+            </div>
+        )
     }
+
+    if (error || !cleaner) {
+        return (
+            <div className="min-h-screen bg-slate-50 dark:bg-slate-900 flex items-center justify-center">
+                <Card className="max-w-md w-full">
+                    <CardContent className="py-12 text-center">
+                        <AlertCircle className="w-12 h-12 mx-auto text-red-500 mb-4" />
+                        <p className="text-lg font-medium text-red-600">{error || 'Cleaner not found'}</p>
+                        <Link href="/cleaners">
+                            <Button className="mt-4">
+                                <ArrowLeft className="w-4 h-4 mr-2" />
+                                Back to search
+                            </Button>
+                        </Link>
+                    </CardContent>
+                </Card>
+            </div>
+        )
+    }
+
+    const displayName = cleaner.businessName || cleaner.name || 'Cleaner'
+    const tier = cleaner.verificationTier || 1
+    const startingPrice = cleaner.hourlyRate || 100
 
     return (
         <div className="min-h-screen bg-slate-50 dark:bg-slate-900">
@@ -104,55 +154,40 @@ export default function CleanerProfilePage() {
                         <Card>
                             <CardContent className="p-6">
                                 <div className="flex flex-col md:flex-row gap-6">
-                                    {/* Photo */}
-                                    <div className="w-32 h-32 rounded-2xl bg-brand-100 dark:bg-brand-500/20 flex items-center justify-center flex-shrink-0">
-                                        <span className="text-4xl font-bold text-brand-600">
-                                            {cleaner.businessName[0]}
-                                        </span>
+                                    <div className="w-32 h-32 rounded-2xl bg-brand-100 dark:bg-brand-500/20 flex items-center justify-center flex-shrink-0 overflow-hidden">
+                                        {cleaner.profilePhoto ? (
+                                            <img src={cleaner.profilePhoto} alt={displayName} className="w-full h-full object-cover" />
+                                        ) : (
+                                            <span className="text-4xl font-bold text-brand-600">
+                                                {displayName[0]}
+                                            </span>
+                                        )}
                                     </div>
-
-                                    {/* Info */}
                                     <div className="flex-1">
                                         <div className="flex items-start justify-between">
                                             <div>
                                                 <div className="flex items-center gap-3">
-                                                    <h1 className="text-2xl font-bold">{cleaner.businessName}</h1>
-                                                    <span
-                                                        className={`px-3 py-1 rounded-full text-sm font-medium text-white ${tierColors[cleaner.verificationTier as keyof typeof tierColors]
-                                                            }`}
-                                                    >
-                                                        {tierNames[cleaner.verificationTier as keyof typeof tierNames]}
+                                                    <h1 className="text-2xl font-bold">{displayName}</h1>
+                                                    <span className={`px-3 py-1 rounded-full text-sm font-medium text-white ${tierColors[tier] || tierColors[1]}`}>
+                                                        {tierNames[tier] || tierNames[1]}
                                                     </span>
                                                 </div>
                                                 <div className="flex items-center gap-4 mt-2">
                                                     <span className="flex items-center text-amber-500">
                                                         <Star className="w-5 h-5 fill-current mr-1" />
-                                                        <span className="font-semibold">{cleaner.overallRating}</span>
+                                                        <span className="font-semibold">{cleaner.overallRating || '—'}</span>
                                                     </span>
                                                     <span className="text-muted-foreground">
-                                                        {cleaner.totalReviews} reviews
+                                                        {cleaner.totalReviews} review{cleaner.totalReviews !== 1 ? 's' : ''}
                                                     </span>
                                                     <span className="text-muted-foreground">
-                                                        {cleaner.jobsCompleted} jobs
+                                                        {cleaner.completedJobs} jobs
                                                     </span>
                                                 </div>
                                             </div>
                                         </div>
 
-                                        <p className="mt-4 text-muted-foreground">{cleaner.bio}</p>
-
-                                        {/* Badges */}
-                                        <div className="flex flex-wrap gap-2 mt-4">
-                                            {cleaner.badges.map((badge) => (
-                                                <span
-                                                    key={badge}
-                                                    className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-brand-50 dark:bg-brand-500/10 text-brand-700 dark:text-brand-400 text-sm"
-                                                >
-                                                    <CheckCircle className="w-3 h-3" />
-                                                    {badge}
-                                                </span>
-                                            ))}
-                                        </div>
+                                        {cleaner.bio && <p className="mt-4 text-muted-foreground">{cleaner.bio}</p>}
                                     </div>
                                 </div>
                             </CardContent>
@@ -162,9 +197,9 @@ export default function CleanerProfilePage() {
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                             <Card>
                                 <CardContent className="p-4 text-center">
-                                    <Clock className="w-6 h-6 mx-auto text-brand-500 mb-2" />
-                                    <p className="text-2xl font-bold">{cleaner.responseTime}m</p>
-                                    <p className="text-xs text-muted-foreground">Response Time</p>
+                                    <Star className="w-6 h-6 mx-auto text-amber-500 mb-2" />
+                                    <p className="text-2xl font-bold">{cleaner.overallRating || '—'}</p>
+                                    <p className="text-xs text-muted-foreground">Rating</p>
                                 </CardContent>
                             </Card>
                             <Card>
@@ -184,70 +219,77 @@ export default function CleanerProfilePage() {
                             <Card>
                                 <CardContent className="p-4 text-center">
                                     <Calendar className="w-6 h-6 mx-auto text-purple-500 mb-2" />
-                                    <p className="text-2xl font-bold">{cleaner.memberSince}</p>
-                                    <p className="text-xs text-muted-foreground">Member Since</p>
+                                    <p className="text-2xl font-bold">{cleaner.completedJobs}</p>
+                                    <p className="text-xs text-muted-foreground">Jobs Done</p>
                                 </CardContent>
                             </Card>
                         </div>
 
                         {/* Services */}
-                        <Card>
-                            <CardHeader>
-                                <CardTitle>Services Offered</CardTitle>
-                            </CardHeader>
-                            <CardContent>
-                                <div className="space-y-4">
-                                    {cleaner.services.map((service) => (
-                                        <div
-                                            key={service.name}
-                                            className="flex items-center justify-between p-4 rounded-xl bg-slate-50 dark:bg-slate-800/50"
-                                        >
-                                            <div>
-                                                <p className="font-medium">{service.name}</p>
-                                                <p className="text-sm text-muted-foreground">{service.description}</p>
-                                            </div>
-                                            <div className="text-right">
-                                                <p className="text-lg font-semibold">${service.price}</p>
-                                                <p className="text-xs text-muted-foreground">starting</p>
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
-                            </CardContent>
-                        </Card>
+                        {cleaner.services.length > 0 && (
+                            <Card>
+                                <CardHeader>
+                                    <CardTitle>Services Offered</CardTitle>
+                                </CardHeader>
+                                <CardContent>
+                                    <div className="flex flex-wrap gap-2">
+                                        {cleaner.services.map((service) => (
+                                            <span
+                                                key={service}
+                                                className="px-3 py-2 rounded-lg bg-slate-50 dark:bg-slate-800/50 border text-sm font-medium"
+                                            >
+                                                {service}
+                                            </span>
+                                        ))}
+                                    </div>
+                                </CardContent>
+                            </Card>
+                        )}
 
                         {/* Reviews */}
                         <Card>
                             <CardHeader className="flex flex-row items-center justify-between">
-                                <CardTitle>Reviews</CardTitle>
-                                <Button variant="ghost" size="sm">
-                                    See all <ChevronRight className="w-4 h-4 ml-1" />
-                                </Button>
+                                <CardTitle>Reviews ({cleaner.totalReviews})</CardTitle>
                             </CardHeader>
                             <CardContent>
-                                <div className="space-y-6">
-                                    {cleaner.reviews.map((review) => (
-                                        <div key={review.id} className="border-b pb-6 last:border-0 last:pb-0">
-                                            <div className="flex items-center justify-between mb-2">
-                                                <div className="flex items-center gap-2">
-                                                    <div className="w-10 h-10 rounded-full bg-slate-200 dark:bg-slate-700 flex items-center justify-center">
-                                                        {review.author[0]}
+                                {reviews.length === 0 ? (
+                                    <p className="text-muted-foreground text-center py-6">No reviews yet</p>
+                                ) : (
+                                    <div className="space-y-6">
+                                        {reviews.map((review) => (
+                                            <div key={review.id} className="border-b pb-6 last:border-0 last:pb-0">
+                                                <div className="flex items-center justify-between mb-2">
+                                                    <div className="flex items-center gap-2">
+                                                        <div className="w-10 h-10 rounded-full bg-slate-200 dark:bg-slate-700 flex items-center justify-center">
+                                                            {(review.author?.name || 'A')[0]}
+                                                        </div>
+                                                        <div>
+                                                            <p className="font-medium">{review.author?.name || 'Anonymous'}</p>
+                                                            <p className="text-xs text-muted-foreground">
+                                                                {review.created_at
+                                                                    ? new Date(review.created_at).toLocaleDateString('en-US', {
+                                                                        month: 'short',
+                                                                        day: 'numeric',
+                                                                        year: 'numeric',
+                                                                    })
+                                                                    : ''}
+                                                            </p>
+                                                        </div>
                                                     </div>
-                                                    <div>
-                                                        <p className="font-medium">{review.author}</p>
-                                                        <p className="text-xs text-muted-foreground">{review.date}</p>
+                                                    <div className="flex items-center text-amber-500">
+                                                        {[...Array(5)].map((_, i) => (
+                                                            <Star
+                                                                key={i}
+                                                                className={`w-4 h-4 ${i < review.overall_rating ? 'fill-current' : 'text-slate-200'}`}
+                                                            />
+                                                        ))}
                                                     </div>
                                                 </div>
-                                                <div className="flex items-center text-amber-500">
-                                                    {[...Array(review.rating)].map((_, i) => (
-                                                        <Star key={i} className="w-4 h-4 fill-current" />
-                                                    ))}
-                                                </div>
+                                                {review.text && <p className="text-muted-foreground">{review.text}</p>}
                                             </div>
-                                            <p className="text-muted-foreground">{review.text}</p>
-                                        </div>
-                                    ))}
-                                </div>
+                                        ))}
+                                    </div>
+                                )}
                             </CardContent>
                         </Card>
                     </div>
@@ -258,8 +300,10 @@ export default function CleanerProfilePage() {
                         <Card className="sticky top-4">
                             <CardContent className="p-6">
                                 <div className="text-center mb-6">
-                                    <p className="text-3xl font-bold">${cleaner.services[0].price}</p>
-                                    <p className="text-muted-foreground">starting price</p>
+                                    <p className="text-3xl font-bold">${startingPrice}</p>
+                                    <p className="text-muted-foreground">
+                                        {cleaner.hourlyRate ? 'per hour' : 'starting price'}
+                                    </p>
                                 </div>
 
                                 <Link href={`/book/${cleaner.id}`}>
@@ -273,11 +317,6 @@ export default function CleanerProfilePage() {
                                     <MessageSquare className="w-5 h-5 mr-2" />
                                     Message
                                 </Button>
-
-                                <p className="text-center text-xs text-muted-foreground mt-4">
-                                    <Clock className="w-3 h-3 inline mr-1" />
-                                    Usually responds within {cleaner.responseTime} minutes
-                                </p>
                             </CardContent>
                         </Card>
 
@@ -291,45 +330,56 @@ export default function CleanerProfilePage() {
                             </CardHeader>
                             <CardContent className="space-y-3">
                                 <div className="flex items-center justify-between">
-                                    <span className="text-sm">Identity Verified</span>
-                                    <CheckCircle className="w-5 h-5 text-green-500" />
+                                    <span className="text-sm">Verification Tier</span>
+                                    <span className={`px-2 py-0.5 rounded-full text-xs text-white ${tierColors[tier]}`}>
+                                        {tierNames[tier]}
+                                    </span>
                                 </div>
-                                <div className="flex items-center justify-between">
-                                    <span className="text-sm">Background Check</span>
-                                    <CheckCircle className="w-5 h-5 text-green-500" />
-                                </div>
-                                <div className="flex items-center justify-between">
-                                    <span className="text-sm">Licensed & Insured</span>
-                                    <CheckCircle className="w-5 h-5 text-green-500" />
-                                </div>
-                                {cleaner.certifications.map((cert) => (
-                                    <div key={cert} className="flex items-center justify-between">
-                                        <span className="text-sm">{cert}</span>
-                                        <Award className="w-5 h-5 text-amber-500" />
+                                {tier >= 2 && (
+                                    <div className="flex items-center justify-between">
+                                        <span className="text-sm">Identity Verified</span>
+                                        <CheckCircle className="w-5 h-5 text-green-500" />
                                     </div>
-                                ))}
+                                )}
+                                {tier >= 3 && (
+                                    <div className="flex items-center justify-between">
+                                        <span className="text-sm">Background Check</span>
+                                        <CheckCircle className="w-5 h-5 text-green-500" />
+                                    </div>
+                                )}
+                                {tier >= 4 && (
+                                    <div className="flex items-center justify-between">
+                                        <span className="text-sm">Licensed & Insured</span>
+                                        <CheckCircle className="w-5 h-5 text-green-500" />
+                                    </div>
+                                )}
                             </CardContent>
                         </Card>
 
                         {/* Service Areas */}
-                        <Card>
-                            <CardHeader>
-                                <CardTitle className="text-base flex items-center gap-2">
-                                    <MapPin className="w-5 h-5 text-brand-500" />
-                                    Service Areas
-                                </CardTitle>
-                            </CardHeader>
-                            <CardContent>
-                                <div className="space-y-2">
-                                    {cleaner.serviceAreas.map((area) => (
-                                        <div key={area} className="flex items-center gap-2 text-sm">
-                                            <CheckCircle className="w-4 h-4 text-brand-500" />
-                                            {area}
-                                        </div>
-                                    ))}
-                                </div>
-                            </CardContent>
-                        </Card>
+                        {cleaner.serviceAreas.length > 0 && (
+                            <Card>
+                                <CardHeader>
+                                    <CardTitle className="text-base flex items-center gap-2">
+                                        <MapPin className="w-5 h-5 text-brand-500" />
+                                        Service Areas
+                                    </CardTitle>
+                                </CardHeader>
+                                <CardContent>
+                                    <div className="space-y-2">
+                                        {cleaner.serviceAreas.map((area) => (
+                                            <div key={area} className="flex items-center gap-2 text-sm">
+                                                <CheckCircle className="w-4 h-4 text-brand-500" />
+                                                {area}
+                                            </div>
+                                        ))}
+                                    </div>
+                                </CardContent>
+                            </Card>
+                        )}
+
+                        {/* Ad Slot */}
+                        <AdSlot format="rectangle" demo />
                     </div>
                 </div>
             </div>

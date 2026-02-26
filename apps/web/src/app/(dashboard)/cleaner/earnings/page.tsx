@@ -25,6 +25,7 @@ interface ApiJob {
     completed_at?: string
     scheduled_date?: string
     client_id?: string
+    client_name?: string
 }
 
 interface Transaction {
@@ -98,7 +99,7 @@ export default function CleanerEarningsPage() {
                             id: job.id,
                             type: 'earning',
                             description: (job.services || []).join(', ') || job.title || 'Cleaning Job',
-                            client: 'Client',
+                            client: job.client_name || 'Client',
                             amount: price,
                             date: jobDate.toLocaleDateString('en-US', {
                                 month: 'short',

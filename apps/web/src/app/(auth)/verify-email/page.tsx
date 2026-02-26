@@ -51,7 +51,7 @@ export default function VerifyEmailPage() {
     }, [token, router])
 
     return (
-        <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
+        <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 px-4">
             <div className="w-full max-w-md p-8">
                 <div className="bg-white/10 backdrop-blur-xl rounded-2xl border border-white/20 p-8 text-center">
                     {status === 'loading' && (
@@ -91,7 +91,7 @@ export default function VerifyEmailPage() {
                             <p className="text-white/60 mb-6">{message}</p>
                             <Link
                                 href="/login"
-                                className="inline-block px-6 py-3 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg font-medium transition-colors"
+                                className="inline-block px-6 py-3 min-h-[48px] bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg font-medium transition-colors touch-manipulation"
                             >
                                 Go to Login
                             </Link>

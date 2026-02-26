@@ -5,39 +5,42 @@ Covers: register, login, verify-email, forgot-password, reset-password, /me.
 """
 import pytest
 from httpx import AsyncClient
-from tests.conftest import register_user, login_user, get_auth_header
+from tests.conftest import register_user, login_user, get_auth_header, _unique
 
 
 # ─── Registration ────────────────────────────────────────────────────
 
 @pytest.mark.asyncio
 async def test_register_client(client: AsyncClient):
-    resp = await register_user(client, "newclient@test.com", "Pass123!", "client")
-    assert resp.status_code == 200
+    email = _unique("regclient")
+    resp = await register_user(client, email, "Pass123!", "client")
+    assert resp.status_code == 200, f"Got {resp.status_code}: {resp.text[:200]}"
     body = resp.json()
     assert body["access_token"]
-    assert body["user"]["email"] == "newclient@test.com"
+    assert body["user"]["email"] == email
     assert body["user"]["role"] == "client"
 
 
 @pytest.mark.asyncio
 async def test_register_cleaner(client: AsyncClient):
-    resp = await register_user(client, "newcleaner@test.com", "Pass123!", "cleaner")
+    email = _unique("regcleaner")
+    resp = await register_user(client, email, "Pass123!", "cleaner")
     assert resp.status_code == 200
     assert resp.json()["user"]["role"] == "cleaner"
 
 
 @pytest.mark.asyncio
 async def test_register_duplicate_email(client: AsyncClient):
-    await register_user(client, "dup@test.com")
-    resp = await register_user(client, "dup@test.com")
+    email = _unique("dup")
+    await register_user(client, email)
+    resp = await register_user(client, email)
     assert resp.status_code == 400
     assert "already registered" in resp.json()["detail"].lower()
 
 
 @pytest.mark.asyncio
 async def test_register_invalid_role(client: AsyncClient):
-    resp = await register_user(client, "badrole@test.com", role="hacker")
+    resp = await register_user(client, _unique("badrole"), role="hacker")
     assert resp.status_code == 400
 
 
@@ -45,22 +48,24 @@ async def test_register_invalid_role(client: AsyncClient):
 
 @pytest.mark.asyncio
 async def test_login_success(client: AsyncClient):
-    await register_user(client, "login@test.com", "Pass123!")
-    resp = await login_user(client, "login@test.com", "Pass123!")
+    email = _unique("login")
+    await register_user(client, email, "Pass123!")
+    resp = await login_user(client, email, "Pass123!")
     assert resp.status_code == 200
     assert resp.json()["access_token"]
 
 
 @pytest.mark.asyncio
 async def test_login_wrong_password(client: AsyncClient):
-    await register_user(client, "wrong@test.com", "Pass123!")
-    resp = await login_user(client, "wrong@test.com", "BadPass!")
+    email = _unique("wrongpw")
+    await register_user(client, email, "Pass123!")
+    resp = await login_user(client, email, "BadPass!")
     assert resp.status_code == 401
 
 
 @pytest.mark.asyncio
 async def test_login_nonexistent_email(client: AsyncClient):
-    resp = await login_user(client, "nobody@test.com", "Pass123!")
+    resp = await login_user(client, _unique("ghost"), "Pass123!")
     assert resp.status_code == 401
 
 
@@ -68,10 +73,11 @@ async def test_login_nonexistent_email(client: AsyncClient):
 
 @pytest.mark.asyncio
 async def test_get_me_authenticated(client: AsyncClient):
-    headers = await get_auth_header(client, "me@test.com")
+    email = _unique("me")
+    headers = await get_auth_header(client, email)
     resp = await client.get("/api/v1/auth/me", headers=headers)
     assert resp.status_code == 200
-    assert resp.json()["email"] == "me@test.com"
+    assert resp.json()["email"] == email
 
 
 @pytest.mark.asyncio

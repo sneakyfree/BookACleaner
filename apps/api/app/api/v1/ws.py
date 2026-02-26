@@ -15,14 +15,25 @@ logger = logging.getLogger(__name__)
 
 async def get_user_from_token(token: str) -> Optional[str]:
     """
-    Validate WebSocket token and return user_id
-    In production, this would validate JWT and return actual user_id
+    Validate WebSocket token and return user_id.
+    Decodes JWT using the same secret/algorithm as the REST API.
+    Returns None for missing, invalid, or expired tokens.
     """
-    # TODO: Implement proper JWT validation
-    # For now, return the token as user_id for development
-    if token:
-        return token
-    return None
+    from jose import jwt, JWTError
+    from app.config import get_settings
+
+    if not token:
+        return None
+
+    settings = get_settings()
+    try:
+        payload = jwt.decode(
+            token, settings.jwt_secret, algorithms=[settings.jwt_algorithm]
+        )
+        user_id = payload.get("sub")
+        return user_id  # None if 'sub' claim is absent
+    except (JWTError, Exception):
+        return None
 
 
 @router.websocket("/ws")

@@ -4,6 +4,7 @@ from typing import Optional
 import io
 
 from app.services.storage import file_upload_service, MAX_FILE_SIZES
+from app.api.deps import get_current_user
 
 router = APIRouter()
 
@@ -24,7 +25,7 @@ class PresignedUploadResponse(BaseModel):
 async def upload_file(
     category: str,
     file: UploadFile = File(...),
-    user_id: str = "test_user"  # TODO: Get from auth
+    user=Depends(get_current_user),
 ):
     """
     Upload a file directly to S3
@@ -36,6 +37,8 @@ async def upload_file(
     - job_photo: Before/after job photos (10MB max)
     - message_attachment: Message attachments (25MB max)
     """
+    user_id = user["id"]
+
     # Validate category
     if category not in MAX_FILE_SIZES:
         raise HTTPException(
@@ -75,12 +78,14 @@ async def upload_file(
 @router.post("/presigned-upload", response_model=PresignedUploadResponse)
 async def get_presigned_upload_url(
     data: PresignedUploadRequest,
-    user_id: str = "test_user"  # TODO: Get from auth
+    user=Depends(get_current_user),
 ):
     """
     Get a presigned URL for direct upload from the frontend.
     This is more efficient for large files as they go directly to S3.
     """
+    user_id = user["id"]
+
     if data.category not in MAX_FILE_SIZES:
         raise HTTPException(
             status_code=400,
@@ -107,11 +112,15 @@ async def get_presigned_upload_url(
 @router.delete("/{key:path}")
 async def delete_file(
     key: str,
-    user_id: str = "test_user"  # TODO: Get from auth
+    user=Depends(get_current_user),
 ):
     """Delete a file from S3"""
-    # TODO: Verify user owns this file
-    
+    user_id = user["id"]
+
+    # Verify user owns this file
+    if f"/{user_id}/" not in key:
+        raise HTTPException(status_code=403, detail="Not authorized to delete this file")
+
     result = await file_upload_service.delete_file(key)
     
     if not result["success"]:
@@ -123,9 +132,15 @@ async def delete_file(
 @router.get("/presigned/{key:path}")
 async def get_presigned_download_url(
     key: str,
-    expires_in: int = 3600
+    expires_in: int = 3600,
+    user=Depends(get_current_user),
 ):
     """Get a temporary presigned URL for downloading a private file"""
+    # Verify user owns this file
+    user_id = user["id"]
+    if f"/{user_id}/" not in key:
+        raise HTTPException(status_code=403, detail="Not authorized to access this file")
+
     result = await file_upload_service.get_presigned_url(key, expires_in)
     
     if not result["success"]:

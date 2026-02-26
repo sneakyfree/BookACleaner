@@ -71,6 +71,11 @@ export default function BookingWizardPage() {
     const [description, setDescription] = useState('')
     const [submitting, setSubmitting] = useState(false)
 
+    // Agreement
+    const [agreementText, setAgreementText] = useState('')
+    const [agreementAccepted, setAgreementAccepted] = useState(false)
+    const [loadingAgreement, setLoadingAgreement] = useState(false)
+
     // Fetch properties
     useEffect(() => {
         const fetchProperties = async () => {
@@ -95,6 +100,17 @@ export default function BookingWizardPage() {
 
         if (session) fetchProperties()
     }, [session])
+
+    // Fetch agreement template when reaching confirm step
+    useEffect(() => {
+        if (step !== 4 || agreementText) return
+        setLoadingAgreement(true)
+        fetch(`${API_URL}/api/v1/agreements/templates/service`)
+            .then(res => res.ok ? res.json() : null)
+            .then(data => { if (data?.content) setAgreementText(data.content) })
+            .catch(() => { })
+            .finally(() => setLoadingAgreement(false))
+    }, [step, agreementText])
 
     // Fetch estimate when services change
     useEffect(() => {
@@ -140,6 +156,10 @@ export default function BookingWizardPage() {
     }
 
     const handleSubmit = async () => {
+        if (!agreementAccepted) {
+            setError('Please accept the service agreement before proceeding')
+            return
+        }
         setSubmitting(true)
         setError('')
 
@@ -169,6 +189,19 @@ export default function BookingWizardPage() {
             }
 
             const job = await res.json()
+
+            // Step 1.5: Record agreement acceptance
+            await fetch(`${API_URL}/api/v1/agreements/`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`,
+                },
+                body: JSON.stringify({
+                    job_id: job.id,
+                    agreement_type: 'service',
+                }),
+            }).catch(() => { /* non-blocking */ })
 
             // Step 2: Create Stripe Payment Intent
             const amountInCents = Math.round((estimate?.total || 100) * 100)
@@ -225,7 +258,7 @@ export default function BookingWizardPage() {
             case 1: return !!selectedProperty
             case 2: return selectedServices.length > 0
             case 3: return !!selectedDate && !!selectedTime
-            case 4: return true
+            case 4: return agreementAccepted
             default: return false
         }
     }
@@ -476,6 +509,22 @@ export default function BookingWizardPage() {
                             )}
                         </div>
 
+                        {/* Escrow Explainer */}
+                        <div className="p-4 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30">
+                            <div className="flex items-start gap-3">
+                                <DollarSign className="w-5 h-5 text-emerald-600 mt-0.5 flex-shrink-0" />
+                                <div>
+                                    <p className="font-medium text-emerald-700 dark:text-emerald-400 text-sm">
+                                        Secure Escrow Payment
+                                    </p>
+                                    <p className="text-xs text-emerald-600 dark:text-emerald-500 mt-1">
+                                        Your payment is held securely until the job is confirmed as complete.
+                                        You can request a refund if the service doesn&apos;t meet expectations.
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+
                         <div>
                             <label className="text-sm font-medium">Special Instructions (optional)</label>
                             <Input
@@ -484,6 +533,35 @@ export default function BookingWizardPage() {
                                 placeholder="Any special notes for the cleaner..."
                                 className="mt-2"
                             />
+                        </div>
+
+                        {/* Service Agreement */}
+                        <div className="border-t pt-6">
+                            <p className="text-sm font-medium mb-3 flex items-center gap-2">
+                                📋 Service Agreement
+                            </p>
+                            {loadingAgreement ? (
+                                <div className="flex items-center justify-center py-4">
+                                    <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+                                </div>
+                            ) : (
+                                <>
+                                    <div className="max-h-48 overflow-y-auto rounded-lg bg-slate-50 dark:bg-slate-800 border p-4 text-xs text-muted-foreground whitespace-pre-wrap mb-3">
+                                        {agreementText || 'By proceeding, you agree to BookACleaner\'s Service Agreement, Cancellation Policy, and Terms of Service.'}
+                                    </div>
+                                    <label className="flex items-start gap-3 cursor-pointer">
+                                        <input
+                                            type="checkbox"
+                                            checked={agreementAccepted}
+                                            onChange={(e) => setAgreementAccepted(e.target.checked)}
+                                            className="mt-1 w-4 h-4 rounded border-slate-300 text-emerald-500 focus:ring-emerald-500"
+                                        />
+                                        <span className="text-sm">
+                                            I have read and accept the <strong>Service Agreement</strong>, <strong>Cancellation Policy</strong>, and <strong>Terms of Service</strong>.
+                                        </span>
+                                    </label>
+                                </>
+                            )}
                         </div>
 
                         {error && (

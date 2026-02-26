@@ -33,16 +33,20 @@ class Settings(BaseSettings):
                 )
         return self
 
-    # Database - default for dev mode
-    database_url: str = "postgresql://localhost:5432/bookacleaner" if not DEV_MODE else "mock://dev"
+    # Database - PostgreSQL via docker-compose; override with DATABASE_URL env var
+    database_url: str = "postgresql+asyncpg://bookacleaner:password@localhost:5432/bookacleaner"
 
     # Redis
     redis_url: str = "redis://localhost:6379"
 
+    # Celery
+    celery_broker_url: str = "redis://localhost:6379/1"
+    celery_result_backend: str = "redis://localhost:6379/2"
+
     # Auth - default secret for dev mode (NEVER use in production!)
     jwt_secret: str = "dev-secret-key-change-in-production-abc123xyz789"
     jwt_algorithm: str = "HS256"
-    access_token_expire_minutes: int = 30
+    access_token_expire_minutes: int = 15
     refresh_token_expire_days: int = 7
 
     # NextAuth

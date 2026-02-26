@@ -1,56 +1,113 @@
 """
 Test configuration for BookACleaner API.
 
-Uses the real FastAPI TestClient against an in-memory SQLite database
-so tests are fast and isolated while exercising the full route stack.
+Uses the real file-based SQLite database via ``db.connect()``.
+Each test gets unique emails to avoid collisions.
+Data is wiped after each test session.
 """
+import uuid
 import pytest
+import bcrypt
 from httpx import AsyncClient, ASGITransport
+
+from app.models import Base, User
 from app.main import app
-from app.database import db
+from app.database import db, engine, async_session_factory
+
+
+_db_initialised = False
 
 
 @pytest.fixture(autouse=True)
-async def setup_db():
-    """Connect (creates tables) before each test, disconnect after."""
-    await db.connect()
+async def _ensure_db():
+    """Ensure DB connected and cleaned once per session."""
+    global _db_initialised
+    if not _db_initialised:
+        if not db.is_connected:
+            await db.connect()
+        # Wipe test data from previous run (one-time)
+        async with engine.begin() as conn:
+            for table in reversed(Base.metadata.sorted_tables):
+                await conn.execute(table.delete())
+        _db_initialised = True
     yield
-    await db.disconnect()
 
 
 @pytest.fixture
 def client():
-    """Provide an async HTTPX test client bound to the FastAPI app."""
+    """Async HTTPX test client."""
     transport = ASGITransport(app=app)
     return AsyncClient(transport=transport, base_url="http://test")
 
 
 # ── helpers ──────────────────────────────────────────────────────────
 
-async def register_user(client: AsyncClient, email: str = "test@example.com",
-                        password: str = "TestPass123!", role: str = "client") -> dict:
-    """Register a user and return the full response JSON."""
-    resp = await client.post("/api/v1/auth/register", json={
+def _unique(prefix: str = "u") -> str:
+    """Return a unique @test.com email for every call."""
+    return f"{prefix}-{uuid.uuid4().hex[:8]}@test.com"
+
+
+async def register_user(
+    client: AsyncClient,
+    email: str | None = None,
+    password: str = "TestPass123!",
+    role: str = "client",
+):
+    if email is None:
+        email = _unique()
+    return await client.post("/api/v1/auth/register", json={
         "email": email,
         "password": password,
         "role": role,
     })
-    return resp
 
 
-async def login_user(client: AsyncClient, email: str = "test@example.com",
-                     password: str = "TestPass123!") -> dict:
-    """Login and return the response."""
-    resp = await client.post("/api/v1/auth/login", json={
+async def login_user(
+    client: AsyncClient,
+    email: str = "test@example.com",
+    password: str = "TestPass123!",
+):
+    return await client.post("/api/v1/auth/login", json={
         "email": email,
         "password": password,
     })
-    return resp
 
 
-async def get_auth_header(client: AsyncClient, email: str = "test@example.com",
-                          password: str = "TestPass123!", role: str = "client") -> dict:
-    """Register → return Authorization header dict."""
+async def get_auth_header(
+    client: AsyncClient,
+    email: str | None = None,
+    password: str = "TestPass123!",
+    role: str = "client",
+) -> dict:
+    """Register → ``{Authorization: Bearer …}``."""
+    if email is None:
+        email = _unique()
     resp = await register_user(client, email, password, role)
-    token = resp.json()["access_token"]
-    return {"Authorization": f"Bearer {token}"}
+    data = resp.json()
+    if "access_token" not in data:
+        raise RuntimeError(f"Register failed ({resp.status_code}): {data}")
+    return {"Authorization": f"Bearer {data['access_token']}"}
+
+
+async def get_admin_auth_header(client: AsyncClient) -> dict:
+    """Seed admin directly in DB (register rejects role=admin), then login."""
+    email = _unique("admin")
+    pw = "AdminPass123!"
+    pw_hash = bcrypt.hashpw(pw.encode(), bcrypt.gensalt()).decode()
+
+    async with async_session_factory() as session:
+        session.add(User(
+            id=str(uuid.uuid4()),
+            email=email,
+            password_hash=pw_hash,
+            role="admin",
+            full_name="Test Admin",
+            is_verified=True,
+        ))
+        await session.commit()
+
+    resp = await login_user(client, email, pw)
+    data = resp.json()
+    if "access_token" not in data:
+        raise RuntimeError(f"Admin login failed ({resp.status_code}): {data}")
+    return {"Authorization": f"Bearer {data['access_token']}"}

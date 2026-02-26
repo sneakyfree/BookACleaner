@@ -1,0 +1,11 @@
+# BookACleaner robots.txt
+User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /admin/
+Disallow: /client/
+Disallow: /cleaner/
+Disallow: /dashboard/
+
+# Sitemaps
+Sitemap: https://bookacleaner.com/sitemap.xml

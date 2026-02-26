@@ -67,7 +67,7 @@ export default function ResetPasswordPage() {
 
     if (!token) {
         return (
-            <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
+            <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 px-4">
                 <div className="w-full max-w-md p-8">
                     <div className="bg-white/10 backdrop-blur-xl rounded-2xl border border-white/20 p-8 text-center">
                         <div className="w-16 h-16 mx-auto mb-6 rounded-full bg-red-500/20 flex items-center justify-center">
@@ -79,7 +79,7 @@ export default function ResetPasswordPage() {
                         <p className="text-white/60 mb-6">This password reset link is invalid or has expired.</p>
                         <Link
                             href="/forgot-password"
-                            className="inline-block px-6 py-3 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg font-medium transition-colors"
+                            className="inline-block px-6 py-3 min-h-[48px] bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg font-medium transition-colors touch-manipulation"
                         >
                             Request New Link
                         </Link>
@@ -90,7 +90,7 @@ export default function ResetPasswordPage() {
     }
 
     return (
-        <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
+        <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 px-4">
             <div className="w-full max-w-md p-8">
                 <div className="bg-white/10 backdrop-blur-xl rounded-2xl border border-white/20 p-8">
                     {status === 'form' && (
@@ -136,7 +136,7 @@ export default function ResetPasswordPage() {
                                 <button
                                     type="submit"
                                     disabled={isLoading}
-                                    className="w-full py-3 bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 text-white rounded-lg font-medium transition-colors"
+                                    className="w-full py-3 min-h-[48px] bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 text-white rounded-lg font-medium transition-colors touch-manipulation"
                                 >
                                     {isLoading ? 'Resetting...' : 'Reset Password'}
                                 </button>
@@ -168,7 +168,7 @@ export default function ResetPasswordPage() {
                             <p className="text-white/60 mb-6">{message}</p>
                             <Link
                                 href="/forgot-password"
-                                className="inline-block px-6 py-3 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg font-medium transition-colors"
+                                className="inline-block px-6 py-3 min-h-[48px] bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg font-medium transition-colors touch-manipulation"
                             >
                                 Request New Link
                             </Link>

@@ -1,0 +1,128 @@
+version: '3.8'
+
+#
+# BookACleaner — Production Docker Compose
+# Usage:  docker compose -f docker-compose.prod.yml up -d
+#
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: bookacleaner-db-prod
+    restart: always
+    environment:
+      POSTGRES_USER: ${DB_USER:-bookacleaner}
+      POSTGRES_PASSWORD: ${DB_PASS:-changeme}
+      POSTGRES_DB: ${DB_NAME:-bookacleaner}
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - postgres_data_prod:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-bookacleaner}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: bookacleaner-redis-prod
+    restart: always
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data_prod:/data
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASS:-changeme}
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASS:-changeme}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+    container_name: bookacleaner-api-prod
+    restart: always
+    ports:
+      - "${API_PORT:-8000}:8000"
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://${DB_USER:-bookacleaner}:${DB_PASS:-changeme}@db:5432/${DB_NAME:-bookacleaner}
+      - REDIS_URL=redis://:${REDIS_PASS:-changeme}@redis:6379
+      - CELERY_BROKER_URL=redis://:${REDIS_PASS:-changeme}@redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://:${REDIS_PASS:-changeme}@redis:6379/2
+      - ENVIRONMENT=production
+      - SECRET_KEY=${SECRET_KEY}
+      - STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY}
+      - STRIPE_WEBHOOK_SECRET=${STRIPE_WEBHOOK_SECRET}
+      - SENDGRID_API_KEY=${SENDGRID_API_KEY}
+      - SENTRY_DSN=${SENTRY_DSN}
+      - FRONTEND_URL=${FRONTEND_URL:-https://bookacleaner.com}
+    command: gunicorn app.main:app -w 4 -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:8000
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  celery-worker:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+    container_name: bookacleaner-celery-prod
+    restart: always
+    command: celery -A app.worker worker --loglevel=info --concurrency=4
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://${DB_USER:-bookacleaner}:${DB_PASS:-changeme}@db:5432/${DB_NAME:-bookacleaner}
+      - REDIS_URL=redis://:${REDIS_PASS:-changeme}@redis:6379
+      - CELERY_BROKER_URL=redis://:${REDIS_PASS:-changeme}@redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://:${REDIS_PASS:-changeme}@redis:6379/2
+      - SENTRY_DSN=${SENTRY_DSN}
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  celery-beat:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+    container_name: bookacleaner-beat-prod
+    restart: always
+    command: celery -A app.worker beat --loglevel=info
+    environment:
+      - CELERY_BROKER_URL=redis://:${REDIS_PASS:-changeme}@redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://:${REDIS_PASS:-changeme}@redis:6379/2
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  web:
+    build:
+      context: ./apps/web
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${API_URL:-http://api:8000}
+        NEXT_PUBLIC_STRIPE_KEY: ${STRIPE_PUBLISHABLE_KEY}
+    container_name: bookacleaner-web-prod
+    restart: always
+    ports:
+      - "${WEB_PORT:-3000}:3000"
+    environment:
+      - NEXTAUTH_URL=${FRONTEND_URL:-https://bookacleaner.com}
+      - NEXTAUTH_SECRET=${NEXTAUTH_SECRET}
+      - NEXT_PUBLIC_API_URL=${API_URL:-http://api:8000}
+      - SENTRY_DSN=${SENTRY_DSN_FRONTEND}
+    depends_on:
+      - api
+
+volumes:
+  postgres_data_prod:
+  redis_data_prod:

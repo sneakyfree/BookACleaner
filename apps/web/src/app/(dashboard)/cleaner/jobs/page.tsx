@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useSession } from 'next-auth/react'
 import Link from 'next/link'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -60,8 +60,12 @@ interface ApiJob {
     total_price: number
     status: string
     client_id?: string
+    client_name?: string
     property_id?: string
+    property_name?: string
+    property_address?: string
     cleaner_id?: string
+    property?: { id: string; name?: string; address?: string }
 }
 
 interface DisplayJob {
@@ -82,6 +86,7 @@ export default function CleanerJobsPage() {
     const [jobs, setJobs] = useState<DisplayJob[]>([])
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
+    const [actionLoading, setActionLoading] = useState<string | null>(null)
 
     const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
@@ -120,10 +125,10 @@ export default function CleanerJobsPage() {
 
                     return {
                         id: job.id,
-                        client: { name: 'Client', rating: 0 },
+                        client: { name: job.client_name || 'Client', rating: 0 },
                         property: {
-                            name: job.title || 'Cleaning Job',
-                            address: job.description || 'Address on file',
+                            name: job.property_name || job.property?.name || job.title || 'Cleaning Job',
+                            address: job.property_address || job.property?.address || job.description || '',
                             sqFt: 0,
                         },
                         services: job.services || [],
@@ -155,6 +160,43 @@ export default function CleanerJobsPage() {
     })
 
     const pendingCount = jobs.filter((j) => j.status === 'pending').length
+
+    const handleJobAction = useCallback(async (jobId: string, action: 'accept' | 'decline' | 'start' | 'complete') => {
+        const token = (session as any)?.accessToken
+        if (!token) return
+
+        setActionLoading(`${jobId}-${action}`)
+        try {
+            const res = await fetch(`${API_URL}/api/v1/jobs/${jobId}/${action}`, {
+                method: 'POST',
+                headers: {
+                    Authorization: `Bearer ${token}`,
+                    'Content-Type': 'application/json',
+                },
+            })
+
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({ detail: 'Action failed' }))
+                throw new Error(err.detail || `Failed to ${action} job`)
+            }
+
+            // Update local state immediately for better UX
+            const statusMap: Record<string, JobStatus> = {
+                accept: 'confirmed',
+                decline: 'pending',
+                start: 'in_progress',
+                complete: 'completed',
+            }
+            setJobs(prev => prev.map(j =>
+                j.id === jobId ? { ...j, status: statusMap[action], isUrgent: false } : j
+            ))
+        } catch (err) {
+            console.error(`Failed to ${action} job:`, err)
+            setError(err instanceof Error ? err.message : `Failed to ${action} job`)
+        } finally {
+            setActionLoading(null)
+        }
+    }, [session, API_URL])
 
     if (loading) {
         return (
@@ -325,21 +367,37 @@ export default function CleanerJobsPage() {
                                 <div className="flex gap-2 mt-4 pt-4 border-t">
                                     {job.status === 'pending' && (
                                         <>
-                                            <Button size="sm" className="bg-brand-500 hover:bg-brand-600">
+                                            <Button
+                                                size="sm"
+                                                className="bg-brand-500 hover:bg-brand-600"
+                                                disabled={actionLoading === `${job.id}-accept`}
+                                                onClick={() => handleJobAction(job.id, 'accept')}
+                                            >
                                                 <CheckCircle className="w-4 h-4 mr-1" />
-                                                Accept
+                                                {actionLoading === `${job.id}-accept` ? 'Accepting...' : 'Accept'}
                                             </Button>
-                                            <Button variant="outline" size="sm" className="text-red-600">
+                                            <Button
+                                                variant="outline"
+                                                size="sm"
+                                                className="text-red-600"
+                                                disabled={actionLoading === `${job.id}-decline`}
+                                                onClick={() => handleJobAction(job.id, 'decline')}
+                                            >
                                                 <XCircle className="w-4 h-4 mr-1" />
-                                                Decline
+                                                {actionLoading === `${job.id}-decline` ? 'Declining...' : 'Decline'}
                                             </Button>
                                         </>
                                     )}
                                     {job.status === 'confirmed' && (
                                         <>
-                                            <Button size="sm" className="bg-brand-500 hover:bg-brand-600">
+                                            <Button
+                                                size="sm"
+                                                className="bg-brand-500 hover:bg-brand-600"
+                                                disabled={actionLoading === `${job.id}-start`}
+                                                onClick={() => handleJobAction(job.id, 'start')}
+                                            >
                                                 <Play className="w-4 h-4 mr-1" />
-                                                Start Job
+                                                {actionLoading === `${job.id}-start` ? 'Starting...' : 'Start Job'}
                                             </Button>
                                             <Button variant="outline" size="sm">
                                                 Get Directions
@@ -347,9 +405,14 @@ export default function CleanerJobsPage() {
                                         </>
                                     )}
                                     {job.status === 'in_progress' && (
-                                        <Button size="sm" className="bg-green-600 hover:bg-green-700">
+                                        <Button
+                                            size="sm"
+                                            className="bg-green-600 hover:bg-green-700"
+                                            disabled={actionLoading === `${job.id}-complete`}
+                                            onClick={() => handleJobAction(job.id, 'complete')}
+                                        >
                                             <CheckCircle className="w-4 h-4 mr-1" />
-                                            Mark Complete
+                                            {actionLoading === `${job.id}-complete` ? 'Completing...' : 'Mark Complete'}
                                         </Button>
                                     )}
                                     <Button variant="outline" size="sm">

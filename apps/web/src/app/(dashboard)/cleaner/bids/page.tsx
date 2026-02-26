@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useSession } from 'next-auth/react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import {
@@ -23,31 +24,31 @@ interface Bid {
 }
 
 export default function MyBidsPage() {
+    const { data: session } = useSession()
     const [bids, setBids] = useState<Bid[]>([])
     const [loading, setLoading] = useState(true)
     const [statusFilter, setStatusFilter] = useState('all')
+    const [error, setError] = useState<string | null>(null)
+
+    const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
     useEffect(() => {
-        fetchBids()
-    }, [statusFilter])
+        if ((session as any)?.accessToken) fetchBids()
+    }, [statusFilter, session])
 
     const fetchBids = async () => {
         try {
-            const token = localStorage.getItem('token')
+            setError(null)
+            const token = (session as any)?.accessToken
             const params = statusFilter !== 'all' ? `?status=${statusFilter}` : ''
-            const res = await fetch(`/api/v1/bids/my-bids${params}`, {
+            const res = await fetch(`${API_URL}/api/v1/bids/my-bids${params}`, {
                 headers: { Authorization: `Bearer ${token}` }
             })
-            if (res.ok) {
-                const data = await res.json()
-                setBids(data.bids || [])
-            }
-        } catch {
-            setBids([
-                { id: 'b1', job_id: 'j1', job_title: 'Deep Clean - 3BR House', amount: 230, message: 'I can start early morning', estimated_hours: 3, status: 'pending', created_at: '2026-02-07T10:00:00Z', job_city: 'Austin, TX', job_scheduled_date: '2026-02-15' },
-                { id: 'b2', job_id: 'j2', job_title: 'Airbnb Turnover', amount: 110, status: 'accepted', created_at: '2026-02-06T14:00:00Z', job_city: 'Austin, TX', job_scheduled_date: '2026-02-16' },
-                { id: 'b3', job_id: 'j3', job_title: 'Office Cleaning', amount: 170, message: 'Weekly availability confirmed', status: 'declined', created_at: '2026-02-05T09:00:00Z', job_city: 'Dallas, TX' },
-            ])
+            if (!res.ok) throw new Error(`Failed to load bids (${res.status})`)
+            const data = await res.json()
+            setBids(data.bids || data || [])
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Failed to load bids')
         } finally {
             setLoading(false)
         }
@@ -55,14 +56,14 @@ export default function MyBidsPage() {
 
     const handleWithdraw = async (bidId: string) => {
         try {
-            const token = localStorage.getItem('token')
-            await fetch(`/api/v1/bids/bids/${bidId}`, {
+            const token = (session as any)?.accessToken
+            await fetch(`${API_URL}/api/v1/bids/bids/${bidId}`, {
                 method: 'DELETE',
                 headers: { Authorization: `Bearer ${token}` }
             })
             fetchBids()
         } catch {
-            // handle error
+            setError('Failed to withdraw bid')
         }
     }
 

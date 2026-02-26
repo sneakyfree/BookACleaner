@@ -17,6 +17,7 @@ import {
     Loader2,
     AlertCircle,
 } from 'lucide-react'
+import { useRealtimeChat } from '@/hooks/use-websocket'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
@@ -82,10 +83,25 @@ export default function ClientMessagesPage() {
     const messagesEndRef = useRef<HTMLDivElement>(null)
     const currentUserId = useRef<string>('')
 
+    // Real-time WebSocket integration
+    const {
+        messages: wsMessages,
+        sendChatMessage,
+        isConnected: wsConnected,
+        clearMessages: clearWsMessages,
+    } = useRealtimeChat(selectedConversation)
+
     const getHeaders = useCallback(() => ({
         Authorization: `Bearer ${(session as any)?.accessToken}`,
         'Content-Type': 'application/json',
     }), [session])
+
+    // Populate current user id from session for WS message comparison
+    useEffect(() => {
+        if ((session as any)?.user?.id) {
+            currentUserId.current = (session as any).user.id
+        }
+    }, [session])
 
     // Fetch conversations
     useEffect(() => {
@@ -189,6 +205,31 @@ export default function ClientMessagesPage() {
         fetchMessages()
     }, [selectedConversation, session])
 
+    // Append incoming WebSocket messages to the list
+    useEffect(() => {
+        if (wsMessages.length === 0) return
+        const latest = wsMessages[wsMessages.length - 1]
+        if (!latest) return
+        const senderId = latest.sender_id || latest.user_id || ''
+        const newMsg: DisplayMessage = {
+            id: latest.message_id || `ws-${Date.now()}`,
+            senderId: senderId === currentUserId.current ? 'me' : 'other',
+            content: latest.content,
+            timestamp: new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
+            read: false,
+        }
+        setMessages((prev: DisplayMessage[]) => {
+            // Avoid duplicates
+            if (prev.some((m: DisplayMessage) => m.id === newMsg.id)) return prev
+            return [...prev, newMsg]
+        })
+    }, [wsMessages])
+
+    // Clear WebSocket message buffer when switching conversations
+    useEffect(() => {
+        clearWsMessages()
+    }, [selectedConversation])
+
     // Auto-scroll to bottom
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -214,6 +255,11 @@ export default function ClientMessagesPage() {
         setMessages((prev) => [...prev, tempMsg])
 
         try {
+            // Also broadcast via WebSocket for real-time delivery
+            if (wsConnected && selectedConversation) {
+                sendChatMessage(selectedConversation, content, tempMsg.id)
+            }
+
             const res = await fetch(`${API_URL}/api/v1/messages/send`, {
                 method: 'POST',
                 headers: getHeaders(),

@@ -1,35 +1,27 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
+import { useSession } from 'next-auth/react'
 import {
     Flag, Eye, Trash2, AlertTriangle, MessageSquare, Star,
-    CheckCircle2, XCircle, Clock, ChevronDown
+    CheckCircle2, XCircle, Clock, ChevronDown, Loader2, AlertCircle
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
-/**
- * Admin Content Moderation Page — G3
- * Review flagged reviews, messages, and feed items
- */
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
 interface FlaggedItem {
     id: string
-    contentType: string
-    contentId: string
-    flaggedBy: string
+    content_type: string
+    content_id: string
+    flagged_by: string
+    flagged_by_name?: string
     reason: string
     details: string
     status: string
-    content: string
-    createdAt: string
+    content?: string
+    created_at: string
 }
-
-const mockFlagged: FlaggedItem[] = [
-    { id: 'fl1', contentType: 'review', contentId: 'r1', flaggedBy: 'user-123', reason: 'spam', details: 'This review is clearly fake and promotional.', status: 'pending', content: 'Best cleaner ever!! Use code DISCOUNT50 for half off at my website!', createdAt: '2026-02-10' },
-    { id: 'fl2', contentType: 'message', contentId: 'm1', flaggedBy: 'user-456', reason: 'harassment', details: 'Aggressive language in messages.', status: 'pending', content: 'You are terrible at your job and I will make sure everyone knows it.', createdAt: '2026-02-09' },
-    { id: 'fl3', contentType: 'review', contentId: 'r2', flaggedBy: 'user-789', reason: 'fraud', details: 'Client never booked this cleaner.', status: 'pending', content: 'Left my house worse than before. Stole my silverware.', createdAt: '2026-02-08' },
-    { id: 'fl4', contentType: 'feed', contentId: 'f1', flaggedBy: 'user-321', reason: 'inappropriate', details: 'Contains offensive language.', status: 'reviewed', content: 'Check out my amazing new cleaning business! [inappropriate content removed]', createdAt: '2026-02-07' },
-]
 
 const reasonColors: Record<string, string> = {
     spam: 'bg-yellow-500/20 text-yellow-400',
@@ -46,13 +38,59 @@ const typeIcons: Record<string, typeof Star> = {
 }
 
 export default function AdminModerationPage() {
-    const [items, setItems] = useState(mockFlagged)
+    const { data: session } = useSession()
+    const [items, setItems] = useState<FlaggedItem[]>([])
+    const [loading, setLoading] = useState(true)
+    const [error, setError] = useState('')
     const [statusFilter, setStatusFilter] = useState<string>('pending')
+    const [actionLoading, setActionLoading] = useState<string | null>(null)
 
-    const filtered = items.filter(i => statusFilter === 'all' || i.status === statusFilter)
+    const fetchFlagged = useCallback(async () => {
+        const token = (session as any)?.accessToken
+        if (!token) return
 
-    const handleAction = (id: string, action: 'removed' | 'dismissed') => {
-        setItems(prev => prev.map(i => i.id === id ? { ...i, status: action } : i))
+        try {
+            setLoading(true)
+            setError('')
+            const params = new URLSearchParams()
+            if (statusFilter !== 'all') params.set('status', statusFilter)
+
+            const res = await fetch(`${API_URL}/api/v1/moderation/flagged?${params}`, {
+                headers: { Authorization: `Bearer ${token}` },
+            })
+            if (!res.ok) throw new Error(`Failed to load flagged content (${res.status})`)
+            const data = await res.json()
+            setItems(data.items || [])
+        } catch (err: any) {
+            setError(err.message || 'Failed to load flagged content')
+        } finally {
+            setLoading(false)
+        }
+    }, [session, statusFilter])
+
+    useEffect(() => {
+        if (session) fetchFlagged()
+    }, [session, fetchFlagged])
+
+    const handleAction = async (id: string, action: 'remove' | 'dismiss') => {
+        const token = (session as any)?.accessToken
+        if (!token) return
+
+        try {
+            setActionLoading(id)
+            const res = await fetch(`${API_URL}/api/v1/moderation/flagged/${id}/review?action=${action}`, {
+                method: 'POST',
+                headers: { Authorization: `Bearer ${token}` },
+            })
+            if (!res.ok) throw new Error('Failed to review content')
+            // Update local state
+            const newStatus = action === 'remove' ? 'removed' : 'dismissed'
+            setItems(prev => prev.map(i => i.id === id ? { ...i, status: newStatus } : i))
+        } catch (err: any) {
+            setError(err.message || 'Failed to review content')
+        } finally {
+            setActionLoading(null)
+        }
     }
 
     return (
@@ -79,57 +117,80 @@ export default function AdminModerationPage() {
                     </div>
                 </div>
 
-                <div className="space-y-4">
-                    {filtered.map(item => {
-                        const TypeIcon = typeIcons[item.contentType] || Flag
-                        return (
-                            <div key={item.id} className="bg-white/5 rounded-xl border border-white/10 p-6">
-                                <div className="flex items-start justify-between mb-3">
-                                    <div className="flex items-center gap-3">
-                                        <TypeIcon className="w-5 h-5 text-white/50" />
-                                        <span className="text-white/60 text-sm capitalize">{item.contentType}</span>
-                                        <span className={cn('px-2.5 py-0.5 rounded-full text-xs font-medium capitalize', reasonColors[item.reason])}>
-                                            {item.reason}
+                {/* Error Banner */}
+                {error && (
+                    <div className="mb-6 p-4 bg-red-500/10 border border-red-500/30 rounded-lg flex items-center gap-3">
+                        <AlertCircle className="w-5 h-5 text-red-400 shrink-0" />
+                        <p className="text-red-300 text-sm">{error}</p>
+                        <button onClick={fetchFlagged} className="ml-auto text-red-400 hover:text-red-300 text-sm font-medium">Retry</button>
+                    </div>
+                )}
+
+                {loading ? (
+                    <div className="flex items-center justify-center py-20">
+                        <Loader2 className="w-8 h-8 animate-spin text-brand-400" />
+                        <span className="ml-3 text-white/60">Loading flagged content...</span>
+                    </div>
+                ) : (
+                    <div className="space-y-4">
+                        {items.map(item => {
+                            const TypeIcon = typeIcons[item.content_type] || Flag
+                            return (
+                                <div key={item.id} className="bg-white/5 rounded-xl border border-white/10 p-6">
+                                    <div className="flex items-start justify-between mb-3">
+                                        <div className="flex items-center gap-3">
+                                            <TypeIcon className="w-5 h-5 text-white/50" />
+                                            <span className="text-white/60 text-sm capitalize">{item.content_type}</span>
+                                            <span className={cn('px-2.5 py-0.5 rounded-full text-xs font-medium capitalize', reasonColors[item.reason])}>
+                                                {item.reason}
+                                            </span>
+                                        </div>
+                                        <span className="text-white/40 text-sm">
+                                            {item.created_at ? new Date(item.created_at).toLocaleDateString() : '—'}
                                         </span>
                                     </div>
-                                    <span className="text-white/40 text-sm">{item.createdAt}</span>
+
+                                    {item.details && (
+                                        <div className="bg-black/20 rounded-lg p-4 mb-4 border-l-2 border-red-500/50">
+                                            <p className="text-white/80 text-sm italic">&quot;{item.details}&quot;</p>
+                                        </div>
+                                    )}
+
+                                    <p className="text-white/50 text-sm mb-4">
+                                        <strong className="text-white/70">Reported by:</strong> {item.flagged_by_name || item.flagged_by || 'Unknown'}
+                                    </p>
+
+                                    {item.status === 'pending' ? (
+                                        <div className="flex gap-3">
+                                            <button onClick={() => handleAction(item.id, 'remove')}
+                                                disabled={actionLoading === item.id}
+                                                className="px-4 py-2 bg-red-600/80 hover:bg-red-500 disabled:opacity-50 text-white rounded-lg text-sm font-medium transition-colors flex items-center gap-2">
+                                                {actionLoading === item.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                                                Remove Content
+                                            </button>
+                                            <button onClick={() => handleAction(item.id, 'dismiss')}
+                                                disabled={actionLoading === item.id}
+                                                className="px-4 py-2 bg-white/10 hover:bg-white/20 disabled:opacity-50 text-white rounded-lg text-sm font-medium transition-colors flex items-center gap-2">
+                                                <CheckCircle2 className="w-3.5 h-3.5" /> Dismiss Report
+                                            </button>
+                                        </div>
+                                    ) : (
+                                        <span className={cn('text-sm font-medium capitalize',
+                                            item.status === 'removed' ? 'text-red-400' : 'text-green-400')}>
+                                            {item.status}
+                                        </span>
+                                    )}
                                 </div>
-
-                                <div className="bg-black/20 rounded-lg p-4 mb-4 border-l-2 border-red-500/50">
-                                    <p className="text-white/80 text-sm italic">&quot;{item.content}&quot;</p>
-                                </div>
-
-                                <p className="text-white/50 text-sm mb-4">
-                                    <strong className="text-white/70">Report details:</strong> {item.details}
-                                </p>
-
-                                {item.status === 'pending' ? (
-                                    <div className="flex gap-3">
-                                        <button onClick={() => handleAction(item.id, 'removed')}
-                                            className="px-4 py-2 bg-red-600/80 hover:bg-red-500 text-white rounded-lg text-sm font-medium transition-colors flex items-center gap-2">
-                                            <Trash2 className="w-3.5 h-3.5" /> Remove Content
-                                        </button>
-                                        <button onClick={() => handleAction(item.id, 'dismissed')}
-                                            className="px-4 py-2 bg-white/10 hover:bg-white/20 text-white rounded-lg text-sm font-medium transition-colors flex items-center gap-2">
-                                            <CheckCircle2 className="w-3.5 h-3.5" /> Dismiss Report
-                                        </button>
-                                    </div>
-                                ) : (
-                                    <span className={cn('text-sm font-medium capitalize',
-                                        item.status === 'removed' ? 'text-red-400' : 'text-green-400')}>
-                                        {item.status}
-                                    </span>
-                                )}
+                            )
+                        })}
+                        {items.length === 0 && (
+                            <div className="py-16 text-center text-white/40">
+                                <CheckCircle2 className="w-12 h-12 mx-auto mb-3 opacity-40" />
+                                <p>No flagged content in this queue</p>
                             </div>
-                        )
-                    })}
-                    {filtered.length === 0 && (
-                        <div className="py-16 text-center text-white/40">
-                            <CheckCircle2 className="w-12 h-12 mx-auto mb-3 opacity-40" />
-                            <p>No flagged content in this queue</p>
-                        </div>
-                    )}
-                </div>
+                        )}
+                    </div>
+                )}
             </div>
         </div>
     )

@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   db:
-    image: postgres:15-alpine
+    image: postgres:16-alpine
     container_name: bookacleaner-db
     environment:
       POSTGRES_USER: bookacleaner
@@ -25,13 +25,14 @@ services:
       - "6379:6379"
     volumes:
       - redis_data:/data
+    command: redis-server --appendonly yes
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 5s
       retries: 5
 
-  # Uncomment to run API in Docker
+  # API server (uncomment for containerized dev)
   # api:
   #   build:
   #     context: ./apps/api
@@ -40,11 +41,49 @@ services:
   #   ports:
   #     - "8000:8000"
   #   environment:
-  #     - DATABASE_URL=postgresql://bookacleaner:password@db:5432/bookacleaner
+  #     - DATABASE_URL=postgresql+asyncpg://bookacleaner:password@db:5432/bookacleaner
   #     - REDIS_URL=redis://redis:6379
+  #     - CELERY_BROKER_URL=redis://redis:6379/1
+  #     - CELERY_RESULT_BACKEND=redis://redis:6379/2
   #   depends_on:
   #     db:
   #       condition: service_healthy
+  #     redis:
+  #       condition: service_healthy
+  #   volumes:
+  #     - ./apps/api:/app
+
+  # Celery worker (uncomment for containerized dev)
+  # celery-worker:
+  #   build:
+  #     context: ./apps/api
+  #     dockerfile: Dockerfile
+  #   container_name: bookacleaner-celery-worker
+  #   command: celery -A app.worker worker --loglevel=info --concurrency=4
+  #   environment:
+  #     - DATABASE_URL=postgresql+asyncpg://bookacleaner:password@db:5432/bookacleaner
+  #     - REDIS_URL=redis://redis:6379
+  #     - CELERY_BROKER_URL=redis://redis:6379/1
+  #     - CELERY_RESULT_BACKEND=redis://redis:6379/2
+  #   depends_on:
+  #     db:
+  #       condition: service_healthy
+  #     redis:
+  #       condition: service_healthy
+  #   volumes:
+  #     - ./apps/api:/app
+
+  # Celery Beat scheduler (uncomment for containerized dev)
+  # celery-beat:
+  #   build:
+  #     context: ./apps/api
+  #     dockerfile: Dockerfile
+  #   container_name: bookacleaner-celery-beat
+  #   command: celery -A app.worker beat --loglevel=info
+  #   environment:
+  #     - CELERY_BROKER_URL=redis://redis:6379/1
+  #     - CELERY_RESULT_BACKEND=redis://redis:6379/2
+  #   depends_on:
   #     redis:
   #       condition: service_healthy
   #   volumes:

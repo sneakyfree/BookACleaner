@@ -5,6 +5,7 @@ import { useSession } from 'next-auth/react'
 import Link from 'next/link'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
+import { ReviewForm } from '@/components/reviews/ReviewForm'
 import {
     Calendar,
     Clock,
@@ -80,6 +81,7 @@ export default function BookingsPage() {
     const [bookings, setBookings] = useState<DisplayBooking[]>([])
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
+    const [reviewJobId, setReviewJobId] = useState<string | null>(null)
 
     useEffect(() => {
         const token = (session as any)?.accessToken
@@ -311,14 +313,31 @@ export default function BookingsPage() {
                                             <div className="text-right">
                                                 <p className="text-lg font-semibold">${booking.price}</p>
                                                 {booking.status === 'completed' && (
-                                                    <Link href={`/client/reviews`}>
-                                                        <Button variant="link" size="sm" className="p-0 h-auto text-brand-600">
-                                                            Leave Review
-                                                        </Button>
-                                                    </Link>
+                                                    <Button
+                                                        variant="link"
+                                                        size="sm"
+                                                        className="p-0 h-auto text-brand-600"
+                                                        onClick={() => setReviewJobId(
+                                                            reviewJobId === booking.id ? null : booking.id
+                                                        )}
+                                                    >
+                                                        {reviewJobId === booking.id ? 'Cancel Review' : 'Leave Review'}
+                                                    </Button>
                                                 )}
                                             </div>
                                         </div>
+                                        {reviewJobId === booking.id && (
+                                            <div className="mt-4 pt-4 border-t">
+                                                <ReviewForm
+                                                    jobId={booking.id}
+                                                    onSuccess={() => {
+                                                        setReviewJobId(null)
+                                                        window.location.reload()
+                                                    }}
+                                                    onCancel={() => setReviewJobId(null)}
+                                                />
+                                            </div>
+                                        )}
                                     </CardContent>
                                 </Card>
                             )

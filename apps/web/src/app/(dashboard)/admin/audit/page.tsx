@@ -1,33 +1,21 @@
 'use client'
 
-import { useState } from 'react'
-import { ScrollText, Filter, Clock, User, ArrowRight, Search } from 'lucide-react'
+import { useState, useEffect, useCallback } from 'react'
+import { useSession } from 'next-auth/react'
+import { ScrollText, Clock, Search, Loader2, AlertCircle, ChevronLeft, ChevronRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
-/**
- * Admin Audit Log Viewer — G8
- * Time-sorted log of all admin and system actions
- */
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
 interface AuditEntry {
     id: string
-    eventType: string
+    event_type: string
     actor: string
-    actorRole: string
+    actor_role: string
     target: string
     details: string
-    createdAt: string
+    created_at: string
 }
-
-const mockAudit: AuditEntry[] = [
-    { id: 'a1', eventType: 'user.suspended', actor: 'admin@bookacleaner.ai', actorRole: 'admin', target: 'david@example.com', details: 'Suspended for repeated late cancellations', createdAt: '2026-02-10T14:30:00' },
-    { id: 'a2', eventType: 'verification.approved', actor: 'admin@bookacleaner.ai', actorRole: 'admin', target: 'maria@example.com', details: 'IICRC certification verified', createdAt: '2026-02-10T13:15:00' },
-    { id: 'a3', eventType: 'content.removed', actor: 'admin@bookacleaner.ai', actorRole: 'admin', target: 'review-r1234', details: 'Review flagged as spam — removed', createdAt: '2026-02-10T11:00:00' },
-    { id: 'a4', eventType: 'dispute.resolved', actor: 'admin@bookacleaner.ai', actorRole: 'admin', target: 'dispute-d567', details: 'Refund issued to client, warning to cleaner', createdAt: '2026-02-09T16:45:00' },
-    { id: 'a5', eventType: 'job.cancelled', actor: 'system', actorRole: 'system', target: 'job-j892', details: 'Auto-cancelled: no cleaner accepted within 48h', createdAt: '2026-02-09T08:00:00' },
-    { id: 'a6', eventType: 'payment.released', actor: 'system', actorRole: 'system', target: 'payment-p341', details: 'Escrow released after completion confirmation', createdAt: '2026-02-08T20:30:00' },
-    { id: 'a7', eventType: 'user.created', actor: 'system', actorRole: 'system', target: 'newuser@example.com', details: 'New client registered via Google OAuth', createdAt: '2026-02-08T10:15:00' },
-]
 
 const eventTypeColors: Record<string, string> = {
     'user.suspended': 'text-amber-400',
@@ -40,14 +28,49 @@ const eventTypeColors: Record<string, string> = {
 }
 
 export default function AdminAuditPage() {
+    const { data: session } = useSession()
+    const [entries, setEntries] = useState<AuditEntry[]>([])
+    const [loading, setLoading] = useState(true)
+    const [error, setError] = useState('')
     const [search, setSearch] = useState('')
     const [typeFilter, setTypeFilter] = useState<string>('all')
+    const [page, setPage] = useState(1)
+    const [total, setTotal] = useState(0)
 
-    const eventTypes = ['all', ...Array.from(new Set(mockAudit.map(a => a.eventType.split('.')[0])))]
+    const fetchAudit = useCallback(async () => {
+        const token = (session as any)?.accessToken
+        if (!token) return
 
-    const filtered = mockAudit.filter(a => {
-        const matchSearch = !search || a.target.toLowerCase().includes(search.toLowerCase()) || a.details.toLowerCase().includes(search.toLowerCase())
-        const matchType = typeFilter === 'all' || a.eventType.startsWith(typeFilter)
+        try {
+            setLoading(true)
+            setError('')
+            const params = new URLSearchParams({ page: String(page), limit: '50' })
+            if (typeFilter !== 'all') params.set('event_type', typeFilter)
+            if (search) params.set('search', search)
+
+            const res = await fetch(`${API_URL}/api/v1/admin/audit?${params}`, {
+                headers: { Authorization: `Bearer ${token}` },
+            })
+            if (!res.ok) throw new Error(`Failed to load audit log (${res.status})`)
+            const data = await res.json()
+            setEntries(data.items || data.entries || data || [])
+            setTotal(data.total || 0)
+        } catch (err: any) {
+            setError(err.message || 'Failed to load audit log')
+        } finally {
+            setLoading(false)
+        }
+    }, [session, page, typeFilter, search])
+
+    useEffect(() => {
+        if (session) fetchAudit()
+    }, [session, fetchAudit])
+
+    const eventTypes = ['all', ...Array.from(new Set(entries.map(a => (a.event_type || '').split('.')[0]).filter(Boolean)))]
+
+    const filtered = entries.filter(a => {
+        const matchSearch = !search || (a.target || '').toLowerCase().includes(search.toLowerCase()) || (a.details || '').toLowerCase().includes(search.toLowerCase())
+        const matchType = typeFilter === 'all' || (a.event_type || '').startsWith(typeFilter)
         return matchSearch && matchType
     })
 
@@ -60,16 +83,25 @@ export default function AdminAuditPage() {
                             <ScrollText className="w-7 h-7 text-brand-400" />
                             Audit Log
                         </h1>
-                        <p className="text-white/60 mt-1">{filtered.length} events</p>
+                        <p className="text-white/60 mt-1">{total || filtered.length} events</p>
                     </div>
                 </div>
+
+                {error && (
+                    <div className="mb-6 p-4 bg-red-500/10 border border-red-500/30 rounded-lg flex items-center gap-3">
+                        <AlertCircle className="w-5 h-5 text-red-400 shrink-0" />
+                        <p className="text-red-300 text-sm">{error}</p>
+                        <button onClick={fetchAudit} className="ml-auto text-red-400 hover:text-red-300 text-sm font-medium">Retry</button>
+                    </div>
+                )}
 
                 <div className="flex flex-wrap gap-4 mb-6">
                     <div className="relative flex-1 min-w-[240px]">
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40" />
                         <input value={search} onChange={e => setSearch(e.target.value)}
                             placeholder="Search target or details..."
-                            className="w-full pl-10 pr-4 py-2.5 bg-white/5 border border-white/10 rounded-lg text-white placeholder:text-white/30 focus:outline-none focus:ring-2 focus:ring-brand-500/50" />
+                            className="w-full pl-10 pr-4 py-2.5 bg-white/5 border border-white/10 rounded-lg text-white placeholder:text-white/30 focus:outline-none focus:ring-2 focus:ring-brand-500/50"
+                        />
                     </div>
                     <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)}
                         className="px-4 py-2.5 bg-white/5 border border-white/10 rounded-lg text-white appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-brand-500/50 capitalize">
@@ -79,43 +111,66 @@ export default function AdminAuditPage() {
                     </select>
                 </div>
 
-                <div className="bg-white/5 rounded-xl border border-white/10 overflow-hidden">
-                    <table className="w-full">
-                        <thead>
-                            <tr className="text-white/50 text-sm border-b border-white/10">
-                                <th className="text-left py-4 px-6 font-medium">Timestamp</th>
-                                <th className="text-left py-4 px-4 font-medium">Event</th>
-                                <th className="text-left py-4 px-4 font-medium">Actor</th>
-                                <th className="text-left py-4 px-4 font-medium">Target</th>
-                                <th className="text-left py-4 px-4 font-medium">Details</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {filtered.map(entry => (
-                                <tr key={entry.id} className="border-b border-white/5 hover:bg-white/[0.02] transition-colors">
-                                    <td className="py-3 px-6 text-white/50 text-sm whitespace-nowrap">
-                                        {new Date(entry.createdAt).toLocaleString()}
-                                    </td>
-                                    <td className="py-3 px-4">
-                                        <span className={cn('text-sm font-mono', eventTypeColors[entry.eventType] || 'text-white/70')}>
-                                            {entry.eventType}
-                                        </span>
-                                    </td>
-                                    <td className="py-3 px-4">
-                                        <span className={cn('text-sm', entry.actorRole === 'system' ? 'text-white/40 italic' : 'text-white/70')}>
-                                            {entry.actor}
-                                        </span>
-                                    </td>
-                                    <td className="py-3 px-4 text-white/80 text-sm">{entry.target}</td>
-                                    <td className="py-3 px-4 text-white/50 text-sm max-w-[300px] truncate">{entry.details}</td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                    {filtered.length === 0 && (
-                        <div className="py-12 text-center text-white/40">No audit entries match your filters</div>
-                    )}
-                </div>
+                {loading ? (
+                    <div className="flex items-center justify-center py-20">
+                        <Loader2 className="w-8 h-8 animate-spin text-brand-400" />
+                        <span className="ml-3 text-white/60">Loading audit log...</span>
+                    </div>
+                ) : (
+                    <>
+                        <div className="bg-white/5 rounded-xl border border-white/10 overflow-hidden">
+                            <table className="w-full">
+                                <thead>
+                                    <tr className="text-white/50 text-sm border-b border-white/10">
+                                        <th className="text-left py-4 px-6 font-medium">Timestamp</th>
+                                        <th className="text-left py-4 px-4 font-medium">Event</th>
+                                        <th className="text-left py-4 px-4 font-medium">Actor</th>
+                                        <th className="text-left py-4 px-4 font-medium">Target</th>
+                                        <th className="text-left py-4 px-4 font-medium">Details</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {filtered.map(entry => (
+                                        <tr key={entry.id} className="border-b border-white/5 hover:bg-white/[0.02] transition-colors">
+                                            <td className="py-3 px-6 text-white/50 text-sm whitespace-nowrap">
+                                                {entry.created_at ? new Date(entry.created_at).toLocaleString() : '—'}
+                                            </td>
+                                            <td className="py-3 px-4">
+                                                <span className={cn('text-sm font-mono', eventTypeColors[entry.event_type] || 'text-white/70')}>
+                                                    {entry.event_type}
+                                                </span>
+                                            </td>
+                                            <td className="py-3 px-4">
+                                                <span className={cn('text-sm', entry.actor_role === 'system' ? 'text-white/40 italic' : 'text-white/70')}>
+                                                    {entry.actor}
+                                                </span>
+                                            </td>
+                                            <td className="py-3 px-4 text-white/80 text-sm">{entry.target}</td>
+                                            <td className="py-3 px-4 text-white/50 text-sm max-w-[300px] truncate">{entry.details}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                            {filtered.length === 0 && (
+                                <div className="py-12 text-center text-white/40">No audit entries match your filters</div>
+                            )}
+                        </div>
+
+                        {total > 50 && (
+                            <div className="flex items-center justify-center gap-4 mt-6">
+                                <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page <= 1}
+                                    className="px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white/60 hover:bg-white/10 disabled:opacity-30">
+                                    <ChevronLeft className="w-4 h-4" />
+                                </button>
+                                <span className="text-white/60 text-sm">Page {page} of {Math.ceil(total / 50)}</span>
+                                <button onClick={() => setPage(p => p + 1)} disabled={page >= Math.ceil(total / 50)}
+                                    className="px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white/60 hover:bg-white/10 disabled:opacity-30">
+                                    <ChevronRight className="w-4 h-4" />
+                                </button>
+                            </div>
+                        )}
+                    </>
+                )}
             </div>
         </div>
     )

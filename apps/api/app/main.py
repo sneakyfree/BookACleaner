@@ -7,6 +7,7 @@ import os
 from app.config import get_settings
 from app.api.v1.router import api_router
 from app.database import connect_db, disconnect_db
+from app.cache import cache
 from app.core.startup_validation import run_startup_validation
 from app.core.health import router as health_router
 from app.core.metrics import router as metrics_router
@@ -28,14 +29,26 @@ async def lifespan(app: FastAPI):
     # Startup
     logger.info("Starting BookACleaner API...")
     
+    # Initialize Sentry error tracking
+    from app.core.sentry import init_sentry
+    init_sentry()
+    
     # Validate environment and dependencies
     run_startup_validation(strict=False)
     
     await connect_db()
     logger.info("Database connected")
+    
+    # Connect Redis cache
+    await cache.connect(settings.redis_url)
+    logger.info("Redis cache initialized")
+    
     yield
+    
     # Shutdown
     logger.info("Shutting down BookACleaner API...")
+    await cache.disconnect()
+    logger.info("Redis cache disconnected")
     await disconnect_db()
     logger.info("Database disconnected")
 

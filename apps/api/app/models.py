@@ -607,3 +607,22 @@ class SponsoredListing(Base):
     cleaner = relationship("CleanerProfile")
 
 
+class ServiceAgreement(Base):
+    """Click-to-accept service agreements per booking"""
+    __tablename__ = "service_agreements"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    job_id = Column(String(36), ForeignKey("jobs.id"), nullable=False)
+    user_id = Column(String(36), ForeignKey("users.id"), nullable=False)
+    role = Column(String(20), nullable=False)  # client, cleaner
+    agreement_type = Column(String(50), default="service")  # service, cancellation, liability
+    version = Column(String(10), default="1.0")
+    accepted = Column(Boolean, default=True)
+    accepted_at = Column(DateTime, default=datetime.utcnow)
+    ip_address = Column(String(45), nullable=True)
+    user_agent = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    # Relationships
+    job = relationship("Job")
+    user = relationship("User")

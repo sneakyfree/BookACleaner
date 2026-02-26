@@ -6,6 +6,16 @@ import { ThemeProvider } from 'next-themes'
 import { SessionProvider } from 'next-auth/react'
 import { Toaster } from 'sonner'
 import { useState } from 'react'
+import { useApiTokenSync } from '@/lib/auth/api-client'
+
+/**
+ * Inner component that uses hooks requiring SessionProvider context.
+ */
+function AppInner({ children }: { children: React.ReactNode }) {
+    // Sync NextAuth session token → global ApiClient
+    useApiTokenSync()
+    return <>{children}</>
+}
 
 export function Providers({ children }: { children: React.ReactNode }) {
     const [queryClient] = useState(
@@ -30,7 +40,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
                     enableSystem
                     disableTransitionOnChange
                 >
-                    {children}
+                    <AppInner>{children}</AppInner>
                     <Toaster richColors position="top-right" />
                 </ThemeProvider>
                 <ReactQueryDevtools initialIsOpen={false} />

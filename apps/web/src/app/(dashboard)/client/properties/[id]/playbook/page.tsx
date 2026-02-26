@@ -1,8 +1,12 @@
 'use client'
 
 import { useState } from 'react'
-import { Book, Save, Plus, Trash2, CheckCircle2, ChevronDown } from 'lucide-react'
+import { useSession } from 'next-auth/react'
+import { useParams } from 'next/navigation'
+import { Book, Save, Plus, Trash2, CheckCircle2, ChevronDown, Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
 /**
  * Property Playbook Editor — G6
@@ -24,8 +28,13 @@ const defaultSections: PlaybookSection[] = [
 ]
 
 export default function PropertyPlaybookPage() {
+    const { data: session } = useSession()
+    const params = useParams()
+    const propertyId = params?.id as string
     const [sections, setSections] = useState(defaultSections)
     const [saved, setSaved] = useState(false)
+    const [saving, setSaving] = useState(false)
+    const [error, setError] = useState<string | null>(null)
 
     const updateSection = (id: string, field: 'title' | 'content', value: string) => {
         setSections(prev => prev.map(s => s.id === id ? { ...s, [field]: value } : s))
@@ -42,10 +51,27 @@ export default function PropertyPlaybookPage() {
         setSaved(false)
     }
 
-    const handleSave = () => {
-        // Wire to PUT /api/v1/properties/{id}/playbook
-        setSaved(true)
-        setTimeout(() => setSaved(false), 2000)
+    const handleSave = async () => {
+        setSaving(true)
+        setError(null)
+        try {
+            const token = (session as any)?.accessToken
+            const res = await fetch(`${API_URL}/api/v1/properties/${propertyId}/playbook`, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${token}`,
+                },
+                body: JSON.stringify({ sections }),
+            })
+            if (!res.ok) throw new Error(`Failed to save playbook (${res.status})`)
+            setSaved(true)
+            setTimeout(() => setSaved(false), 2000)
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Failed to save')
+        } finally {
+            setSaving(false)
+        }
     }
 
     return (

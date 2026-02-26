@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { useSession } from 'next-auth/react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -16,6 +17,7 @@ import { toast } from 'sonner'
 
 export default function NewPropertyPage() {
     const router = useRouter()
+    const { data: session } = useSession()
     const [isLoading, setIsLoading] = useState(false)
     const [detectedInfo, setDetectedInfo] = useState<any>(null)
     const [formData, setFormData] = useState({
@@ -33,10 +35,22 @@ export default function NewPropertyPage() {
         setIsLoading(true)
 
         try {
-            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/v1/properties`, {
+            const token = (session as any)?.accessToken
+            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/v1/properties/`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(formData),
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${token}`,
+                },
+                body: JSON.stringify({
+                    name: formData.name,
+                    address: formData.address,
+                    address_line_2: formData.addressLine2 || undefined,
+                    city: formData.city,
+                    state: formData.state,
+                    zip_code: formData.zipCode,
+                    airbnb_calendar_url: formData.airbnbCalendarUrl || undefined,
+                }),
             })
 
             if (!res.ok) throw new Error('Failed to create property')

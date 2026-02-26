@@ -126,7 +126,7 @@ async def list_jobs(
     
     jobs = await db.job.find_many(where=where)
     
-    # Enrich with property and cleaner data
+    # Enrich with property, cleaner, and client data
     enriched = []
     for job in jobs:
         data = dict(job)
@@ -140,6 +140,8 @@ async def list_jobs(
                     "name": prop.get("name"),
                     "address": prop.get("address"),
                 }
+                data["property_name"] = prop.get("name") or prop.get("address", "Property")
+                data["property_address"] = prop.get("address", "")
         
         # Get cleaner
         if job.get("cleaner_id"):
@@ -152,6 +154,20 @@ async def list_jobs(
                     "name": user_data.get("full_name") if user_data else None,
                     "rating": cleaner.get("rating"),
                 }
+                data["cleaner_name"] = cleaner.get("business_name") or (
+                    user_data.get("full_name") if user_data else "Cleaner"
+                )
+        
+        # Get client
+        if job.get("client_id"):
+            client = await db.client.find_unique(where={"id": job["client_id"]})
+            if client:
+                client_user = await db.user.find_unique(where={"id": client["user_id"]})
+                data["client_name"] = (
+                    client.get("display_name")
+                    or (client_user.get("full_name") if client_user else None)
+                    or "Client"
+                )
         
         enriched.append(data)
     
@@ -285,10 +301,31 @@ async def get_job(
                 "phone": cleaner_user.get("phone") if cleaner_user else None,
             }
     
+    # Get client
+    client_info = None
+    if job.get("client_id"):
+        client = await db.client.find_unique(where={"id": job["client_id"]})
+        if client:
+            client_user = await db.user.find_unique(where={"id": client["user_id"]})
+            client_info = {
+                "id": client["id"],
+                "name": (
+                    client.get("display_name")
+                    or (client_user.get("full_name") if client_user else None)
+                    or "Client"
+                ),
+                "email": client_user.get("email") if client_user else None,
+            }
+    
     return {
         **job,
         "property": prop,
         "cleaner": cleaner_info,
+        "client": client_info,
+        "client_name": client_info["name"] if client_info else None,
+        "cleaner_name": cleaner_info.get("business_name") or cleaner_info.get("name") if cleaner_info else None,
+        "property_name": prop.get("name") or prop.get("address") if prop else None,
+        "property_address": prop.get("address") if prop else None,
     }
 
 

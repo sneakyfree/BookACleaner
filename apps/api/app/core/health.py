@@ -240,3 +240,45 @@ async def readiness_probe():
         return {"status": "not_ready", "reason": "database unavailable"}
     
     return {"status": "ready"}
+
+
+@router.get("/health/celery")
+async def celery_health_check():
+    """
+    Check Celery worker availability.
+    Returns worker status via broker inspection.
+    """
+    broker_url = os.getenv("CELERY_BROKER_URL")
+    if not broker_url:
+        return {"status": "healthy", "message": "Celery not configured (no broker URL)"}
+
+    try:
+        from celery import Celery
+        import time
+
+        app = Celery(broker=broker_url)
+        start = time.perf_counter()
+        inspector = app.control.inspect(timeout=2.0)
+        active = inspector.active()
+        latency = (time.perf_counter() - start) * 1000
+
+        if active is None:
+            return {
+                "status": "degraded",
+                "message": "No active Celery workers found",
+                "latency_ms": round(latency, 2),
+            }
+
+        worker_count = len(active)
+        task_count = sum(len(tasks) for tasks in active.values())
+        return {
+            "status": "healthy",
+            "workers": worker_count,
+            "active_tasks": task_count,
+            "latency_ms": round(latency, 2),
+        }
+    except ImportError:
+        return {"status": "healthy", "message": "Celery not installed"}
+    except Exception as e:
+        logger.warning(f"Celery health check failed: {e}")
+        return {"status": "unhealthy", "message": str(e)[:100]}

@@ -95,7 +95,7 @@ export default function RegisterPage() {
                                     setRole('client')
                                     setStep('details')
                                 }}
-                                className={`w-full p-6 rounded-xl border-2 transition-all text-left ${role === 'client'
+                                className={`w-full p-4 sm:p-6 min-h-[72px] rounded-xl border-2 transition-all text-left touch-manipulation ${role === 'client'
                                     ? 'border-brand-500 bg-brand-500/10'
                                     : 'border-white/10 hover:border-white/30 bg-white/5'
                                     }`}
@@ -119,7 +119,7 @@ export default function RegisterPage() {
                                     setRole('cleaner')
                                     setStep('details')
                                 }}
-                                className={`w-full p-6 rounded-xl border-2 transition-all text-left ${role === 'cleaner'
+                                className={`w-full p-4 sm:p-6 min-h-[72px] rounded-xl border-2 transition-all text-left touch-manipulation ${role === 'cleaner'
                                     ? 'border-brand-500 bg-brand-500/10'
                                     : 'border-white/10 hover:border-white/30 bg-white/5'
                                     }`}
@@ -185,7 +185,7 @@ export default function RegisterPage() {
                                         type="email"
                                         required
                                         placeholder="you@example.com"
-                                        className="pl-10 bg-white/5 border-white/10 text-white placeholder:text-white/30 focus:border-brand-500"
+                                        className="pl-10 h-12 bg-white/5 border-white/10 text-white placeholder:text-white/30 focus:border-brand-500"
                                     />
                                 </div>
                             </div>
@@ -203,7 +203,7 @@ export default function RegisterPage() {
                                         required
                                         minLength={8}
                                         placeholder="At least 8 characters"
-                                        className="pl-10 bg-white/5 border-white/10 text-white placeholder:text-white/30 focus:border-brand-500"
+                                        className="pl-10 h-12 bg-white/5 border-white/10 text-white placeholder:text-white/30 focus:border-brand-500"
                                     />
                                 </div>
                             </div>
@@ -220,14 +220,14 @@ export default function RegisterPage() {
                                         type="password"
                                         required
                                         placeholder="••••••••"
-                                        className="pl-10 bg-white/5 border-white/10 text-white placeholder:text-white/30 focus:border-brand-500"
+                                        className="pl-10 h-12 bg-white/5 border-white/10 text-white placeholder:text-white/30 focus:border-brand-500"
                                     />
                                 </div>
                             </div>
 
                             <Button
                                 type="submit"
-                                className="w-full bg-brand-500 hover:bg-brand-600 text-white"
+                                className="w-full min-h-[48px] bg-brand-500 hover:bg-brand-600 text-white touch-manipulation"
                                 disabled={isLoading}
                             >
                                 {isLoading ? (
@@ -255,7 +255,7 @@ export default function RegisterPage() {
 
                     <p className="text-center text-white/60 text-sm">
                         Already have an account?{' '}
-                        <Link href="/login" className="text-brand-400 hover:text-brand-300 transition">
+                        <Link href="/login" className="text-brand-400 hover:text-brand-300 transition py-1 inline-block touch-manipulation">
                             Sign in
                         </Link>
                     </p>

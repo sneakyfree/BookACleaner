@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useSession } from 'next-auth/react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import {
@@ -22,34 +23,34 @@ interface Dispute {
 }
 
 export default function AdminDisputesPage() {
+    const { data: session } = useSession()
     const [disputes, setDisputes] = useState<Dispute[]>([])
     const [loading, setLoading] = useState(true)
     const [statusFilter, setStatusFilter] = useState('all')
     const [selectedDispute, setSelectedDispute] = useState<Dispute | null>(null)
     const [resolutionNotes, setResolutionNotes] = useState('')
     const [resolving, setResolving] = useState(false)
+    const [error, setError] = useState<string | null>(null)
+
+    const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
     useEffect(() => {
-        fetchDisputes()
-    }, [statusFilter])
+        if ((session as any)?.accessToken) fetchDisputes()
+    }, [statusFilter, session])
 
     const fetchDisputes = async () => {
         try {
-            const token = localStorage.getItem('token')
+            setError(null)
+            const token = (session as any)?.accessToken
             const params = statusFilter !== 'all' ? `?status=${statusFilter}` : ''
-            const res = await fetch(`/api/v1/disputes${params}`, {
+            const res = await fetch(`${API_URL}/api/v1/disputes${params}`, {
                 headers: { Authorization: `Bearer ${token}` }
             })
-            if (res.ok) {
-                const data = await res.json()
-                setDisputes(data.disputes || [])
-            }
-        } catch {
-            setDisputes([
-                { id: 'd1', job_id: 'j1', job_title: 'Deep Clean - 3BR House', raised_by_name: 'John D.', raised_by_email: 'john@example.com', reason: 'Cleaner did not show up at the scheduled time', status: 'open', created_at: '2026-02-07T10:00:00Z' },
-                { id: 'd2', job_id: 'j2', job_title: 'Airbnb Turnover', raised_by_name: 'Sarah M.', raised_by_email: 'sarah@example.com', reason: 'Quality of cleaning was poor', status: 'investigating', created_at: '2026-02-06T14:00:00Z' },
-                { id: 'd3', job_id: 'j3', job_title: 'Office Cleaning', raised_by_name: 'Mike R.', raised_by_email: 'mike@example.com', reason: 'Cleaner damaged property', status: 'resolved', created_at: '2026-02-05T09:00:00Z', resolved_at: '2026-02-06T16:00:00Z', resolution_notes: 'Refund issued to client. Cleaner warned.' },
-            ])
+            if (!res.ok) throw new Error(`Failed to load disputes (${res.status})`)
+            const data = await res.json()
+            setDisputes(data.disputes || data || [])
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Failed to load disputes')
         } finally {
             setLoading(false)
         }
@@ -58,8 +59,8 @@ export default function AdminDisputesPage() {
     const handleResolve = async (disputeId: string, action: string) => {
         setResolving(true)
         try {
-            const token = localStorage.getItem('token')
-            await fetch(`/api/v1/disputes/${disputeId}/resolve`, {
+            const token = (session as any)?.accessToken
+            await fetch(`${API_URL}/api/v1/disputes/${disputeId}/resolve`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
                 body: JSON.stringify({ resolution_notes: resolutionNotes, action })
@@ -68,7 +69,7 @@ export default function AdminDisputesPage() {
             setResolutionNotes('')
             fetchDisputes()
         } catch {
-            // handle error
+            setError('Failed to resolve dispute')
         } finally {
             setResolving(false)
         }
