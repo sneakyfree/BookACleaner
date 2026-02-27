@@ -103,6 +103,10 @@ export default function AdminApprovalsPage() {
     }
 
     const pendingCount = items.filter(i => i.status === 'pending').length
+    const approvedCount = items.filter(i => i.status === 'approved').length
+    const rejectedCount = items.filter(i => i.status === 'rejected').length
+    const totalDecided = approvedCount + rejectedCount
+    const approvalRate = totalDecided > 0 ? Math.round((approvedCount / totalDecided) * 100) : 0
 
     return (
         <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-6">
@@ -114,6 +118,26 @@ export default function AdminApprovalsPage() {
                             HITL Approval Queue
                         </h1>
                         <p className="text-white/60 mt-1">{pendingCount} decisions awaiting human review</p>
+                    </div>
+                </div>
+
+                {/* Stats Cards */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                    <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-4">
+                        <p className="text-amber-400/60 text-xs uppercase tracking-wider">Pending</p>
+                        <p className="text-2xl font-bold text-amber-400 mt-1">{pendingCount}</p>
+                    </div>
+                    <div className="bg-green-500/10 border border-green-500/20 rounded-xl p-4">
+                        <p className="text-green-400/60 text-xs uppercase tracking-wider">Approved</p>
+                        <p className="text-2xl font-bold text-green-400 mt-1">{approvedCount}</p>
+                    </div>
+                    <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-4">
+                        <p className="text-red-400/60 text-xs uppercase tracking-wider">Rejected</p>
+                        <p className="text-2xl font-bold text-red-400 mt-1">{rejectedCount}</p>
+                    </div>
+                    <div className="bg-brand-500/10 border border-brand-500/20 rounded-xl p-4">
+                        <p className="text-brand-400/60 text-xs uppercase tracking-wider">Approval Rate</p>
+                        <p className="text-2xl font-bold text-brand-400 mt-1">{approvalRate}%</p>
                     </div>
                 </div>
 

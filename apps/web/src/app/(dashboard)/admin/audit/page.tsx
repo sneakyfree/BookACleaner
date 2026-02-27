@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { useSession } from 'next-auth/react'
-import { ScrollText, Clock, Search, Loader2, AlertCircle, ChevronLeft, ChevronRight } from 'lucide-react'
+import { ScrollText, Clock, Search, Loader2, AlertCircle, ChevronLeft, ChevronRight, Download } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
@@ -36,6 +36,7 @@ export default function AdminAuditPage() {
     const [typeFilter, setTypeFilter] = useState<string>('all')
     const [page, setPage] = useState(1)
     const [total, setTotal] = useState(0)
+    const [dateRange, setDateRange] = useState('all')
 
     const fetchAudit = useCallback(async () => {
         const token = (session as any)?.accessToken
@@ -47,6 +48,11 @@ export default function AdminAuditPage() {
             const params = new URLSearchParams({ page: String(page), limit: '50' })
             if (typeFilter !== 'all') params.set('event_type', typeFilter)
             if (search) params.set('search', search)
+            if (dateRange !== 'all') {
+                const days = parseInt(dateRange)
+                const from = new Date(Date.now() - days * 86400000).toISOString()
+                params.set('date_from', from)
+            }
 
             const res = await fetch(`${API_URL}/api/v1/admin/audit?${params}`, {
                 headers: { Authorization: `Bearer ${token}` },
@@ -60,7 +66,7 @@ export default function AdminAuditPage() {
         } finally {
             setLoading(false)
         }
-    }, [session, page, typeFilter, search])
+    }, [session, page, typeFilter, search, dateRange])
 
     useEffect(() => {
         if (session) fetchAudit()
@@ -85,6 +91,17 @@ export default function AdminAuditPage() {
                         </h1>
                         <p className="text-white/60 mt-1">{total || filtered.length} events</p>
                     </div>
+                    <button
+                        onClick={() => {
+                            const csv = 'Timestamp,Event,Actor,Role,Target,Details\n' + filtered.map(e => `"${e.created_at}","${e.event_type}","${e.actor}","${e.actor_role}","${e.target}","${e.details}"`).join('\n')
+                            const blob = new Blob([csv], { type: 'text/csv' })
+                            const url = URL.createObjectURL(blob)
+                            const a = document.createElement('a'); a.href = url; a.download = 'audit_log.csv'; a.click()
+                        }}
+                        className="px-4 py-2 bg-brand-500 hover:bg-brand-600 text-white rounded-lg text-sm font-medium flex items-center gap-2 transition"
+                    >
+                        <Download className="w-4 h-4" /> Export CSV
+                    </button>
                 </div>
 
                 {error && (
@@ -108,6 +125,13 @@ export default function AdminAuditPage() {
                         {eventTypes.map(t => (
                             <option key={t} value={t}>{t === 'all' ? 'All Events' : t}</option>
                         ))}
+                    </select>
+                    <select value={dateRange} onChange={e => setDateRange(e.target.value)}
+                        className="px-4 py-2.5 bg-white/5 border border-white/10 rounded-lg text-white appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-brand-500/50">
+                        <option value="all">All Time</option>
+                        <option value="7">Last 7 days</option>
+                        <option value="30">Last 30 days</option>
+                        <option value="90">Last 90 days</option>
                     </select>
                 </div>
 
