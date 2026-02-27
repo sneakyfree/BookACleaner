@@ -76,6 +76,10 @@ export default function BookingWizardPage() {
     const [agreementAccepted, setAgreementAccepted] = useState(false)
     const [loadingAgreement, setLoadingAgreement] = useState(false)
 
+    // Contradiction validation
+    const [contradictions, setContradictions] = useState<string[]>([])
+    const [validating, setValidating] = useState(false)
+
     // Fetch properties
     useEffect(() => {
         const fetchProperties = async () => {
@@ -165,6 +169,41 @@ export default function BookingWizardPage() {
 
         try {
             const token = (session as any)?.accessToken
+
+            // Step 0: Validate for contradictions
+            setValidating(true)
+            try {
+                const valRes = await fetch(`${API_URL}/api/v1/explain/booking/validate`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`,
+                    },
+                    body: JSON.stringify({
+                        property_id: selectedProperty,
+                        services: [...selectedServices, ...selectedAddOns],
+                        scheduled_date: selectedDate,
+                        scheduled_time: selectedTime,
+                    }),
+                })
+                if (valRes.ok) {
+                    const valData = await valRes.json()
+                    const issues = valData.contradictions || valData.warnings || []
+                    const blockers = issues.filter((c: any) => c.severity === 'blocker')
+                    if (blockers.length > 0) {
+                        setContradictions(blockers.map((c: any) => c.message || c.description || String(c)))
+                        setSubmitting(false)
+                        setValidating(false)
+                        return
+                    }
+                    // Non-blocking warnings stored for display
+                    setContradictions(issues.map((c: any) => c.message || c.description || String(c)))
+                }
+            } catch {
+                // Validation endpoint unavailable — proceed anyway
+            } finally {
+                setValidating(false)
+            }
 
             // Step 1: Create the job
             const res = await fetch(`${API_URL}/api/v1/jobs`, {
@@ -567,6 +606,28 @@ export default function BookingWizardPage() {
                         {error && (
                             <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm">
                                 {error}
+                            </div>
+                        )}
+
+                        {/* Contradiction Warnings */}
+                        {contradictions.length > 0 && (
+                            <div className="p-4 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30">
+                                <p className="text-sm font-medium text-amber-700 dark:text-amber-400 mb-2">⚠️ Booking Validation Warnings</p>
+                                <ul className="space-y-1">
+                                    {contradictions.map((c, i) => (
+                                        <li key={i} className="text-xs text-amber-600 dark:text-amber-400 flex items-start gap-2">
+                                            <span className="mt-0.5">•</span>
+                                            <span>{c}</span>
+                                        </li>
+                                    ))}
+                                </ul>
+                            </div>
+                        )}
+
+                        {validating && (
+                            <div className="flex items-center justify-center gap-2 py-2 text-sm text-muted-foreground">
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                                Validating booking...
                             </div>
                         )}
                     </CardContent>
