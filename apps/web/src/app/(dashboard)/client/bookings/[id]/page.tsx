@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import {
     MapPin, Clock, DollarSign, User, ArrowLeft, CheckCircle,
-    AlertCircle, MessageSquare, Star, Play, Camera, Loader2, RotateCcw
+    AlertCircle, MessageSquare, Star, Play, Camera, Loader2, RotateCcw, Sparkles, ChevronDown
 } from 'lucide-react'
 import Link from 'next/link'
 import { toast } from 'sonner'
@@ -58,6 +58,9 @@ export default function JobDetailPage() {
     const [reviewText, setReviewText] = useState('')
     const [showRefundModal, setShowRefundModal] = useState(false)
     const [refundReason, setRefundReason] = useState('')
+    const [aiSummary, setAiSummary] = useState<string | null>(null)
+    const [aiExpanded, setAiExpanded] = useState(false)
+    const [aiLoading, setAiLoading] = useState(false)
     const [refundLoading, setRefundLoading] = useState(false)
 
     useEffect(() => {
@@ -321,6 +324,55 @@ export default function JobDetailPage() {
                             </p>
                         )}
                     </CardContent>
+                </Card>
+            )}
+
+            {/* AI Job Summary */}
+            {job.status === 'completed' && (
+                <Card>
+                    <button
+                        onClick={async () => {
+                            setAiExpanded(!aiExpanded)
+                            if (!aiSummary && !aiLoading) {
+                                setAiLoading(true)
+                                try {
+                                    const token = (session as any)?.accessToken
+                                    const res = await fetch(`${API_URL}/api/v1/ai/job-summary`, {
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                                        body: JSON.stringify({ job_id: job.id, title: job.title, services: job.services, total_price: job.total_price }),
+                                    })
+                                    if (res.ok) {
+                                        const data = await res.json()
+                                        setAiSummary(data.summary || data.message || 'Summary generated successfully.')
+                                    } else {
+                                        setAiSummary('Unable to generate summary at this time.')
+                                    }
+                                } catch { setAiSummary('Unable to generate summary at this time.') }
+                                setAiLoading(false)
+                            }
+                        }}
+                        className="w-full p-4 flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-800/50 transition rounded-t-xl"
+                    >
+                        <div className="flex items-center gap-2 text-sm font-medium">
+                            <Sparkles className="w-4 h-4 text-brand-500" />
+                            AI Job Summary
+                        </div>
+                        <ChevronDown className={`w-4 h-4 text-muted-foreground transition-transform ${aiExpanded ? 'rotate-180' : ''}`} />
+                    </button>
+                    {aiExpanded && (
+                        <CardContent className="pt-0">
+                            {aiLoading ? (
+                                <div className="space-y-2">
+                                    <div className="h-4 bg-slate-200 dark:bg-slate-700 rounded animate-pulse w-full" />
+                                    <div className="h-4 bg-slate-200 dark:bg-slate-700 rounded animate-pulse w-3/4" />
+                                    <div className="h-4 bg-slate-200 dark:bg-slate-700 rounded animate-pulse w-5/6" />
+                                </div>
+                            ) : (
+                                <p className="text-sm text-muted-foreground whitespace-pre-wrap">{aiSummary}</p>
+                            )}
+                        </CardContent>
+                    )}
                 </Card>
             )}
 

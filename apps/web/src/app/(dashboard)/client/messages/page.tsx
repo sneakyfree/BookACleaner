@@ -16,6 +16,9 @@ import {
     Star,
     Loader2,
     AlertCircle,
+    FileText,
+    Download,
+    X,
 } from 'lucide-react'
 import { useRealtimeChat } from '@/hooks/use-websocket'
 
@@ -68,6 +71,9 @@ interface DisplayMessage {
     content: string
     timestamp: string
     read: boolean
+    attachment_url?: string
+    attachment_type?: 'image' | 'file'
+    attachment_name?: string
 }
 
 export default function ClientMessagesPage() {
@@ -80,6 +86,9 @@ export default function ClientMessagesPage() {
     const [messagesLoading, setMessagesLoading] = useState(false)
     const [sending, setSending] = useState(false)
     const [error, setError] = useState<string | null>(null)
+    const [uploading, setUploading] = useState(false)
+    const fileInputRef = useRef<HTMLInputElement>(null)
+    const imageInputRef = useRef<HTMLInputElement>(null)
     const messagesEndRef = useRef<HTMLDivElement>(null)
     const currentUserId = useRef<string>('')
 
@@ -237,10 +246,10 @@ export default function ClientMessagesPage() {
 
     const selectedConvo = conversations.find((c) => c.id === selectedConversation)
 
-    async function handleSend() {
-        if (!message.trim() || !selectedConversation || sending) return
+    async function handleSend(attachmentUrl?: string, attachmentType?: 'image' | 'file', attachmentName?: string) {
+        if ((!message.trim() && !attachmentUrl) || !selectedConversation || sending) return
 
-        const content = message.trim()
+        const content = message.trim() || (attachmentType === 'image' ? '📷 Image' : '📎 File')
         setMessage('')
         setSending(true)
 
@@ -251,11 +260,13 @@ export default function ClientMessagesPage() {
             content,
             timestamp: new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
             read: false,
+            attachment_url: attachmentUrl,
+            attachment_type: attachmentType,
+            attachment_name: attachmentName,
         }
         setMessages((prev) => [...prev, tempMsg])
 
         try {
-            // Also broadcast via WebSocket for real-time delivery
             if (wsConnected && selectedConversation) {
                 sendChatMessage(selectedConversation, content, tempMsg.id)
             }
@@ -265,25 +276,45 @@ export default function ClientMessagesPage() {
                 headers: getHeaders(),
                 body: JSON.stringify({
                     conversation_id: selectedConversation,
-                    recipient_id: '', // Backend handles routing
+                    recipient_id: '',
                     content,
+                    attachment_url: attachmentUrl,
                 }),
             })
 
             if (!res.ok) throw new Error('Failed to send message')
 
             const sent = await res.json()
-            // Replace temp message with real one
             setMessages((prev) =>
                 prev.map((m) => (m.id === tempMsg.id ? { ...m, id: sent.id } : m))
             )
         } catch (err) {
             console.error('Failed to send message:', err)
-            // Remove optimistic message on failure
             setMessages((prev) => prev.filter((m) => m.id !== tempMsg.id))
-            setMessage(content) // Restore the message
+            setMessage(content)
         } finally {
             setSending(false)
+        }
+    }
+
+    async function handleFileUpload(file: File, type: 'image' | 'file') {
+        if (!selectedConversation) return
+        setUploading(true)
+        try {
+            const formData = new FormData()
+            formData.append('file', file)
+            const res = await fetch(`${API_URL}/api/v1/uploads/upload/message_attachment`, {
+                method: 'POST',
+                headers: { Authorization: `Bearer ${(session as any)?.accessToken}` },
+                body: formData,
+            })
+            if (!res.ok) throw new Error('Upload failed')
+            const { url } = await res.json()
+            await handleSend(url, type, file.name)
+        } catch (err) {
+            console.error('Upload failed:', err)
+        } finally {
+            setUploading(false)
         }
     }
 
@@ -415,7 +446,16 @@ export default function ClientMessagesPage() {
                                                 : 'bg-slate-100 dark:bg-slate-800 rounded-bl-md'
                                                 }`}
                                         >
-                                            <p>{msg.content}</p>
+                                            {msg.attachment_url && msg.attachment_type === 'image' ? (
+                                                <img src={msg.attachment_url} alt="Shared image" className="rounded-lg max-w-full max-h-48 mb-1 cursor-pointer" onClick={() => window.open(msg.attachment_url, '_blank')} />
+                                            ) : msg.attachment_url ? (
+                                                <a href={msg.attachment_url} target="_blank" rel="noopener noreferrer" className={`flex items-center gap-2 p-2 rounded-lg mb-1 ${msg.senderId === 'me' ? 'bg-white/10 hover:bg-white/20' : 'bg-slate-200 dark:bg-slate-700 hover:opacity-80'} transition`}>
+                                                    <FileText className="w-5 h-5 shrink-0" />
+                                                    <span className="text-sm truncate flex-1">{msg.attachment_name || 'File'}</span>
+                                                    <Download className="w-4 h-4 shrink-0" />
+                                                </a>
+                                            ) : null}
+                                            {(!msg.attachment_url || msg.content !== '📷 Image' && msg.content !== '📎 File') && <p>{msg.content}</p>}
                                             <div
                                                 className={`flex items-center justify-end gap-1 mt-1 text-xs ${msg.senderId === 'me' ? 'text-white/70' : 'text-muted-foreground'
                                                     }`}
@@ -446,10 +486,12 @@ export default function ClientMessagesPage() {
 
                         <div className="p-4 border-t">
                             <div className="flex items-center gap-2">
-                                <Button variant="ghost" size="icon">
-                                    <Paperclip className="w-5 h-5" />
+                                <input ref={fileInputRef} type="file" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFileUpload(f, 'file'); e.target.value = '' }} />
+                                <input ref={imageInputRef} type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFileUpload(f, 'image'); e.target.value = '' }} />
+                                <Button variant="ghost" size="icon" onClick={() => fileInputRef.current?.click()} disabled={uploading}>
+                                    {uploading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Paperclip className="w-5 h-5" />}
                                 </Button>
-                                <Button variant="ghost" size="icon">
+                                <Button variant="ghost" size="icon" onClick={() => imageInputRef.current?.click()} disabled={uploading}>
                                     <ImageIcon className="w-5 h-5" />
                                 </Button>
                                 <Input
@@ -460,8 +502,8 @@ export default function ClientMessagesPage() {
                                     onKeyDown={(e) => e.key === 'Enter' && handleSend()}
                                 />
                                 <Button
-                                    onClick={handleSend}
-                                    disabled={!message.trim() || sending}
+                                    onClick={() => handleSend()}
+                                    disabled={(!message.trim() && !uploading) || sending}
                                     className="bg-brand-500 hover:bg-brand-600"
                                 >
                                     {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}

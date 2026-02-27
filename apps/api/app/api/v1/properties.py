@@ -256,3 +256,65 @@ async def sync_airbnb_calendar(
         logger.error(f"Calendar sync failed: {e}")
         raise HTTPException(status_code=500, detail="Calendar sync failed")
 
+
+# ==================== PLAYBOOK ====================
+
+class PlaybookData(BaseModel):
+    rooms: Optional[list] = None
+    access_instructions: Optional[str] = None
+    supplies_list: Optional[list] = None
+    special_notes: Optional[str] = None
+    do_not_touch: Optional[list] = None
+
+
+@router.get("/{property_id}/playbook")
+async def get_playbook(property_id: str, authorization: str = Header(None), db=Depends(get_db)):
+    """Get property playbook (cleaning instructions)"""
+    from app.api.v1.auth import decode_access_token
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    token = authorization.split(" ")[1]
+    payload = decode_access_token(token)
+    user = await db.user.find_unique(where={"id": payload["sub"]})
+    if not user:
+        raise HTTPException(status_code=401, detail="User not found")
+
+    prop = await db.property.find_unique(where={"id": property_id})
+    if not prop:
+        raise HTTPException(status_code=404, detail="Property not found")
+
+    # Playbook stored in property notes as JSON
+    import json
+    try:
+        playbook = json.loads(prop.get("notes") or "{}")
+    except (json.JSONDecodeError, TypeError):
+        playbook = {}
+
+    return {"property_id": property_id, "playbook": playbook}
+
+
+@router.post("/{property_id}/playbook")
+async def save_playbook(property_id: str, data: PlaybookData, authorization: str = Header(None), db=Depends(get_db)):
+    """Save property playbook (cleaning instructions)"""
+    from app.api.v1.auth import decode_access_token
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    token = authorization.split(" ")[1]
+    payload = decode_access_token(token)
+    user = await db.user.find_unique(where={"id": payload["sub"]})
+    if not user:
+        raise HTTPException(status_code=401, detail="User not found")
+
+    prop = await db.property.find_unique(where={"id": property_id})
+    if not prop:
+        raise HTTPException(status_code=404, detail="Property not found")
+
+    import json
+    playbook = data.dict(exclude_none=True)
+    await db.property.update(
+        where={"id": property_id},
+        data={"notes": json.dumps(playbook)}
+    )
+
+    return {"message": "Playbook saved", "playbook": playbook}
+

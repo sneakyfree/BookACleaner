@@ -25,6 +25,8 @@ import {
     Shield,
 } from 'lucide-react'
 
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+
 interface NavItem {
     label: string
     href: string
@@ -141,7 +143,24 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                     <Button
                         variant="outline"
                         className="w-full justify-start"
-                        onClick={() => signOut({ callbackUrl: '/' })}
+                        onClick={async () => {
+                            try {
+                                const fcmToken = localStorage.getItem('fcm_token')
+                                const token = (session as any)?.accessToken
+                                if (fcmToken && token) {
+                                    await fetch(`${API_URL}/api/v1/notifications/unregister-device`, {
+                                        method: 'DELETE',
+                                        headers: {
+                                            'Content-Type': 'application/json',
+                                            Authorization: `Bearer ${token}`,
+                                        },
+                                        body: JSON.stringify({ token: fcmToken }),
+                                    }).catch(() => { })
+                                    localStorage.removeItem('fcm_token')
+                                }
+                            } catch { }
+                            signOut({ callbackUrl: '/' })
+                        }}
                     >
                         <LogOut className="w-4 h-4 mr-2" />
                         Sign out

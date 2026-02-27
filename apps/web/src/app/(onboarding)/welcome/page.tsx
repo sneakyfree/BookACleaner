@@ -1,10 +1,13 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
+import { useSession } from 'next-auth/react'
 import { ArrowRight, ArrowLeft, Check, Building2, Briefcase, MapPin, Sparkles } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
 /**
  * Onboarding Wizard for New Users
@@ -30,6 +33,7 @@ interface OnboardingData {
 
 export default function OnboardingWizard() {
     const router = useRouter()
+    const { data: session } = useSession()
     const [step, setStep] = useState<OnboardingStep>('welcome')
     const [data, setData] = useState<OnboardingData>({
         userType: null,
@@ -38,6 +42,13 @@ export default function OnboardingWizard() {
         location: '',
     })
     const [isSubmitting, setIsSubmitting] = useState(false)
+
+    // Skip if already completed
+    useEffect(() => {
+        if (localStorage.getItem('onboarding-complete') === 'true') {
+            router.push('/client')
+        }
+    }, [router])
 
     const steps: OnboardingStep[] = ['welcome', 'user-type', 'profile', 'preferences', 'complete']
     const currentIndex = steps.indexOf(step)
@@ -61,8 +72,34 @@ export default function OnboardingWizard() {
     const handleNext = async () => {
         if (step === 'preferences') {
             setIsSubmitting(true)
-            // Simulate API call
-            await new Promise((resolve) => setTimeout(resolve, 1500))
+            try {
+                const token = (session as any)?.accessToken
+                if (token) {
+                    await fetch(`${API_URL}/api/v1/users/me`, {
+                        method: 'PATCH',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            Authorization: `Bearer ${token}`,
+                        },
+                        body: JSON.stringify({
+                            name: data.name,
+                            phone: data.phone,
+                            location: data.location,
+                            role: data.userType,
+                            preferences: {
+                                propertyType: data.propertyType,
+                                cleaningFrequency: data.cleaningFrequency,
+                                experience: data.experience,
+                                serviceArea: data.serviceArea,
+                                services: data.services,
+                            },
+                            onboarding_completed: true,
+                        }),
+                    })
+                }
+            } catch (err) {
+                console.error('Failed to save onboarding data:', err)
+            }
             setIsSubmitting(false)
             setStep('complete')
         } else {
@@ -81,7 +118,6 @@ export default function OnboardingWizard() {
     }
 
     const handleComplete = () => {
-        // Mark onboarding complete
         localStorage.setItem('onboarding-complete', 'true')
         router.push(data.userType === 'client' ? '/client' : '/cleaner')
     }
