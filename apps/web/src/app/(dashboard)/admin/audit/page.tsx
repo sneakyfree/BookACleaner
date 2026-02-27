@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { useSession } from 'next-auth/react'
-import { ScrollText, Clock, Search, Loader2, AlertCircle, ChevronLeft, ChevronRight, Download } from 'lucide-react'
+import { ScrollText, Clock, Search, Loader2, AlertCircle, ChevronLeft, ChevronRight, ChevronDown, Download } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
@@ -37,6 +37,7 @@ export default function AdminAuditPage() {
     const [page, setPage] = useState(1)
     const [total, setTotal] = useState(0)
     const [dateRange, setDateRange] = useState('all')
+    const [expandedId, setExpandedId] = useState<string | null>(null)
 
     const fetchAudit = useCallback(async () => {
         const token = (session as any)?.accessToken
@@ -155,23 +156,69 @@ export default function AdminAuditPage() {
                                 </thead>
                                 <tbody>
                                     {filtered.map(entry => (
-                                        <tr key={entry.id} className="border-b border-white/5 hover:bg-white/[0.02] transition-colors">
-                                            <td className="py-3 px-6 text-white/50 text-sm whitespace-nowrap">
-                                                {entry.created_at ? new Date(entry.created_at).toLocaleString() : '—'}
-                                            </td>
-                                            <td className="py-3 px-4">
-                                                <span className={cn('text-sm font-mono', eventTypeColors[entry.event_type] || 'text-white/70')}>
-                                                    {entry.event_type}
-                                                </span>
-                                            </td>
-                                            <td className="py-3 px-4">
-                                                <span className={cn('text-sm', entry.actor_role === 'system' ? 'text-white/40 italic' : 'text-white/70')}>
-                                                    {entry.actor}
-                                                </span>
-                                            </td>
-                                            <td className="py-3 px-4 text-white/80 text-sm">{entry.target}</td>
-                                            <td className="py-3 px-4 text-white/50 text-sm max-w-[300px] truncate">{entry.details}</td>
-                                        </tr>
+                                        <>
+                                            <tr key={entry.id}
+                                                onClick={() => setExpandedId(expandedId === entry.id ? null : entry.id)}
+                                                className="border-b border-white/5 hover:bg-white/[0.02] transition-colors cursor-pointer">
+                                                <td className="py-3 px-6 text-white/50 text-sm whitespace-nowrap">
+                                                    {entry.created_at ? new Date(entry.created_at).toLocaleString() : '—'}
+                                                </td>
+                                                <td className="py-3 px-4">
+                                                    <span className={cn('text-sm font-mono', eventTypeColors[entry.event_type] || 'text-white/70')}>
+                                                        {entry.event_type}
+                                                    </span>
+                                                </td>
+                                                <td className="py-3 px-4">
+                                                    <div className="flex items-center gap-2">
+                                                        <span className={cn('text-sm', entry.actor_role === 'system' ? 'text-white/40 italic' : 'text-white/70')}>
+                                                            {entry.actor}
+                                                        </span>
+                                                        <span className={cn('px-1.5 py-0.5 rounded text-[10px] font-medium',
+                                                            entry.actor_role === 'admin' ? 'bg-purple-500/20 text-purple-400'
+                                                                : entry.actor_role === 'system' ? 'bg-slate-500/20 text-slate-400'
+                                                                    : 'bg-brand-500/20 text-brand-400')}>
+                                                            {entry.actor_role}
+                                                        </span>
+                                                    </div>
+                                                </td>
+                                                <td className="py-3 px-4 text-white/80 text-sm">{entry.target}</td>
+                                                <td className="py-3 px-4 text-white/50 text-sm">
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="max-w-[250px] truncate">{entry.details}</span>
+                                                        <ChevronDown className={cn('w-3.5 h-3.5 text-white/30 transition-transform shrink-0',
+                                                            expandedId === entry.id && 'rotate-180')} />
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                            {expandedId === entry.id && (
+                                                <tr key={`${entry.id}-detail`} className="border-b border-white/5">
+                                                    <td colSpan={5} className="px-6 py-4 bg-white/[0.02]">
+                                                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                                                            <div>
+                                                                <span className="text-white/40 text-xs uppercase tracking-wider">Event</span>
+                                                                <p className={cn('mt-1 font-mono', eventTypeColors[entry.event_type] || 'text-white/70')}>{entry.event_type}</p>
+                                                            </div>
+                                                            <div>
+                                                                <span className="text-white/40 text-xs uppercase tracking-wider">Actor</span>
+                                                                <p className="text-white mt-1">{entry.actor} ({entry.actor_role})</p>
+                                                            </div>
+                                                            <div>
+                                                                <span className="text-white/40 text-xs uppercase tracking-wider">Target</span>
+                                                                <p className="text-white mt-1">{entry.target}</p>
+                                                            </div>
+                                                            <div>
+                                                                <span className="text-white/40 text-xs uppercase tracking-wider">Time</span>
+                                                                <p className="text-white mt-1">{entry.created_at ? new Date(entry.created_at).toLocaleString() : '—'}</p>
+                                                            </div>
+                                                        </div>
+                                                        <div className="mt-3 p-3 bg-black/20 rounded-lg">
+                                                            <span className="text-white/40 text-xs uppercase tracking-wider">Full Details</span>
+                                                            <p className="text-white/80 text-sm mt-1 whitespace-pre-wrap">{entry.details || 'No additional details'}</p>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            )}
+                                        </>
                                     ))}
                                 </tbody>
                             </table>

@@ -198,16 +198,43 @@ export default function AdminApprovalsPage() {
                                     <h3 className="text-lg font-semibold text-white mb-4">Review Decision</h3>
 
                                     <div className="space-y-4 mb-6">
+                                        <div className="flex items-center gap-2 mb-2">
+                                            <span className={cn('px-2.5 py-0.5 rounded-full text-xs font-medium', typeColors[selected.type] || 'bg-white/10 text-white/60')}>
+                                                {selected.type.replace(/_/g, ' ')}
+                                            </span>
+                                            <span className={cn('text-xs font-medium capitalize', priorityColors[selected.priority])}>
+                                                {selected.priority} priority
+                                            </span>
+                                        </div>
                                         <div>
                                             <label className="text-white/40 text-xs uppercase tracking-wider">Reason</label>
                                             <div className="mt-1 bg-brand-500/10 border border-brand-500/20 rounded-lg p-3">
                                                 <p className="text-brand-300 text-sm">{selected.reason}</p>
                                             </div>
                                         </div>
-                                        <div>
-                                            <label className="text-white/40 text-xs uppercase tracking-wider">Entity</label>
-                                            <p className="text-white text-sm mt-1">{selected.entity_type}: {selected.entity_id}</p>
+                                        <div className="grid grid-cols-2 gap-3">
+                                            <div>
+                                                <label className="text-white/40 text-xs uppercase tracking-wider">Entity</label>
+                                                <p className="text-white text-sm mt-1">{selected.entity_type}</p>
+                                            </div>
+                                            <div>
+                                                <label className="text-white/40 text-xs uppercase tracking-wider">Submitted</label>
+                                                <p className="text-white text-sm mt-1">
+                                                    {selected.created_at ? (() => {
+                                                        const mins = Math.floor((Date.now() - new Date(selected.created_at).getTime()) / 60000)
+                                                        if (mins < 60) return `${mins}m ago`
+                                                        if (mins < 1440) return `${Math.floor(mins / 60)}h ago`
+                                                        return `${Math.floor(mins / 1440)}d ago`
+                                                    })() : '—'}
+                                                </p>
+                                            </div>
                                         </div>
+                                        {selected.requested_by && (
+                                            <div>
+                                                <label className="text-white/40 text-xs uppercase tracking-wider">Requested By</label>
+                                                <p className="text-white text-sm mt-1">{selected.requested_by}</p>
+                                            </div>
+                                        )}
                                         {selected.context && Object.keys(selected.context).length > 0 && (
                                             <div>
                                                 <label className="text-white/40 text-xs uppercase tracking-wider mb-2 block">Context</label>

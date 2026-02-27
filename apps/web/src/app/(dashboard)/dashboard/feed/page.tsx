@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useSession } from 'next-auth/react'
 import {
     Newspaper, Heart, Pin, Clock, ExternalLink, Sparkles, Loader2, AlertCircle, Share2
@@ -65,12 +65,19 @@ export default function FeedPage() {
         fetchFeed()
     }, [fetchFeed])
 
-    // Track view
+    // Track view (with dedup)
+    const viewedRef = useRef<Set<string>>(new Set())
     useEffect(() => {
+        const token = (session as any)?.accessToken
         feed.forEach(item => {
-            fetch(`${API_URL}/api/v1/feed/${item.id}/view`, { method: 'POST' }).catch(() => { })
+            if (viewedRef.current.has(item.id)) return
+            viewedRef.current.add(item.id)
+            fetch(`${API_URL}/api/v1/feed/${item.id}/view`, {
+                method: 'POST',
+                headers: token ? { Authorization: `Bearer ${token}` } : {},
+            }).catch(() => { })
         })
-    }, [feed])
+    }, [feed, session])
 
     const toggleLike = async (id: string) => {
         const token = (session as any)?.accessToken
