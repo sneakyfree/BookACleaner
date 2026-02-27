@@ -29,6 +29,10 @@ import {
     FileText,
     AlertTriangle,
     Rss,
+    MapPin,
+    ShoppingBag,
+    Clock,
+    CreditCard,
 } from 'lucide-react'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
@@ -43,9 +47,13 @@ const cleanerNavItems: NavItem[] = [
     { label: 'Dashboard', href: '/cleaner', icon: LayoutDashboard },
     { label: 'Jobs', href: '/cleaner/jobs', icon: Briefcase },
     { label: 'Calendar', href: '/cleaner/calendar', icon: Calendar },
+    { label: 'Marketplace', href: '/cleaner/marketplace', icon: ShoppingBag },
+    { label: 'Routes', href: '/cleaner/routes', icon: MapPin },
+    { label: 'Schedule Gaps', href: '/cleaner/schedule-gaps', icon: Clock },
     { label: 'Messages', href: '/cleaner/messages', icon: MessageSquare },
     { label: 'Earnings', href: '/cleaner/earnings', icon: DollarSign },
     { label: 'Reviews', href: '/cleaner/reviews', icon: Star },
+    { label: 'Subscription', href: '/cleaner/subscription', icon: CreditCard },
     { label: 'Verification', href: '/cleaner/verification', icon: Shield },
     { label: 'Settings', href: '/cleaner/settings', icon: Settings },
 ]
@@ -57,6 +65,7 @@ const clientNavItems: NavItem[] = [
     { label: 'Payments', href: '/client/payments', icon: DollarSign },
     { label: 'Messages', href: '/client/messages', icon: MessageSquare },
     { label: 'Reviews', href: '/client/reviews', icon: Star },
+    { label: 'Agreements', href: '/client/agreements', icon: FileText },
     { label: 'Settings', href: '/client/settings', icon: Settings },
 ]
 
