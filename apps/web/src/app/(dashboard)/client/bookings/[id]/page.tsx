@@ -195,6 +195,36 @@ export default function JobDetailPage() {
             {/* Job Header */}
             <Card>
                 <CardContent className="p-6">
+                    {/* Lifecycle Progress Bar */}
+                    {(() => {
+                        const stages = ['pending', 'confirmed', 'in_progress', 'completed'] as const
+                        const labels = ['Pending', 'Confirmed', 'In Progress', 'Complete']
+                        const currentIdx = stages.indexOf(job.status as any)
+                        return (
+                            <div className="flex items-center mb-6">
+                                {stages.map((stage, idx) => (
+                                    <div key={stage} className="flex items-center flex-1 last:flex-none">
+                                        <div className="flex flex-col items-center">
+                                            <div className={`w-8 h-8 rounded-full flex items-center justify-center border-2 transition-all duration-500 ${idx <= currentIdx
+                                                    ? 'bg-brand-500 border-brand-500 text-white'
+                                                    : 'border-slate-300 dark:border-slate-600 text-muted-foreground'
+                                                } ${idx === currentIdx ? 'ring-4 ring-brand-500/20 animate-pulse' : ''}`}>
+                                                {idx < currentIdx ? <CheckCircle className="w-4 h-4" /> : <span className="text-xs font-bold">{idx + 1}</span>}
+                                            </div>
+                                            <span className={`text-[10px] mt-1 font-medium ${idx <= currentIdx ? 'text-brand-600 dark:text-brand-400' : 'text-muted-foreground'}`}>
+                                                {labels[idx]}
+                                            </span>
+                                        </div>
+                                        {idx < stages.length - 1 && (
+                                            <div className="flex-1 h-0.5 mx-2 mt-[-14px]">
+                                                <div className={`h-full transition-all duration-700 rounded ${idx < currentIdx ? 'bg-brand-500' : 'bg-slate-200 dark:bg-slate-700'}`} />
+                                            </div>
+                                        )}
+                                    </div>
+                                ))}
+                            </div>
+                        )
+                    })()}
                     <h1 className="text-2xl font-bold mb-2">{job.title}</h1>
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4">
                         <div className="flex items-center gap-2">
