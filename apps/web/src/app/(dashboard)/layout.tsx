@@ -46,6 +46,7 @@ const clientNavItems: NavItem[] = [
     { label: 'Dashboard', href: '/client', icon: LayoutDashboard },
     { label: 'Properties', href: '/client/properties', icon: Building2 },
     { label: 'Bookings', href: '/client/bookings', icon: Calendar },
+    { label: 'Payments', href: '/client/payments', icon: DollarSign },
     { label: 'Messages', href: '/client/messages', icon: MessageSquare },
     { label: 'Reviews', href: '/client/reviews', icon: Star },
     { label: 'Settings', href: '/client/settings', icon: Settings },

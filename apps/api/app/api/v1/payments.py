@@ -418,5 +418,45 @@ async def handle_webhook(request: Request):
         )
         logger.info(f"Subscription canceled: {sub.id}")
 
+    elif event.type == "charge.dispute.created":
+        dispute = event.data.object
+        payment_intent_id = dispute.payment_intent
+        if payment_intent_id:
+            # Find associated job
+            intent = stripe.PaymentIntent.retrieve(payment_intent_id)
+            job_id = intent.metadata.get("jobId")
+            if job_id:
+                await db.job.update(
+                    where={"id": job_id},
+                    data={"payment_status": "disputed"}
+                )
+                # Notify admin
+                admins = await db.user.find_many(where={"role": "admin"})
+                for admin in admins:
+                    from app.models import generate_uuid
+                    await db.notification.create(data={
+                        "id": generate_uuid(),
+                        "user_id": admin["id"],
+                        "type": "dispute",
+                        "title": "⚠️ Payment Dispute",
+                        "message": f"A dispute of ${dispute.amount / 100:.2f} was filed for job {job_id}. "
+                                   f"Reason: {dispute.reason or 'Not specified'}",
+                        "data": {"jobId": job_id, "disputeId": dispute.id},
+                    })
+                logger.warning(f"Dispute created for job {job_id}: ${dispute.amount / 100:.2f}")
+
+    elif event.type == "charge.refund.updated":
+        refund = event.data.object
+        if refund.status == "succeeded":
+            # Find job via payment intent
+            intent = stripe.PaymentIntent.retrieve(refund.payment_intent)
+            job_id = intent.metadata.get("jobId")
+            if job_id:
+                await db.job.update(
+                    where={"id": job_id},
+                    data={"payment_status": "refunded"}
+                )
+                logger.info(f"Refund completed for job {job_id}")
+
     return {"received": True}
 

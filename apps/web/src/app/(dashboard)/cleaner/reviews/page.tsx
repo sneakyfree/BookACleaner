@@ -11,6 +11,7 @@ import {
     MessageSquare,
     Loader2,
     AlertCircle,
+    Flag,
 } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -40,6 +41,7 @@ export default function CleanerReviewsPage() {
     const [respondingTo, setRespondingTo] = useState<string | null>(null)
     const [responseText, setResponseText] = useState('')
     const [submitting, setSubmitting] = useState(false)
+    const [flagging, setFlagging] = useState<string | null>(null)
 
     useEffect(() => {
         const token = (session as any)?.accessToken
@@ -276,14 +278,46 @@ export default function CleanerReviewsPage() {
                                     </div>
                                 </div>
                                 {!review.response && (
-                                    <Button
-                                        variant="outline"
-                                        size="sm"
-                                        onClick={() => setRespondingTo(review.id)}
-                                    >
-                                        <MessageSquare className="w-4 h-4 mr-1" />
-                                        Respond
-                                    </Button>
+                                    <div className="flex gap-2">
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            onClick={() => setRespondingTo(review.id)}
+                                        >
+                                            <MessageSquare className="w-4 h-4 mr-1" />
+                                            Respond
+                                        </Button>
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            className="text-muted-foreground hover:text-red-500"
+                                            onClick={async () => {
+                                                if (!confirm('Flag this review as inappropriate?')) return
+                                                setFlagging(review.id)
+                                                try {
+                                                    const token = (session as any)?.accessToken
+                                                    const res = await fetch(`${API_URL}/api/v1/reviews/${review.id}/flag`, {
+                                                        method: 'POST',
+                                                        headers: {
+                                                            'Content-Type': 'application/json',
+                                                            Authorization: `Bearer ${token}`,
+                                                        },
+                                                        body: JSON.stringify({ reason: 'inappropriate' }),
+                                                    })
+                                                    if (res.ok) toast.success('Review flagged for moderation')
+                                                    else toast.error('Failed to flag review')
+                                                } catch { toast.error('Failed to flag review') }
+                                                setFlagging(null)
+                                            }}
+                                            disabled={flagging === review.id}
+                                        >
+                                            {flagging === review.id ? (
+                                                <Loader2 className="w-4 h-4 animate-spin" />
+                                            ) : (
+                                                <Flag className="w-4 h-4" />
+                                            )}
+                                        </Button>
+                                    </div>
                                 )}
                             </div>
 
