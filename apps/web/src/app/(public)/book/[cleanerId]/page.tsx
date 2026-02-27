@@ -184,7 +184,6 @@ export default function BookCleanerPage() {
             }
 
             const job = await response.json()
-            console.log('Job created:', job)
             router.push('/client/bookings?success=true')
         } catch (error) {
             console.error('Booking error:', error)

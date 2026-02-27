@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useSession } from 'next-auth/react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -93,7 +93,25 @@ export default function SubscriptionPage() {
     const { data: session } = useSession()
     const [loading, setLoading] = useState<string | null>(null)
     const [error, setError] = useState<string | null>(null)
-    const [currentPlan] = useState('free') // TODO: fetch from API
+    const [currentPlan, setCurrentPlan] = useState('free')
+
+    // Fetch current subscription from API
+    useEffect(() => {
+        async function fetchPlan() {
+            const token = (session as any)?.accessToken
+            if (!token) return
+            try {
+                const res = await fetch(`${API_URL}/api/v1/payments/subscription`, {
+                    headers: { Authorization: `Bearer ${token}` },
+                })
+                if (res.ok) {
+                    const data = await res.json()
+                    setCurrentPlan(data.plan_id || data.plan || data.tier || 'free')
+                }
+            } catch { /* default to free */ }
+        }
+        if (session) fetchPlan()
+    }, [session])
 
     const handleSubscribe = async (planId: string) => {
         if (planId === 'free' || planId === currentPlan) return
@@ -221,8 +239,8 @@ export default function SubscriptionPage() {
                                             onClick={() => handleSubscribe(plan.id)}
                                             disabled={loading !== null}
                                             className={`w-full ${plan.popular
-                                                    ? 'bg-brand-500 hover:bg-brand-600'
-                                                    : ''
+                                                ? 'bg-brand-500 hover:bg-brand-600'
+                                                : ''
                                                 }`}
                                         >
                                             {loading === plan.id ? (

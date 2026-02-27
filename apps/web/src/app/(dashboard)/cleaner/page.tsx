@@ -93,10 +93,23 @@ export default function CleanerDashboard() {
                     .filter(j => j.status === 'completed' && j.scheduled_date >= weekAgo)
                     .reduce((sum, j) => sum + (j.total_price || 0), 0)
 
+                // Fetch actual rating from reviews API
+                let rating = 0
+                try {
+                    const userId = (session as any)?.user?.id
+                    if (userId) {
+                        const ratingRes = await fetch(`${API_URL}/api/v1/reviews/stats/${userId}`, { headers })
+                        if (ratingRes.ok) {
+                            const ratingData = await ratingRes.json()
+                            rating = ratingData.overall_rating || ratingData.average_rating || 0
+                        }
+                    }
+                } catch { /* rating unavailable */ }
+
                 setStats({
                     todayJobs,
                     weekEarnings,
-                    rating: 0, // Would come from reviews API
+                    rating,
                     completedJobs,
                     pendingJobs,
                 })
