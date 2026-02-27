@@ -1,7 +1,8 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useParams, useRouter } from 'next/navigation'
+import { useSession } from 'next-auth/react'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -21,6 +22,8 @@ import {
     CreditCard,
 } from 'lucide-react'
 
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+
 type BookingStep = 'property' | 'services' | 'datetime' | 'review' | 'payment'
 
 const steps: { id: BookingStep; label: string }[] = [
@@ -31,13 +34,29 @@ const steps: { id: BookingStep; label: string }[] = [
     { id: 'payment', label: 'Payment' },
 ]
 
+interface CleanerData {
+    id: string
+    businessName: string
+    overallRating: number
+    services: { id: string; name: string; price: number; description: string }[]
+}
+
+interface PropertyData {
+    id: string
+    name: string
+    address: string
+    sqFt: number
+}
+
 export default function BookCleanerPage() {
     const params = useParams()
     const router = useRouter()
+    const { data: session } = useSession()
     const cleanerId = params.cleanerId as string
 
     const [step, setStep] = useState<BookingStep>('property')
     const [isLoading, setIsLoading] = useState(false)
+    const [loadingData, setLoadingData] = useState(true)
     const [booking, setBooking] = useState({
         propertyId: '',
         services: [] as string[],
@@ -46,31 +65,84 @@ export default function BookCleanerPage() {
         instructions: '',
     })
 
-    // Mock cleaner
-    const cleaner = {
-        id: cleanerId,
-        businessName: "Maria's Cleaning Service",
-        overallRating: 4.9,
-        services: [
-            { id: 'standard', name: 'Standard Clean', price: 100, description: 'Regular cleaning' },
-            { id: 'deep', name: 'Deep Clean', price: 180, description: 'Thorough cleaning' },
-            { id: 'airbnb', name: 'Airbnb Turnover', price: 120, description: 'Guest changeover' },
-            { id: 'moveout', name: 'Move In/Out', price: 250, description: 'Empty property cleaning' },
-        ],
-    }
+    const [cleaner, setCleaner] = useState<CleanerData | null>(null)
+    const [properties, setProperties] = useState<PropertyData[]>([])
+    const [availableSlots, setAvailableSlots] = useState<string[]>([
+        '9:00 AM', '10:00 AM', '11:00 AM', '1:00 PM', '2:00 PM', '3:00 PM'
+    ])
 
-    // Mock properties
-    const properties = [
-        { id: '1', name: 'Lake House', address: '123 Lake Street, Austin, TX', sqFt: 2200 },
-        { id: '2', name: 'Downtown Condo', address: '456 Main Ave, Austin, TX', sqFt: 1100 },
-    ]
+    // Fetch cleaner profile + user properties + availability
+    useEffect(() => {
+        async function fetchData() {
+            try {
+                const token = (session as any)?.accessToken
 
-    // Mock availability
-    const availableSlots = ['9:00 AM', '10:00 AM', '11:00 AM', '1:00 PM', '2:00 PM', '3:00 PM']
+                // Fetch cleaner profile
+                const cleanerRes = await fetch(`${API_URL}/api/v1/cleaners/${cleanerId}`)
+                if (cleanerRes.ok) {
+                    const cd = await cleanerRes.json()
+                    setCleaner({
+                        id: cd.id,
+                        businessName: cd.business_name || cd.name || 'Cleaner',
+                        overallRating: cd.overall_rating || cd.rating || 0,
+                        services: cd.services?.map((s: any) => ({
+                            id: s.id || s.name?.toLowerCase().replace(/\s+/g, '_'),
+                            name: s.name || s,
+                            price: s.price || 100,
+                            description: s.description || '',
+                        })) || [
+                                { id: 'standard', name: 'Standard Clean', price: 100, description: 'Regular cleaning' },
+                                { id: 'deep', name: 'Deep Clean', price: 180, description: 'Thorough deep cleaning' },
+                            ],
+                    })
+                }
+
+                // Fetch user properties
+                if (token) {
+                    const propsRes = await fetch(`${API_URL}/api/v1/properties/`, {
+                        headers: { Authorization: `Bearer ${token}` },
+                    })
+                    if (propsRes.ok) {
+                        const pd = await propsRes.json()
+                        const items = pd.properties || pd.items || pd || []
+                        setProperties(items.map((p: any) => ({
+                            id: p.id,
+                            name: p.name || p.address,
+                            address: `${p.address}${p.city ? `, ${p.city}` : ''}${p.state ? `, ${p.state}` : ''}`,
+                            sqFt: p.square_feet || 0,
+                        })))
+                    }
+                }
+
+                // Fetch availability
+                try {
+                    const availRes = await fetch(`${API_URL}/api/v1/cleaners/${cleanerId}/availability`)
+                    if (availRes.ok) {
+                        const ad = await availRes.json()
+                        if (ad.slots && ad.slots.length > 0) setAvailableSlots(ad.slots)
+                    }
+                } catch { /* use default slots */ }
+            } catch (err) {
+                console.error('Failed to load booking data:', err)
+            } finally {
+                setLoadingData(false)
+            }
+        }
+        fetchData()
+    }, [cleanerId, session])
 
     // Calculate total
-    const selectedServices = cleaner.services.filter((s) => booking.services.includes(s.id))
+    const selectedServices = (cleaner?.services || []).filter((s) => booking.services.includes(s.id))
     const total = selectedServices.reduce((sum, s) => sum + s.price, 0)
+
+    if (loadingData || !cleaner) {
+        return (
+            <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-900">
+                <Loader2 className="w-8 h-8 animate-spin text-brand-500" />
+                <span className="ml-3 text-muted-foreground">Loading booking...</span>
+            </div>
+        )
+    }
 
     const currentStepIndex = steps.findIndex((s) => s.id === step)
 
@@ -89,10 +161,12 @@ export default function BookCleanerPage() {
     async function handleSubmit() {
         setIsLoading(true)
         try {
-            // Call the backend API to create the job
-            const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/v1/jobs`, {
+            const token = (session as any)?.accessToken
+            const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+            if (token) headers.Authorization = `Bearer ${token}`
+            const response = await fetch(`${API_URL}/api/v1/jobs`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers,
                 body: JSON.stringify({
                     cleanerId: cleanerId,
                     propertyId: booking.propertyId,
