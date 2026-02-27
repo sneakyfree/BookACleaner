@@ -174,6 +174,26 @@ export default function AdminDisputesPage() {
                                             {dispute.resolution_notes}
                                         </div>
                                     )}
+                                    {/* Mini Timeline */}
+                                    <div className="mt-3 flex items-center gap-2 text-[10px]">
+                                        <span className="px-2 py-0.5 rounded bg-red-500/10 text-red-400">
+                                            Opened {new Date(dispute.created_at).toLocaleDateString()}
+                                        </span>
+                                        {dispute.status === 'investigating' && (
+                                            <>
+                                                <span className="text-white/20">→</span>
+                                                <span className="px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 animate-pulse">Investigating</span>
+                                            </>
+                                        )}
+                                        {(dispute.status === 'resolved' || dispute.status === 'closed') && dispute.resolved_at && (
+                                            <>
+                                                <span className="text-white/20">→</span>
+                                                <span className="px-2 py-0.5 rounded bg-green-500/10 text-green-400">
+                                                    Resolved {new Date(dispute.resolved_at).toLocaleDateString()}
+                                                </span>
+                                            </>
+                                        )}
+                                    </div>
                                 </div>
                                 {dispute.status !== 'resolved' && dispute.status !== 'closed' && (
                                     <Button

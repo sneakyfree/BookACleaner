@@ -211,10 +211,42 @@ export default function CleanerRoutesPage() {
                                     </div>
                                 )}
                                 {routeResult?.timeSavedMinutes != null && (
-                                    <div className="flex justify-between text-sm">
-                                        <span className="text-white/50">Time saved</span>
-                                        <span className="text-green-400 font-medium">{routeResult.timeSavedMinutes} min</span>
-                                    </div>
+                                    <>
+                                        <div className="flex justify-between text-sm">
+                                            <span className="text-white/50">Time saved</span>
+                                            <span className="text-green-400 font-medium">{routeResult.timeSavedMinutes} min</span>
+                                        </div>
+                                        <div className="pt-2 border-t border-white/5">
+                                            <div className="flex justify-between text-xs mb-2">
+                                                <span className="text-white/40">Efficiency gain</span>
+                                                <span className="text-green-400 font-semibold">
+                                                    {routeResult.estimatedTravelMinutes
+                                                        ? `${Math.round((routeResult.timeSavedMinutes / (routeResult.estimatedTravelMinutes + routeResult.timeSavedMinutes)) * 100)}%`
+                                                        : '—'}
+                                                </span>
+                                            </div>
+                                            <div className="h-2 bg-white/5 rounded-full overflow-hidden">
+                                                <div
+                                                    className="h-full bg-gradient-to-r from-green-500 to-emerald-400 rounded-full transition-all duration-1000"
+                                                    style={{
+                                                        width: routeResult.estimatedTravelMinutes
+                                                            ? `${Math.round((routeResult.timeSavedMinutes / (routeResult.estimatedTravelMinutes + routeResult.timeSavedMinutes)) * 100)}%`
+                                                            : '0%'
+                                                    }}
+                                                />
+                                            </div>
+                                        </div>
+                                        <div className="grid grid-cols-2 gap-2 pt-2">
+                                            <div className="bg-green-500/10 border border-green-500/20 rounded-lg p-2 text-center">
+                                                <p className="text-green-400 font-bold text-sm">{(routeResult.timeSavedMinutes * 0.5).toFixed(1)} mi</p>
+                                                <p className="text-green-400/60 text-[10px]">distance saved</p>
+                                            </div>
+                                            <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-2 text-center">
+                                                <p className="text-blue-400 font-bold text-sm">${(routeResult.timeSavedMinutes * 0.12).toFixed(2)}</p>
+                                                <p className="text-blue-400/60 text-[10px]">fuel saved</p>
+                                            </div>
+                                        </div>
+                                    </>
                                 )}
                                 {!routeResult && (
                                     <p className="text-white/40 text-xs text-center py-2">
