@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useSession } from 'next-auth/react'
 import {
-    MapPin, TrendingUp, Zap, Clock, ArrowRight, Loader2, AlertCircle
+    MapPin, TrendingUp, Zap, Clock, ArrowRight, Loader2, AlertCircle, Navigation
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -169,12 +169,21 @@ export default function CleanerRoutesPage() {
                                                         <MapPin className="w-3 h-3" /> {address}
                                                     </p>
                                                 </div>
-                                                <div className="text-right">
+                                                <div className="text-right flex flex-col items-end gap-1">
                                                     {time && <p className="text-white text-sm font-medium">{time}</p>}
                                                     <span className={cn('text-xs font-medium capitalize',
                                                         status === 'confirmed' ? 'text-green-400' : 'text-amber-400')}>
                                                         {status}
                                                     </span>
+                                                    <a
+                                                        href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(address)}`}
+                                                        target="_blank"
+                                                        rel="noopener noreferrer"
+                                                        onClick={e => e.stopPropagation()}
+                                                        className="text-brand-400 hover:text-brand-300 text-xs flex items-center gap-1 mt-0.5"
+                                                    >
+                                                        <Navigation className="w-3 h-3" /> Directions
+                                                    </a>
                                                 </div>
                                             </div>
                                             {idx < arr.length - 1 && (

@@ -23,6 +23,12 @@ import {
     Briefcase,
     DollarSign,
     Shield,
+    BarChart3,
+    Users,
+    ClipboardCheck,
+    FileText,
+    AlertTriangle,
+    Rss,
 } from 'lucide-react'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
@@ -54,14 +60,25 @@ const clientNavItems: NavItem[] = [
     { label: 'Settings', href: '/client/settings', icon: Settings },
 ]
 
+const adminNavItems: NavItem[] = [
+    { label: 'Analytics', href: '/admin/analytics', icon: BarChart3 },
+    { label: 'Users', href: '/admin/users', icon: Users },
+    { label: 'Verifications', href: '/admin/verifications', icon: ClipboardCheck },
+    { label: 'Jobs', href: '/admin/jobs', icon: Briefcase },
+    { label: 'Disputes', href: '/admin/disputes', icon: AlertTriangle },
+    { label: 'Audit Trail', href: '/admin/audit', icon: FileText },
+    { label: 'Feed Manager', href: '/admin/feed-manager', icon: Rss },
+]
+
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
     const pathname = usePathname()
     const { data: session } = useSession()
     const [sidebarOpen, setSidebarOpen] = useState(false)
 
     const isCleaner = session?.user?.role?.toLowerCase() === 'cleaner'
-    const navItems = isCleaner ? cleanerNavItems : clientNavItems
-    const basePath = isCleaner ? '/cleaner' : '/client'
+    const isAdmin = session?.user?.role?.toLowerCase() === 'admin'
+    const navItems = isAdmin ? adminNavItems : isCleaner ? cleanerNavItems : clientNavItems
+    const basePath = isAdmin ? '/admin' : isCleaner ? '/cleaner' : '/client'
 
     // Initialize push notifications after auth
     useEffect(() => {
@@ -136,7 +153,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                         <div className="flex-1 min-w-0">
                             <p className="text-sm font-medium truncate">{session?.user?.email}</p>
                             <p className="text-xs text-slate-500 dark:text-slate-400">
-                                {isCleaner ? 'Cleaner' : 'Client'}
+                                {isAdmin ? 'Admin' : isCleaner ? 'Cleaner' : 'Client'}
                             </p>
                         </div>
                     </div>
@@ -182,10 +199,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                     <div className="flex-1" />
 
                     <div className="flex items-center gap-4">
-                        <button className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg relative">
+                        <Link href="/dashboard/notifications" className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg relative">
                             <Bell className="w-5 h-5" />
                             <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full" />
-                        </button>
+                        </Link>
                         <Link
                             href={`${basePath}/settings`}
                             className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg"
