@@ -231,6 +231,38 @@ export default function AnalyticsDashboard() {
                                 <span className="text-white/80">Pending</span>
                                 <span className="text-amber-400 font-bold text-lg">{stats.jobs.pending}</span>
                             </div>
+
+                            {/* Completion Rate Bar */}
+                            <div className="p-4 rounded-lg bg-white/5">
+                                <div className="flex justify-between text-sm mb-2">
+                                    <span className="text-white/60">Completion Rate</span>
+                                    <span className="text-green-400 font-semibold">{stats.jobs.completion_rate}%</span>
+                                </div>
+                                <div className="h-3 bg-white/5 rounded-full overflow-hidden">
+                                    <div
+                                        className="h-full rounded-full transition-all duration-1000 bg-gradient-to-r from-green-500 to-emerald-400"
+                                        style={{ width: `${stats.jobs.completion_rate}%` }}
+                                    />
+                                </div>
+                            </div>
+
+                            {/* Status Distribution */}
+                            {stats.jobs.total > 0 && (
+                                <div className="p-4 rounded-lg bg-white/5">
+                                    <p className="text-white/60 text-sm mb-2">Status Distribution</p>
+                                    <div className="h-3 rounded-full overflow-hidden flex">
+                                        <div className="bg-green-500 transition-all" style={{ width: `${(stats.jobs.completed / stats.jobs.total * 100)}%` }} />
+                                        <div className="bg-amber-500 transition-all" style={{ width: `${(stats.jobs.pending / stats.jobs.total * 100)}%` }} />
+                                        <div className="bg-slate-500 flex-1" />
+                                    </div>
+                                    <div className="flex gap-4 mt-2 text-[10px]">
+                                        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500" />Completed</span>
+                                        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-500" />Pending</span>
+                                        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-slate-500" />Other</span>
+                                    </div>
+                                </div>
+                            )}
+
                             <div className="flex items-center justify-between p-4 rounded-lg bg-white/5">
                                 <span className="text-white/80">New Users This Week</span>
                                 <span className="text-brand-400 font-bold text-lg">{stats.users.new_this_week}</span>
