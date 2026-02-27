@@ -274,6 +274,56 @@ export default function JobDetailPage() {
                 </CardContent>
             </Card>
 
+            {/* Escrow Payment Status */}
+            {job.payment_status && (
+                <Card>
+                    <CardHeader>
+                        <CardTitle className="text-base flex items-center gap-2">
+                            <DollarSign className="w-4 h-4" /> Payment Status
+                        </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                        <div className="flex items-center gap-3">
+                            {['authorized', 'held', 'released'].map((stage, i) => {
+                                const stageMap: Record<string, number> = {
+                                    pending: -1, authorized: 0, held: 1,
+                                    captured: 2, released: 2, refunded: 2
+                                }
+                                const currentStage = stageMap[job.payment_status || ''] ?? -1
+                                const isComplete = i <= currentStage
+                                const labels = ['Authorized', 'Held in Escrow', 'Released to Cleaner']
+                                const icons = ['💳', '🔒', '✅']
+
+                                return (
+                                    <div key={stage} className="flex items-center gap-2 flex-1">
+                                        <div className={`px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 ${isComplete
+                                            ? 'bg-brand-100 dark:bg-brand-500/20 text-brand-700 dark:text-brand-300'
+                                            : 'bg-muted text-muted-foreground'
+                                            }`}>
+                                            <span>{icons[i]}</span>
+                                            {labels[i]}
+                                        </div>
+                                        {i < 2 && (
+                                            <div className={`h-0.5 flex-1 rounded ${isComplete ? 'bg-brand-500' : 'bg-muted'}`} />
+                                        )}
+                                    </div>
+                                )
+                            })}
+                        </div>
+                        {job.payment_status === 'released' && (
+                            <p className="text-xs text-green-600 dark:text-green-400 mt-3 flex items-center gap-1">
+                                ✅ Payment has been released to your cleaner
+                            </p>
+                        )}
+                        {job.payment_status === 'held' && (
+                            <p className="text-xs text-muted-foreground mt-3">
+                                🔒 Your payment is safely held in escrow until the job is completed
+                            </p>
+                        )}
+                    </CardContent>
+                </Card>
+            )}
+
             {/* Description */}
             {job.description && (
                 <Card>

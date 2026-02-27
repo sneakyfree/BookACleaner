@@ -200,6 +200,33 @@ export default function CleanerReviewsPage() {
                 </Card>
             </div>
 
+            {/* Category Averages */}
+            {totalReviews > 0 && (
+                <div className="grid grid-cols-3 gap-4">
+                    {[
+                        { label: 'Cleanliness', key: 'cleanliness_rating', color: 'bg-emerald-500' },
+                        { label: 'Communication', key: 'communication_rating', color: 'bg-blue-500' },
+                        { label: 'Timeliness', key: 'timeliness_rating', color: 'bg-purple-500' },
+                    ].map((cat) => {
+                        const vals = reviews.map(r => (r as any)[cat.key]).filter((v: any) => v != null && v > 0) as number[]
+                        const avg = vals.length > 0 ? +(vals.reduce((s, v) => s + v, 0) / vals.length).toFixed(1) : 0
+                        return (
+                            <Card key={cat.key}>
+                                <CardContent className="pt-4 pb-4">
+                                    <div className="flex items-center justify-between mb-2">
+                                        <span className="text-sm font-medium">{cat.label}</span>
+                                        <span className="text-sm font-bold">{avg}/5</span>
+                                    </div>
+                                    <div className="h-2 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+                                        <div className={`h-full ${cat.color} rounded-full transition-all`} style={{ width: `${(avg / 5) * 100}%` }} />
+                                    </div>
+                                </CardContent>
+                            </Card>
+                        )
+                    })}
+                </div>
+            )}
+
             {/* Empty State */}
             {totalReviews === 0 && (
                 <Card>
@@ -293,10 +320,14 @@ export default function CleanerReviewsPage() {
                                     <p className="text-sm font-medium mb-2">Write your response:</p>
                                     <Textarea
                                         value={responseText}
-                                        onChange={(e) => setResponseText(e.target.value)}
+                                        onChange={(e) => setResponseText(e.target.value.slice(0, 500))}
                                         placeholder="Thank the client and address any concerns..."
                                         rows={3}
+                                        maxLength={500}
                                     />
+                                    <p className={`text-xs mt-1 ${responseText.length > 450 ? 'text-amber-500' : 'text-muted-foreground'}`}>
+                                        {responseText.length}/500 characters
+                                    </p>
                                     <div className="flex gap-2 mt-3">
                                         <Button
                                             size="sm"

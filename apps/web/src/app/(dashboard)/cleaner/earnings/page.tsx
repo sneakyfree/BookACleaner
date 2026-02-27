@@ -263,6 +263,51 @@ export default function CleanerEarningsPage() {
                 </Card>
             </div>
 
+            {/* Earnings Chart (Last 7 Days) */}
+            {transactions.length > 0 && (
+                <Card>
+                    <CardHeader>
+                        <CardTitle className="text-base">Last 7 Days</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                        <div className="flex items-end gap-2 h-32">
+                            {(() => {
+                                const days: Record<string, number> = {}
+                                const now = new Date()
+                                for (let i = 6; i >= 0; i--) {
+                                    const d = new Date(now)
+                                    d.setDate(d.getDate() - i)
+                                    days[d.toLocaleDateString('en-US', { weekday: 'short' })] = 0
+                                }
+                                transactions.forEach(tx => {
+                                    const txDate = new Date(tx.date)
+                                    const daysDiff = Math.floor((now.getTime() - txDate.getTime()) / (1000 * 60 * 60 * 24))
+                                    if (daysDiff >= 0 && daysDiff < 7) {
+                                        const key = txDate.toLocaleDateString('en-US', { weekday: 'short' })
+                                        if (key in days) days[key] += tx.amount
+                                    }
+                                })
+                                const maxVal = Math.max(...Object.values(days), 1)
+                                return Object.entries(days).map(([day, val]) => (
+                                    <div key={day} className="flex-1 flex flex-col items-center gap-1">
+                                        <span className="text-xs text-muted-foreground font-medium">
+                                            {val > 0 ? `$${val}` : ''}
+                                        </span>
+                                        <div className="w-full relative" style={{ height: '80px' }}>
+                                            <div
+                                                className="absolute bottom-0 w-full rounded-t-md bg-gradient-to-t from-brand-600 to-brand-400 transition-all"
+                                                style={{ height: `${Math.max((val / maxVal) * 100, val > 0 ? 8 : 2)}%` }}
+                                            />
+                                        </div>
+                                        <span className="text-xs text-muted-foreground">{day}</span>
+                                    </div>
+                                ))
+                            })()}
+                        </div>
+                    </CardContent>
+                </Card>
+            )}
+
             {/* Transactions */}
             <Card>
                 <CardHeader>
