@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useSession } from 'next-auth/react'
 import {
-    Newspaper, Heart, Pin, Clock, ExternalLink, Sparkles, Loader2, AlertCircle
+    Newspaper, Heart, Pin, Clock, ExternalLink, Sparkles, Loader2, AlertCircle, Share2
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -41,6 +41,7 @@ export default function FeedPage() {
     const [error, setError] = useState('')
     const [audienceFilter, setAudienceFilter] = useState<string>('all')
     const [likedIds, setLikedIds] = useState<Set<string>>(new Set())
+    const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set())
 
     const fetchFeed = useCallback(async () => {
         try {
@@ -150,7 +151,16 @@ export default function FeedPage() {
                                 </div>
 
                                 <h2 className="text-lg font-semibold text-white mb-2">{item.title}</h2>
-                                <p className="text-white/70 leading-relaxed mb-4">{item.content}</p>
+                                <p className={`text-white/70 leading-relaxed mb-2 ${!expandedIds.has(item.id) && item.content.length > 200 ? 'line-clamp-3' : ''}`}>{item.content}</p>
+                                {item.content.length > 200 && (
+                                    <button onClick={() => setExpandedIds(prev => {
+                                        const next = new Set(prev)
+                                        next.has(item.id) ? next.delete(item.id) : next.add(item.id)
+                                        return next
+                                    })} className="text-brand-400 text-sm font-medium mb-4 hover:text-brand-300">
+                                        {expandedIds.has(item.id) ? 'Show less' : 'Read more'}
+                                    </button>
+                                )}
 
                                 {item.cta_text && item.cta_url && (
                                     <a href={item.cta_url}
@@ -161,12 +171,23 @@ export default function FeedPage() {
 
                                 <div className="flex items-center justify-between pt-3 border-t border-white/5">
                                     <span className="text-white/40 text-sm">{item.views || 0} views</span>
-                                    <button onClick={() => toggleLike(item.id)}
-                                        className={cn('flex items-center gap-1.5 text-sm transition-colors',
-                                            likedIds.has(item.id) ? 'text-red-400' : 'text-white/40 hover:text-red-400')}>
-                                        <Heart className={cn('w-4 h-4', likedIds.has(item.id) && 'fill-current')} />
-                                        {item.likes || 0}
-                                    </button>
+                                    <div className="flex items-center gap-3">
+                                        <button onClick={() => {
+                                            if (navigator.share) {
+                                                navigator.share({ title: item.title, text: item.content.slice(0, 100) }).catch(() => { })
+                                            } else {
+                                                navigator.clipboard.writeText(`${item.title}\n${item.content.slice(0, 200)}`)
+                                            }
+                                        }} className="text-white/40 hover:text-brand-400 transition-colors">
+                                            <Share2 className="w-4 h-4" />
+                                        </button>
+                                        <button onClick={() => toggleLike(item.id)}
+                                            className={cn('flex items-center gap-1.5 text-sm transition-colors',
+                                                likedIds.has(item.id) ? 'text-red-400' : 'text-white/40 hover:text-red-400')}>
+                                            <Heart className={cn('w-4 h-4', likedIds.has(item.id) && 'fill-current')} />
+                                            {item.likes || 0}
+                                        </button>
+                                    </div>
                                 </div>
                             </article>
                         ))}

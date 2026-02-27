@@ -16,6 +16,7 @@ import {
     Loader2,
     AlertCircle,
 } from 'lucide-react'
+import { toast } from 'sonner'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
@@ -52,6 +53,28 @@ export default function PropertiesPage() {
     const [properties, setProperties] = useState<DisplayProperty[]>([])
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
+    const [deleteTarget, setDeleteTarget] = useState<DisplayProperty | null>(null)
+    const [deleting, setDeleting] = useState(false)
+
+    const handleDelete = async (id: string) => {
+        const token = (session as any)?.accessToken
+        if (!token) return
+        setDeleting(true)
+        try {
+            const res = await fetch(`${API_URL}/api/v1/properties/${id}`, {
+                method: 'DELETE',
+                headers: { Authorization: `Bearer ${token}` },
+            })
+            if (!res.ok) throw new Error('Failed to delete property')
+            setProperties(prev => prev.filter(p => p.id !== id))
+            toast.success('Property deleted successfully')
+            setDeleteTarget(null)
+        } catch {
+            toast.error('Failed to delete property')
+        } finally {
+            setDeleting(false)
+        }
+    }
 
     useEffect(() => {
         const token = (session as any)?.accessToken
@@ -219,8 +242,9 @@ export default function PropertiesPage() {
                                                 Edit
                                             </Button>
                                         </Link>
-                                        <Button variant="ghost" size="icon">
-                                            <MoreVertical className="w-4 h-4" />
+                                        <Button variant="ghost" size="icon" onClick={() => setDeleteTarget(property)}
+                                            className="text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-500/10">
+                                            <Trash2 className="w-4 h-4" />
                                         </Button>
                                     </div>
                                 </div>
@@ -250,6 +274,29 @@ export default function PropertiesPage() {
                             </CardContent>
                         </Card>
                     ))}
+                </div>
+            )}
+
+            {/* Delete Confirmation */}
+            {deleteTarget && (
+                <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                    <Card className="w-full max-w-sm">
+                        <CardContent className="pt-6 text-center space-y-4">
+                            <AlertCircle className="w-12 h-12 mx-auto text-red-500" />
+                            <div>
+                                <h3 className="font-semibold text-lg">Delete Property?</h3>
+                                <p className="text-muted-foreground text-sm mt-1">
+                                    &quot;{deleteTarget.name}&quot; at {deleteTarget.address} will be permanently deleted.
+                                </p>
+                            </div>
+                            <div className="flex gap-2">
+                                <Button variant="outline" className="flex-1" onClick={() => setDeleteTarget(null)}>Cancel</Button>
+                                <Button variant="destructive" className="flex-1" disabled={deleting} onClick={() => handleDelete(deleteTarget.id)}>
+                                    {deleting ? 'Deleting...' : 'Delete'}
+                                </Button>
+                            </div>
+                        </CardContent>
+                    </Card>
                 </div>
             )}
         </div>
