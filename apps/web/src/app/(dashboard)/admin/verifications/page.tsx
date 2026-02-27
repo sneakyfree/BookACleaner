@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useSession } from 'next-auth/react'
 import {
     Shield, ShieldCheck, ShieldAlert, FileText, Eye, CheckCircle2,
-    XCircle, Clock, User, Loader2, AlertCircle, ExternalLink
+    XCircle, Clock, User, Loader2, AlertCircle, ExternalLink, Sparkles
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -211,27 +211,75 @@ export default function AdminVerificationsPage() {
                                 <div className="bg-white/5 rounded-xl border border-white/10 p-6 sticky top-6">
                                     <h3 className="text-lg font-semibold text-white mb-4">Review Details</h3>
                                     <div className="space-y-4 mb-6">
+                                        <div className="flex items-center gap-2">
+                                            <span className={cn('px-2.5 py-0.5 rounded-full text-xs font-medium',
+                                                statusConfig[selected.status]?.color || 'text-white/60',
+                                                selected.status === 'verified' ? 'bg-green-500/20' : selected.status === 'rejected' ? 'bg-red-500/20' : 'bg-amber-500/20'
+                                            )}>{selected.status.replace('_', ' ')}</span>
+                                            {selected.current_tier && (
+                                                <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-purple-500/20 text-purple-400">
+                                                    Tier {selected.current_tier}
+                                                </span>
+                                            )}
+                                        </div>
                                         <div>
                                             <label className="text-white/40 text-xs uppercase tracking-wider">Type</label>
                                             <p className="text-white font-medium">{typeLabels[selected.verification_type] || selected.verification_type}</p>
                                         </div>
-                                        <div>
-                                            <label className="text-white/40 text-xs uppercase tracking-wider">User</label>
-                                            <p className="text-white">{selected.user_name || 'User'}</p>
-                                            <p className="text-white/50 text-sm">{selected.user_email || selected.user_id}</p>
+                                        <div className="grid grid-cols-2 gap-3">
+                                            <div>
+                                                <label className="text-white/40 text-xs uppercase tracking-wider">User</label>
+                                                <p className="text-white text-sm">{selected.user_name || 'User'}</p>
+                                                <p className="text-white/50 text-xs">{selected.user_email || selected.user_id}</p>
+                                            </div>
+                                            <div>
+                                                <label className="text-white/40 text-xs uppercase tracking-wider">Submitted</label>
+                                                <p className="text-white text-sm">
+                                                    {selected.created_at ? (() => {
+                                                        const mins = Math.floor((Date.now() - new Date(selected.created_at).getTime()) / 60000)
+                                                        if (mins < 60) return `${mins}m ago`
+                                                        if (mins < 1440) return `${Math.floor(mins / 60)}h ago`
+                                                        return `${Math.floor(mins / 1440)}d ago`
+                                                    })() : '—'}
+                                                </p>
+                                            </div>
                                         </div>
                                         {selected.document_url && (
-                                            <div>
+                                            <div className="space-y-2">
                                                 <label className="text-white/40 text-xs uppercase tracking-wider">Document</label>
-                                                <a href={selected.document_url} target="_blank" rel="noopener noreferrer"
-                                                    className="text-brand-400 hover:text-brand-300 text-sm flex items-center gap-1 mt-1">
-                                                    <ExternalLink className="w-3.5 h-3.5" /> View Document
-                                                </a>
+                                                <div className="flex gap-2">
+                                                    <a href={selected.document_url} target="_blank" rel="noopener noreferrer"
+                                                        className="flex-1 px-3 py-2 bg-brand-500/10 border border-brand-500/20 rounded-lg text-brand-400 hover:text-brand-300 text-sm flex items-center gap-1.5">
+                                                        <ExternalLink className="w-3.5 h-3.5" /> View Document
+                                                    </a>
+                                                    <button
+                                                        onClick={async () => {
+                                                            const token = (session as any)?.accessToken
+                                                            if (!token) return
+                                                            try {
+                                                                const res = await fetch(`${API_URL}/api/v1/ai/parse-document`, {
+                                                                    method: 'POST',
+                                                                    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+                                                                    body: JSON.stringify({ document_url: selected.document_url, type: selected.verification_type }),
+                                                                })
+                                                                if (res.ok) {
+                                                                    const data = await res.json()
+                                                                    setVerifications(prev => prev.map(v =>
+                                                                        v.id === selected.id ? { ...v, extracted_data: data.extracted || data } : v
+                                                                    ))
+                                                                }
+                                                            } catch { /* AI unavailable */ }
+                                                        }}
+                                                        className="px-3 py-2 bg-purple-500/10 border border-purple-500/20 rounded-lg text-purple-400 hover:text-purple-300 text-sm flex items-center gap-1.5"
+                                                    >
+                                                        <Sparkles className="w-3.5 h-3.5" /> AI Parse
+                                                    </button>
+                                                </div>
                                             </div>
                                         )}
                                         {selected.extracted_data && Object.keys(selected.extracted_data).length > 0 && (
                                             <div>
-                                                <label className="text-white/40 text-xs uppercase tracking-wider mb-2 block">Extracted Data</label>
+                                                <label className="text-white/40 text-xs uppercase tracking-wider mb-2 block">Extracted Data (AI)</label>
                                                 <div className="bg-black/20 rounded-lg p-3 space-y-1.5">
                                                     {Object.entries(selected.extracted_data).map(([k, v]) => (
                                                         <div key={k} className="flex justify-between text-sm">

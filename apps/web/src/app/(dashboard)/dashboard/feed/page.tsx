@@ -148,14 +148,25 @@ export default function FeedPage() {
                             <article key={item.id}
                                 className="bg-white/5 rounded-xl border border-white/10 p-6 transition-all hover:bg-white/[0.07]">
                                 <div className="flex items-start justify-between mb-3">
-                                    <span className={cn('px-2.5 py-1 rounded-full text-xs font-medium capitalize', typeColors[item.type] || 'bg-white/10 text-white/60')}>
-                                        {item.type}
-                                    </span>
+                                    <div className="flex items-center gap-2">
+                                        <span className={cn('px-2.5 py-1 rounded-full text-xs font-medium capitalize', typeColors[item.type] || 'bg-white/10 text-white/60')}>
+                                            {item.type}
+                                        </span>
+                                        {(item.priority || 0) >= 80 && (
+                                            <Pin className="w-3.5 h-3.5 text-amber-400" />
+                                        )}
+                                    </div>
                                     <span className="text-white/40 text-sm flex items-center gap-1">
                                         <Clock className="w-3 h-3" />
                                         {formatDate(item.created_at)}
                                     </span>
                                 </div>
+
+                                {item.image_url && expandedIds.has(item.id) && (
+                                    <div className="mb-4 rounded-lg overflow-hidden border border-white/10">
+                                        <img src={item.image_url} alt={item.title} className="w-full h-48 object-cover" />
+                                    </div>
+                                )}
 
                                 <h2 className="text-lg font-semibold text-white mb-2">{item.title}</h2>
                                 <p className={`text-white/70 leading-relaxed mb-2 ${!expandedIds.has(item.id) && item.content.length > 200 ? 'line-clamp-3' : ''}`}>{item.content}</p>
@@ -167,6 +178,22 @@ export default function FeedPage() {
                                     })} className="text-brand-400 text-sm font-medium mb-4 hover:text-brand-300">
                                         {expandedIds.has(item.id) ? 'Show less' : 'Read more'}
                                     </button>
+                                )}
+
+                                {/* Expanded detail: audience + priority */}
+                                {expandedIds.has(item.id) && (
+                                    <div className="flex items-center gap-2 mb-4 flex-wrap">
+                                        {item.target_roles && item.target_roles.length > 0 && item.target_roles.map(role => (
+                                            <span key={role} className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-white/10 text-white/50 capitalize">
+                                                {role}s
+                                            </span>
+                                        ))}
+                                        {(item.priority || 0) > 0 && (
+                                            <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-amber-500/20 text-amber-400">
+                                                Priority {item.priority}
+                                            </span>
+                                        )}
+                                    </div>
                                 )}
 
                                 {item.cta_text && item.cta_url && (
