@@ -360,7 +360,7 @@ export default function VerificationPage() {
                 </Card>
 
                 {/* Document Verifications */}
-                {['id', 'business_license', 'insurance', 'certification', 'background_check'].map((type) => {
+                {['id', 'business_license', 'insurance', 'certification'].map((type) => {
                     const Icon = VERIFICATION_ICONS[type] || FileText
                     const isVerified = verifications[type]?.status === 'verified'
                     const isPending = verifications[type]?.status === 'pending'
@@ -369,7 +369,6 @@ export default function VerificationPage() {
                         business_license: 'Business License',
                         insurance: 'Liability Insurance',
                         certification: 'Industry Certification (IICRC, EPA)',
-                        background_check: 'Background Check',
                     }
 
                     return (
@@ -419,7 +418,71 @@ export default function VerificationPage() {
                         </Card>
                     )
                 })}
+
+                {/* Background Check — Checkr Integration */}
+                <Card className="border-l-4 border-l-blue-500">
+                    <CardContent className="py-4">
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                                <div className={`w-10 h-10 rounded-full flex items-center justify-center ${verifications.background_check?.status === 'verified'
+                                        ? 'bg-green-100'
+                                        : verifications.background_check?.status === 'pending'
+                                            ? 'bg-blue-100'
+                                            : 'bg-slate-100'
+                                    }`}>
+                                    <Shield className={`w-5 h-5 ${verifications.background_check?.status === 'verified'
+                                            ? 'text-green-600'
+                                            : verifications.background_check?.status === 'pending'
+                                                ? 'text-blue-600'
+                                                : 'text-slate-500'
+                                        }`} />
+                                </div>
+                                <div>
+                                    <p className="font-medium">Background Check</p>
+                                    <p className="text-sm text-muted-foreground">
+                                        {verifications.background_check?.status === 'verified'
+                                            ? 'Passed — verified by Checkr'
+                                            : verifications.background_check?.status === 'pending'
+                                                ? 'Processing via Checkr (3-5 business days)'
+                                                : 'Powered by Checkr — required for Tier 4+'}
+                                    </p>
+                                </div>
+                            </div>
+                            {verifications.background_check?.status === 'verified' ? (
+                                <span className="flex items-center gap-1 text-green-600 text-sm font-medium">
+                                    <CheckCircle className="w-4 h-4" />
+                                    Passed
+                                </span>
+                            ) : verifications.background_check?.status === 'pending' ? (
+                                <div className="text-right">
+                                    <span className="flex items-center gap-1 text-blue-600 text-sm font-medium">
+                                        <Loader2 className="w-4 h-4 animate-spin" />
+                                        Processing
+                                    </span>
+                                    <p className="text-[10px] text-muted-foreground mt-0.5">est. 3-5 days</p>
+                                </div>
+                            ) : (
+                                <Button
+                                    size="sm"
+                                    className="bg-blue-600 hover:bg-blue-700 text-white"
+                                    onClick={() => uploadDocument('background_check')}
+                                    disabled={uploading === 'background_check'}
+                                >
+                                    {uploading === 'background_check' ? (
+                                        <Loader2 className="w-4 h-4 animate-spin" />
+                                    ) : (
+                                        <>
+                                            <Shield className="w-4 h-4 mr-1" />
+                                            Initiate Check
+                                        </>
+                                    )}
+                                </Button>
+                            )}
+                        </div>
+                    </CardContent>
+                </Card>
             </div>
         </div>
     )
 }
+
