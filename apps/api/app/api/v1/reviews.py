@@ -106,6 +106,45 @@ async def create_review(
                 data={"is_public": True, "revealed": True}
             )
         logger.info(f"Two-sided reveal triggered for job {data.job_id}")
+        # Notify both parties that reviews are now visible
+        try:
+            from app.worker import send_email_task
+            for r in all_job_reviews:
+                author = await db.user.find_unique(where={"id": r["author_id"]})
+                if author and author.get("email"):
+                    send_email_task.delay(
+                        author["email"],
+                        "Reviews Revealed! 🎉",
+                        f"<p>Both reviews for your recent job have been submitted. "
+                        f"You can now see the other party's review! "
+                        f"<a href='{settings.frontend_url}/client/bookings/{data.job_id}'>View Reviews</a></p>"
+                    )
+        except Exception as e:
+            logger.warning(f"Failed to send reveal notification: {e}")
+    
+    # Notify the reviewed party that they received a review
+    try:
+        from app.worker import send_sms_task, send_email_task
+        job = await db.job.find_unique(where={"id": data.job_id})
+        if job:
+            # Determine who was reviewed (the other party)
+            subject_id = job.get("cleaner_id") if user.get("role") == "client" else job.get("client_id")
+            if subject_id:
+                subject_profile = await db.user.find_first(where={"id": subject_id})
+                if not subject_profile:
+                    # Try via profile lookup
+                    cleaner = await db.cleaner.find_first(where={"id": subject_id})
+                    if cleaner:
+                        subject_profile = await db.user.find_unique(where={"id": cleaner.get("user_id")})
+                if subject_profile and subject_profile.get("email"):
+                    send_email_task.delay(
+                        subject_profile["email"],
+                        f"New {data.overall_rating}★ Review Received!",
+                        f"<p>You received a new review. "
+                        f"<a href='{settings.frontend_url}/client/reviews'>View your reviews</a></p>"
+                    )
+    except Exception as e:
+        logger.warning(f"Failed to send review notification: {e}")
     
     # Update cleaner stats
     if job.get("cleaner_id"):

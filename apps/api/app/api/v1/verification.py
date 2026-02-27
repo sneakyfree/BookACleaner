@@ -343,3 +343,28 @@ async def get_verification_types():
             {"level": 5, "name": "Elite", "badge_color": "#8b5cf6"},
         ]
     }
+
+
+@router.get("/badges/{user_id}")
+async def get_user_badges(
+    user_id: str,
+    db = Depends(get_db)
+):
+    """Get earned badges for a user (public endpoint)"""
+    from app.services.badge_engine import badge_engine
+
+    badges = await badge_engine.get_user_badges(user_id, db)
+    return {"badges": badges, "count": len(badges)}
+
+
+@router.post("/badges/evaluate")
+async def trigger_badge_evaluation(
+    user = Depends(get_current_user),
+    db = Depends(get_db)
+):
+    """Manually trigger badge evaluation for current user"""
+    from app.services.badge_engine import badge_engine
+
+    awarded = await badge_engine.evaluate_user(user["id"], db)
+    return {"awarded": awarded, "count": len(awarded)}
+
