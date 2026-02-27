@@ -216,6 +216,25 @@ async def create_job(
         "status": "pending",
     })
     
+    # Dispatch notification to cleaner (if assigned)
+    if data.cleaner_id:
+        try:
+            cleaner_user = await db.cleaner.find_unique(where={"id": data.cleaner_id})
+            if cleaner_user:
+                cleaner_profile = await db.user.find_unique(where={"id": cleaner_user.get("user_id")})
+                if cleaner_profile:
+                    from app.worker import send_sms_task, send_email_task
+                    phone = cleaner_profile.get("phone")
+                    email = cleaner_profile.get("email")
+                    client_name = user.get("full_name", "Client")
+                    svc = data.services[0] if data.services else "Cleaning"
+                    if phone:
+                        send_sms_task.delay(phone, f"BookACleaner: New {svc} job request from {client_name} on {data.scheduled_date} at {data.scheduled_time}. Log in to accept.")
+                    if email:
+                        send_email_task.delay(email, f"New Job Request: {svc}", f"<p>Hi! You have a new {svc} job from <strong>{client_name}</strong> on {data.scheduled_date}. <a href='{settings.frontend_url}/cleaner/jobs'>Accept or decline</a>.</p>")
+        except Exception as e:
+            logger.warning(f"Failed to dispatch job creation notification: {e}")
+    
     return {
         "id": job["id"],
         "status": job["status"],
@@ -384,6 +403,23 @@ async def accept_job(
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     
+    # Notify client that their job was accepted
+    try:
+        client_record = await db.client.find_unique(where={"id": job.get("client_id")})
+        if client_record:
+            client_user = await db.user.find_unique(where={"id": client_record.get("user_id")})
+            if client_user:
+                from app.worker import send_sms_task, send_email_task
+                cleaner_name = user.get("full_name", "Your cleaner")
+                phone = client_user.get("phone")
+                email = client_user.get("email")
+                if phone:
+                    send_sms_task.delay(phone, f"BookACleaner: {cleaner_name} accepted your booking! They'll arrive on the scheduled date. ✅")
+                if email:
+                    send_email_task.delay(email, "Booking Confirmed!", f"<p>Great news! <strong>{cleaner_name}</strong> has accepted your booking. <a href='{settings.frontend_url}/client/bookings/{job_id}'>View details</a>.</p>")
+    except Exception as e:
+        logger.warning(f"Failed to dispatch accept notification: {e}")
+    
     return {"id": job_id, "status": "confirmed"}
 
 
@@ -419,6 +455,18 @@ async def start_job(
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     
+    # Notify client that cleaning has started
+    try:
+        client_record = await db.client.find_unique(where={"id": job.get("client_id")})
+        if client_record:
+            client_user = await db.user.find_unique(where={"id": client_record.get("user_id")})
+            if client_user and client_user.get("phone"):
+                from app.worker import send_sms_task
+                cleaner_name = user.get("full_name", "Your cleaner")
+                send_sms_task.delay(client_user["phone"], f"BookACleaner: {cleaner_name} has started cleaning your property. 🧹")
+    except Exception as e:
+        logger.warning(f"Failed to dispatch start notification: {e}")
+    
     return {"id": job_id, "status": "in_progress"}
 
 
@@ -437,6 +485,24 @@ async def complete_job(
     
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
+    
+    # Notify client: job done + request review
+    try:
+        client_record = await db.client.find_unique(where={"id": job.get("client_id")})
+        if client_record:
+            client_user = await db.user.find_unique(where={"id": client_record.get("user_id")})
+            if client_user:
+                from app.worker import send_sms_task, send_email_task
+                cleaner_name = user.get("full_name", "Your cleaner")
+                review_link = f"{settings.frontend_url}/client/bookings/{job_id}"
+                phone = client_user.get("phone")
+                email = client_user.get("email")
+                if phone:
+                    send_sms_task.delay(phone, f"BookACleaner: {cleaner_name} has completed your cleaning! ✨ Leave a review: {review_link}")
+                if email:
+                    send_email_task.delay(email, "Your Cleaning is Complete!", f"<p><strong>{cleaner_name}</strong> has finished cleaning your property. <a href='{review_link}'>Leave a review</a> to help others find great cleaners!</p>")
+    except Exception as e:
+        logger.warning(f"Failed to dispatch completion notification: {e}")
     
     return {"id": job_id, "status": "completed"}
 

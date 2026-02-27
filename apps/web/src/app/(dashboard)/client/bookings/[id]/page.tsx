@@ -7,9 +7,10 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import {
     MapPin, Clock, DollarSign, User, ArrowLeft, CheckCircle,
-    AlertCircle, MessageSquare, Star, Play, Camera, Loader2
+    AlertCircle, MessageSquare, Star, Play, Camera, Loader2, RotateCcw
 } from 'lucide-react'
 import Link from 'next/link'
+import { toast } from 'sonner'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
@@ -55,6 +56,9 @@ export default function JobDetailPage() {
     const [showReviewForm, setShowReviewForm] = useState(false)
     const [reviewRating, setReviewRating] = useState(5)
     const [reviewText, setReviewText] = useState('')
+    const [showRefundModal, setShowRefundModal] = useState(false)
+    const [refundReason, setRefundReason] = useState('')
+    const [refundLoading, setRefundLoading] = useState(false)
 
     useEffect(() => {
         const token = (session as any)?.accessToken
@@ -121,6 +125,31 @@ export default function JobDetailPage() {
             console.error('Failed to submit review:', err)
         } finally {
             setActionLoading(false)
+        }
+    }
+
+    const handleRefundRequest = async () => {
+        if (!refundReason) return
+        setRefundLoading(true)
+        try {
+            const token = (session as any)?.accessToken
+            const res = await fetch(`${API_URL}/api/v1/payments/refund/${job?.id}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${token}`,
+                },
+                body: JSON.stringify({ reason: refundReason }),
+            })
+            if (!res.ok) throw new Error('Refund request failed')
+            toast.success('Refund request submitted successfully')
+            setShowRefundModal(false)
+            setRefundReason('')
+            fetchJob()
+        } catch (err) {
+            toast.error('Failed to submit refund request')
+        } finally {
+            setRefundLoading(false)
         }
     }
 
@@ -294,6 +323,16 @@ export default function JobDetailPage() {
                         <MessageSquare className="w-4 h-4" /> Message
                     </Button>
                 </Link>
+                {/* Refund button — shown for completed or cancelled jobs with payments */}
+                {(job.status === 'completed' || job.status === 'cancelled') && job.payment_status && job.payment_status !== 'refunded' && (
+                    <Button
+                        variant="outline"
+                        className="gap-2 text-red-600 border-red-200 hover:bg-red-50 dark:hover:bg-red-500/10"
+                        onClick={() => setShowRefundModal(true)}
+                    >
+                        <RotateCcw className="w-4 h-4" /> Request Refund
+                    </Button>
+                )}
             </div>
 
             {/* Review Form */}
@@ -332,6 +371,57 @@ export default function JobDetailPage() {
                         </div>
                     </CardContent>
                 </Card>
+            )}
+
+            {/* Refund Modal */}
+            {showRefundModal && (
+                <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                    <Card className="w-full max-w-md">
+                        <CardHeader>
+                            <CardTitle className="text-base flex items-center gap-2">
+                                <RotateCcw className="w-5 h-5 text-red-500" />
+                                Request a Refund
+                            </CardTitle>
+                        </CardHeader>
+                        <CardContent className="space-y-4">
+                            <div>
+                                <p className="text-sm text-muted-foreground mb-3">
+                                    Refund of <strong>${job.total_price}</strong> for &quot;{job.title}&quot;
+                                </p>
+                            </div>
+                            <div>
+                                <label className="text-sm font-medium mb-2 block">Reason for refund</label>
+                                <select
+                                    value={refundReason}
+                                    onChange={(e) => setRefundReason(e.target.value)}
+                                    className="w-full px-3 py-2 border rounded-xl bg-background focus:ring-2 focus:ring-brand-500 outline-none"
+                                >
+                                    <option value="">Select a reason...</option>
+                                    <option value="quality">Quality not as expected</option>
+                                    <option value="incomplete">Job not completed</option>
+                                    <option value="no_show">Cleaner did not show up</option>
+                                    <option value="scheduling">Scheduling issue</option>
+                                    <option value="overcharged">Overcharged</option>
+                                    <option value="other">Other</option>
+                                </select>
+                            </div>
+                            <div className="flex gap-3 pt-2">
+                                <Button
+                                    onClick={handleRefundRequest}
+                                    disabled={!refundReason || refundLoading}
+                                    variant="destructive"
+                                    className="flex-1"
+                                >
+                                    {refundLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+                                    Submit Refund Request
+                                </Button>
+                                <Button variant="outline" onClick={() => setShowRefundModal(false)} className="flex-1">
+                                    Cancel
+                                </Button>
+                            </div>
+                        </CardContent>
+                    </Card>
+                </div>
             )}
         </div>
     )

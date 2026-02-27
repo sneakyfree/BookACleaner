@@ -82,7 +82,7 @@ async def create_review(
     if existing:
         raise HTTPException(status_code=400, detail="Job already reviewed")
     
-    # Create review
+    # Create review — hidden until both sides review (two-sided reveal)
     review = await db.review.create(data={
         "job_id": data.job_id,
         "author_id": user["id"],
@@ -93,7 +93,19 @@ async def create_review(
         "text": data.text,
         "tags": data.tags,
         "photos": data.photos,
+        "is_public": False,
+        "revealed": False,
     })
+    
+    # Two-sided reveal: if both parties reviewed this job, reveal both
+    all_job_reviews = await db.review.find_many(where={"job_id": data.job_id})
+    if len(all_job_reviews) >= 2:
+        for r in all_job_reviews:
+            await db.review.update(
+                where={"id": r["id"]},
+                data={"is_public": True, "revealed": True}
+            )
+        logger.info(f"Two-sided reveal triggered for job {data.job_id}")
     
     # Update cleaner stats
     if job.get("cleaner_id"):

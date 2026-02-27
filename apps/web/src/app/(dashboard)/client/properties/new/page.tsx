@@ -1,11 +1,12 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { useSession } from 'next-auth/react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { AddressAutocomplete, type ParsedAddress } from '@/components/common/AddressAutocomplete'
 import {
     Plus,
     Home,
@@ -105,11 +106,19 @@ export default function NewPropertyPage() {
                                 <MapPin className="w-4 h-4" />
                                 Street Address
                             </label>
-                            <Input
+                            <AddressAutocomplete
                                 value={formData.address}
-                                onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-                                placeholder="123 Main Street"
-                                required
+                                onChange={(val) => setFormData({ ...formData, address: val })}
+                                onSelect={(parsed: ParsedAddress) => {
+                                    setFormData((prev) => ({
+                                        ...prev,
+                                        address: parsed.address,
+                                        city: parsed.city || prev.city,
+                                        state: parsed.state || prev.state,
+                                        zipCode: parsed.zipCode || prev.zipCode,
+                                    }))
+                                }}
+                                placeholder="Start typing an address..."
                             />
                         </div>
 
