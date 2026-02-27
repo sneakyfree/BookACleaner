@@ -240,3 +240,73 @@ def create_turnover_jobs_task(property_id: str):
         logger.info(f"Turnover jobs created for property {property_id}")
     except Exception as exc:
         logger.error(f"Turnover job creation failed for {property_id}: {exc}")
+
+
+# ==================== PAYMENT TASKS ====================
+
+@celery_app.task(name="app.worker.release_payment_task", bind=True, max_retries=3)
+def release_payment_task(self, job_id: str):
+    """Release escrow payment on job completion: capture PI + transfer to cleaner"""
+    try:
+        import asyncio
+        import stripe
+        from app.database import db
+
+        stripe.api_key = settings.stripe_secret_key
+
+        async def _release():
+            # Get job details
+            job = await db.job.find_unique(where={"id": job_id})
+            if not job:
+                logger.error(f"Job {job_id} not found for payment release")
+                return
+
+            payment_id = job.get("stripe_payment_id")
+            if not payment_id:
+                logger.warning(f"Job {job_id} has no Stripe payment ID, skipping release")
+                return
+
+            # Get cleaner's Stripe account
+            cleaner = await db.cleaner.find_first(where={"id": job.get("cleaner_id")})
+            if not cleaner or not cleaner.get("stripe_account_id"):
+                logger.warning(f"Cleaner for job {job_id} has no Stripe account")
+                return
+
+            # 1. Capture the payment intent (moves from hold → captured)
+            pi = stripe.PaymentIntent.capture(payment_id)
+            amount_captured = pi.amount_received  # in cents
+
+            # 2. Calculate platform fee (15%)
+            platform_fee = int(amount_captured * 0.15)
+            cleaner_payout = amount_captured - platform_fee
+
+            # 3. Transfer to cleaner's Connected account
+            transfer = stripe.Transfer.create(
+                amount=cleaner_payout,
+                currency="usd",
+                destination=cleaner["stripe_account_id"],
+                transfer_group=f"job_{job_id}",
+                metadata={"job_id": job_id, "platform_fee": platform_fee},
+            )
+
+            # 4. Update job payment status
+            await db.job.update(
+                where={"id": job_id},
+                data={
+                    "payment_status": "released",
+                    "paid_out_at": __import__("datetime").datetime.utcnow(),
+                }
+            )
+
+            logger.info(
+                f"Payment released for job {job_id}: "
+                f"${amount_captured/100:.2f} captured, "
+                f"${cleaner_payout/100:.2f} to cleaner, "
+                f"${platform_fee/100:.2f} platform fee"
+            )
+
+        asyncio.get_event_loop().run_until_complete(_release())
+    except Exception as exc:
+        logger.error(f"Payment release failed for job {job_id}: {exc}")
+        self.retry(exc=exc, countdown=60 * (2 ** self.request.retries))
+

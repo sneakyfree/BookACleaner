@@ -156,6 +156,63 @@ async def mark_all_read(
     return {"marked_read": len(notifications)}
 
 
+class RegisterDeviceRequest(BaseModel):
+    fcm_token: str
+    device_type: str = "web"  # web, ios, android
+
+
+@router.post("/register-device")
+async def register_device(
+    data: RegisterDeviceRequest,
+    user = Depends(get_current_user),
+    db = Depends(get_db)
+):
+    """Register a device for push notifications"""
+    from app.models import generate_uuid
+
+    # Check if token already registered
+    existing = await db.execute(
+        "SELECT id FROM push_tokens WHERE fcm_token = :token AND user_id = :uid",
+        {"token": data.fcm_token, "uid": user["id"]}
+    )
+    if existing:
+        return {"status": "already_registered"}
+
+    # Delete old tokens for this user + device type
+    await db.execute(
+        "DELETE FROM push_tokens WHERE user_id = :uid AND device_type = :dtype",
+        {"uid": user["id"], "dtype": data.device_type}
+    )
+
+    # Insert new token
+    await db.execute(
+        """INSERT INTO push_tokens (id, user_id, fcm_token, device_type, created_at)
+           VALUES (:id, :uid, :token, :dtype, :now)""",
+        {
+            "id": generate_uuid(), "uid": user["id"],
+            "token": data.fcm_token, "dtype": data.device_type,
+            "now": datetime.utcnow()
+        }
+    )
+
+    logger.info(f"Registered push token for user {user['id']} ({data.device_type})")
+    return {"status": "registered"}
+
+
+@router.delete("/unregister-device")
+async def unregister_device(
+    fcm_token: str,
+    user = Depends(get_current_user),
+    db = Depends(get_db)
+):
+    """Unregister a device from push notifications"""
+    await db.execute(
+        "DELETE FROM push_tokens WHERE fcm_token = :token AND user_id = :uid",
+        {"token": fcm_token, "uid": user["id"]}
+    )
+    return {"status": "unregistered"}
+
+
 @router.get("/unread-count")
 async def get_unread_count(
     user = Depends(get_current_user),

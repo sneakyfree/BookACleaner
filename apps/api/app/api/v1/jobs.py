@@ -504,6 +504,21 @@ async def complete_job(
     except Exception as e:
         logger.warning(f"Failed to dispatch completion notification: {e}")
     
+    # Auto-release escrow payment to cleaner
+    try:
+        from app.worker import release_payment_task
+        release_payment_task.delay(job_id)
+        logger.info(f"Payment release queued for job {job_id}")
+    except Exception as e:
+        logger.warning(f"Failed to queue payment release for job {job_id}: {e}")
+
+    # Evaluate badges for the cleaner
+    try:
+        from app.worker import award_badges_task
+        award_badges_task.delay(user["id"])
+    except Exception as e:
+        logger.warning(f"Failed to queue badge evaluation: {e}")
+
     return {"id": job_id, "status": "completed"}
 
 

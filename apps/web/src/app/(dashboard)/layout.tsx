@@ -1,9 +1,10 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useSession, signOut } from 'next-auth/react'
+import { requestPushPermission, setupForegroundListener } from '@/lib/push'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import {
@@ -58,6 +59,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     const isCleaner = session?.user?.role?.toLowerCase() === 'cleaner'
     const navItems = isCleaner ? cleanerNavItems : clientNavItems
     const basePath = isCleaner ? '/cleaner' : '/client'
+
+    // Initialize push notifications after auth
+    useEffect(() => {
+        const token = (session as any)?.accessToken
+        if (!token) return
+        requestPushPermission(token).catch(() => { })
+        setupForegroundListener().catch(() => { })
+    }, [session])
 
     return (
         <div className="min-h-screen bg-slate-50 dark:bg-slate-900">
