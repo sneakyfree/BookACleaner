@@ -215,6 +215,29 @@ export default function AdminAuditPage() {
                                                             <span className="text-white/40 text-xs uppercase tracking-wider">Full Details</span>
                                                             <p className="text-white/80 text-sm mt-1 whitespace-pre-wrap">{entry.details || 'No additional details'}</p>
                                                         </div>
+                                                        <div className="mt-2 flex justify-end">
+                                                            <button
+                                                                onClick={async (e) => {
+                                                                    e.stopPropagation()
+                                                                    const token = (session as any)?.accessToken
+                                                                    if (!token) return
+                                                                    try {
+                                                                        const res = await fetch(`${API_URL}/api/v1/explain/audit/${entry.id}`, {
+                                                                            headers: { Authorization: `Bearer ${token}` },
+                                                                        })
+                                                                        if (res.ok) {
+                                                                            const data = await res.json()
+                                                                            const el = document.getElementById(`snapshot-${entry.id}`)
+                                                                            if (el) el.textContent = JSON.stringify(data, null, 2)
+                                                                        }
+                                                                    } catch { /* snapshot unavailable */ }
+                                                                }}
+                                                                className="text-brand-400 hover:text-brand-300 text-xs flex items-center gap-1"
+                                                            >
+                                                                📸 View Snapshot
+                                                            </button>
+                                                        </div>
+                                                        <pre id={`snapshot-${entry.id}`} className="text-[10px] text-white/50 mt-1 max-h-32 overflow-auto" />
                                                     </td>
                                                 </tr>
                                             )}
