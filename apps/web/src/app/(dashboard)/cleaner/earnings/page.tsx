@@ -14,7 +14,9 @@ import {
     Filter,
     Loader2,
     AlertCircle,
+    Banknote,
 } from 'lucide-react'
+import { toast } from 'sonner'
 
 interface ApiJob {
     id: string
@@ -179,6 +181,25 @@ export default function CleanerEarningsPage() {
                     <Button variant="outline">
                         <Download className="w-4 h-4 mr-2" />
                         Export
+                    </Button>
+                    <Button
+                        className="bg-green-600 hover:bg-green-700 text-white"
+                        onClick={async () => {
+                            if (stats.available <= 0) { toast.error('No available balance to withdraw'); return }
+                            try {
+                                const token = (session as any)?.accessToken
+                                const res = await fetch(`${API_URL}/api/v1/payments/request-payout`, {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                                    body: JSON.stringify({ amount: stats.available }),
+                                })
+                                if (res.ok) toast.success(`Payout of $${stats.available} requested!`)
+                                else toast.error('Failed to request payout')
+                            } catch { toast.error('Payout request failed') }
+                        }}
+                    >
+                        <Banknote className="w-4 h-4 mr-2" />
+                        Request Payout
                     </Button>
                 </div>
             </div>
