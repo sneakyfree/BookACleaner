@@ -158,7 +158,10 @@ export default function CleanerDashboard() {
             {/* Welcome */}
             <div>
                 <h1 className="text-2xl font-bold">
-                    Good morning, {session?.user?.email?.split('@')[0]} 👋
+                    {(() => {
+                        const h = new Date().getHours()
+                        return h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening'
+                    })()}, {session?.user?.email?.split('@')[0]} 👋
                 </h1>
                 <p className="text-muted-foreground mt-1">
                     Here&apos;s what&apos;s happening with your business today.

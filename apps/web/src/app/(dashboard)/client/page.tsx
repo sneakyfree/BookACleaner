@@ -110,7 +110,10 @@ export default function ClientDashboard() {
             <div className="flex items-center justify-between">
                 <div>
                     <h1 className="text-2xl font-bold">
-                        Welcome back, {session?.user?.email?.split('@')[0]} 👋
+                        {(() => {
+                            const h = new Date().getHours()
+                            return h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening'
+                        })()}, {session?.user?.email?.split('@')[0]} 👋
                     </h1>
                     <p className="text-muted-foreground mt-1">
                         Manage your properties and bookings.
