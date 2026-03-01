@@ -53,15 +53,15 @@ class Settings(BaseSettings):
     nextauth_url: str = "http://localhost:3000"
     nextauth_secret: str = "dev-nextauth-secret-change-in-production"
 
-    # Stripe - mock keys for dev
-    stripe_secret_key: str = "sk_test_mock_dev_key"
-    stripe_publishable_key: str = "pk_test_mock_dev_key"
-    stripe_webhook_secret: str = "whsec_mock_dev_key"
+    # Stripe — reads from env; empty defaults trigger dev-mode in stripe.py
+    stripe_secret_key: str = os.getenv("STRIPE_SECRET_KEY", "")
+    stripe_publishable_key: str = os.getenv("STRIPE_PUBLISHABLE_KEY", "")
+    stripe_webhook_secret: str = os.getenv("STRIPE_WEBHOOK_SECRET", "")
 
-    # Twilio - mock for dev
-    twilio_account_sid: str = "AC_mock_dev_sid"
-    twilio_auth_token: str = "mock_dev_auth_token"
-    twilio_phone_number: str = "+15555555555"
+    # Twilio — reads from env; empty defaults trigger dev-mode in sms.py
+    twilio_account_sid: str = os.getenv("TWILIO_ACCOUNT_SID", "")
+    twilio_auth_token: str = os.getenv("TWILIO_AUTH_TOKEN", "")
+    twilio_phone_number: str = os.getenv("TWILIO_PHONE_NUMBER", "+15555555555")
 
     # SendGrid - mock for dev
     sendgrid_api_key: str = "SG.mock_dev_key"

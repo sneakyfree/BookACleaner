@@ -269,25 +269,45 @@ async def create_checkout_session(
     user=Depends(get_current_user),
     db=Depends(get_db)
 ):
-    """Create a Stripe Checkout session for subscription."""
-    price_map = {
-        "pro": os.getenv("STRIPE_PRO_PRICE_ID", "price_pro_placeholder"),
-        "premium": os.getenv("STRIPE_PREMIUM_PRICE_ID", "price_premium_placeholder"),
+    """Create a Stripe Checkout session for subscription or one-time payment."""
+    # Map plan IDs to Stripe price IDs and checkout modes
+    plan_config = {
+        "pay_as_you_go": {
+            "price_id": os.getenv("STRIPE_PAY_AS_YOU_GO_PRICE_ID", ""),
+            "mode": "payment",
+        },
+        "weekly_clean": {
+            "price_id": os.getenv("STRIPE_WEEKLY_CLEAN_PRICE_ID", ""),
+            "mode": "subscription",
+        },
+        "host_pro": {
+            "price_id": os.getenv("STRIPE_HOST_PRO_PRICE_ID", ""),
+            "mode": "subscription",
+        },
     }
-    if plan not in price_map:
-        raise HTTPException(status_code=400, detail="Invalid plan. Choose 'pro' or 'premium'.")
+    if plan not in plan_config:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid plan '{plan}'. Choose 'pay_as_you_go', 'weekly_clean', or 'host_pro'.",
+        )
+
+    cfg = plan_config[plan]
+    if not cfg["price_id"]:
+        raise HTTPException(status_code=500, detail=f"Price ID not configured for plan '{plan}'")
 
     try:
         session = stripe.checkout.Session.create(
-            mode="subscription",
-            line_items=[{"price": price_map[plan], "quantity": 1}],
-            success_url=f"{settings.frontend_url}/settings/subscription?success=true",
-            cancel_url=f"{settings.frontend_url}/pricing?canceled=true",
+            mode=cfg["mode"],
+            line_items=[{"price": cfg["price_id"], "quantity": 1}],
+            success_url=f"{settings.frontend_url}/cleaner/subscription?success=true",
+            cancel_url=f"{settings.frontend_url}/cleaner/subscription?canceled=true",
             metadata={"userId": user["id"], "plan": plan},
             customer_email=user.get("email"),
+            allow_promotion_codes=True,  # enables CLEANFRIEND coupon
         )
         return {"url": session.url, "sessionId": session.id}
     except stripe.error.StripeError as e:
+        logger.error(f"Stripe checkout error for plan '{plan}': {e}")
         raise HTTPException(status_code=400, detail=str(e))
 
 
@@ -457,6 +477,59 @@ async def handle_webhook(request: Request):
                     data={"payment_status": "refunded"}
                 )
                 logger.info(f"Refund completed for job {job_id}")
+
+    elif event.type == "checkout.session.completed":
+        session_obj = event.data.object
+        user_id = session_obj.metadata.get("userId")
+        plan = session_obj.metadata.get("plan", "unknown")
+
+        if session_obj.mode == "subscription" and user_id:
+            # Retrieve the subscription to get period info
+            sub_id = session_obj.subscription
+            if sub_id:
+                sub = stripe.Subscription.retrieve(sub_id)
+                from app.models import generate_uuid
+                from datetime import datetime
+                await db.execute(
+                    """INSERT INTO subscriptions (id, user_id, stripe_subscription_id, stripe_customer_id, plan, status, current_period_start, current_period_end, created_at, updated_at)
+                       VALUES (:id, :uid, :sid, :cid, :plan, :status, :ps, :pe, :now, :now)
+                       ON CONFLICT (stripe_subscription_id) DO NOTHING""",
+                    {"id": generate_uuid(), "uid": user_id, "sid": sub.id, "cid": sub.customer,
+                     "plan": plan, "status": "active",
+                     "ps": datetime.fromtimestamp(sub.current_period_start),
+                     "pe": datetime.fromtimestamp(sub.current_period_end),
+                     "now": datetime.utcnow()}
+                )
+            logger.info(f"Checkout completed (subscription) for user {user_id}: plan={plan}")
+        elif session_obj.mode == "payment" and user_id:
+            logger.info(f"Checkout completed (one-time payment) for user {user_id}: plan={plan}, amount=${session_obj.amount_total / 100:.2f}")
+        else:
+            logger.info(f"Checkout session completed: mode={session_obj.mode}")
+
+    elif event.type == "invoice.payment_failed":
+        invoice = event.data.object
+        sub_id = invoice.subscription
+        if sub_id:
+            from datetime import datetime
+            await db.execute(
+                "UPDATE subscriptions SET status = 'past_due', updated_at = :now WHERE stripe_subscription_id = :sid",
+                {"now": datetime.utcnow(), "sid": sub_id}
+            )
+            # Try to notify the user
+            result = await db.execute(
+                "SELECT user_id FROM subscriptions WHERE stripe_subscription_id = :sid LIMIT 1",
+                {"sid": sub_id}
+            )
+            if result and result[0].get("user_id"):
+                from app.models import generate_uuid
+                await db.notification.create(data={
+                    "id": generate_uuid(),
+                    "user_id": result[0]["user_id"],
+                    "type": "payment_failed",
+                    "title": "Subscription Payment Failed",
+                    "message": "Your subscription payment failed. Please update your payment method to avoid service interruption.",
+                })
+            logger.warning(f"Invoice payment failed for subscription {sub_id}")
 
     return {"received": True}
 

@@ -1,6 +1,13 @@
 """
 Twilio SMS Service for BookACleaner.ai
 Handles all SMS notifications including booking confirmations, reminders, and OTP
+
+NOTE — TRIAL ACCOUNT LIMITATION:
+Twilio is currently on a TRIAL account. It can only send SMS to phone numbers
+that have been verified in the Twilio console. The only verified number at
+this time is: +18012599358
+Until the account is upgraded to a paid plan, any send_sms() call to an
+unverified number will raise a TwilioRestException (error 21608).
 """
 import os
 from twilio.rest import Client
