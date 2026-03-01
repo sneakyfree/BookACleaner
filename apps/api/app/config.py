@@ -53,22 +53,22 @@ class Settings(BaseSettings):
     nextauth_url: str = "http://localhost:3000"
     nextauth_secret: str = "dev-nextauth-secret-change-in-production"
 
-    # Stripe — reads from env; empty defaults trigger dev-mode in stripe.py
-    stripe_secret_key: str = os.getenv("STRIPE_SECRET_KEY", "")
-    stripe_publishable_key: str = os.getenv("STRIPE_PUBLISHABLE_KEY", "")
-    stripe_webhook_secret: str = os.getenv("STRIPE_WEBHOOK_SECRET", "")
+    # Stripe — empty defaults trigger dev-mode in stripe.py
+    stripe_secret_key: str = ""
+    stripe_publishable_key: str = ""
+    stripe_webhook_secret: str = ""
 
-    # Twilio — reads from env; empty defaults trigger dev-mode in sms.py
-    twilio_account_sid: str = os.getenv("TWILIO_ACCOUNT_SID", "")
-    twilio_auth_token: str = os.getenv("TWILIO_AUTH_TOKEN", "")
-    twilio_phone_number: str = os.getenv("TWILIO_PHONE_NUMBER", "+15555555555")
+    # Twilio — empty defaults trigger dev-mode in sms.py
+    twilio_account_sid: str = ""
+    twilio_auth_token: str = ""
+    twilio_phone_number: str = "+15555555555"
 
     # SendGrid - mock for dev
     sendgrid_api_key: str = "SG.mock_dev_key"
     sendgrid_from_email: str = "noreply@bookacleaner.ai"
 
     # OpenAI - can be overridden with real key
-    openai_api_key: str = os.getenv("OPENAI_API_KEY", "sk-mock-dev-key")
+    openai_api_key: str = "sk-mock-dev-key"
 
     # Google
     google_maps_api_key: Optional[str] = None
@@ -85,7 +85,9 @@ class Settings(BaseSettings):
     frontend_url: str = "http://localhost:3000"
 
     class Config:
-        env_file = ".env"
+        # Resolve .env from project root (two levels up from config.py)
+        _project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        env_file = os.path.join(_project_root, ".env")
         env_file_encoding = "utf-8"
         case_sensitive = False
         # Allow extra fields from env

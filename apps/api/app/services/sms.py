@@ -20,18 +20,16 @@ from app.config import get_settings
 settings = get_settings()
 logger = logging.getLogger(__name__)
 
-# Twilio client is lazily initialized in SMSService to avoid
-# import-time crash with mock/dev credentials.
-twilio_client = None
+# NOTE: Twilio client is initialized lazily inside SMSService.__init__
+# to avoid import-time crash when credentials are empty/missing.
 
 
 class SMSService:
     """Service for sending SMS notifications via Twilio"""
     
     def __init__(self):
-        global twilio_client
         self.from_number = settings.twilio_phone_number
-        # Dev-mode detection — check BEFORE creating Twilio client
+        # Dev-mode detection
         sid = settings.twilio_account_sid or ""
         self.is_dev = (
             not sid
@@ -43,23 +41,10 @@ class SMSService:
             self.client = None
             logger.info("📱 SMS service running in DEV MODE — messages will be logged to console")
         else:
-            # Only create Twilio client with real credentials
-            if twilio_client is None:
-                try:
-                    twilio_client = Client(settings.twilio_account_sid, settings.twilio_auth_token)
-                except Exception as e:
-                    logger.error(f"Failed to initialize Twilio client: {e}")
-                    twilio_client = None
-            self.client = twilio_client
+            self.client = Client(settings.twilio_account_sid, settings.twilio_auth_token)
     
     async def send_sms(self, to: str, message: str) -> dict:
         """Send an SMS message"""
-        # Feature flag kill-switch
-        from app.core.feature_flags import flags
-        if not flags.sms_enabled:
-            logger.info(f"SMS disabled by feature flag — skipping send to {to}")
-            return {"success": True, "disabled": True}
-
         if self.is_dev:
             logger.info(f"\n{'='*60}")
             logger.info(f"📱 DEV SMS — To: {to}")

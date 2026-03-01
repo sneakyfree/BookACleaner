@@ -27,23 +27,43 @@ from app.models import (
 
 logger = logging.getLogger(__name__)
 
-# Database configuration — PostgreSQL only
+# Database configuration — PostgreSQL preferred, SQLite fallback for local dev
 # Override via DATABASE_URL env var; defaults to local docker-compose PostgreSQL
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
     "postgresql+asyncpg://bookacleaner:password@localhost:5432/bookacleaner"
 )
 
+# Auto-fallback to SQLite if PostgreSQL is not reachable
+_use_sqlite = False
+if "postgresql" in DATABASE_URL and not os.getenv("DATABASE_URL"):
+    try:
+        import socket
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(1)
+        sock.connect(("localhost", 5432))
+        sock.close()
+    except (socket.error, OSError):
+        _db_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "bookacleaner.db")
+        DATABASE_URL = f"sqlite+aiosqlite:///{_db_path}"
+        _use_sqlite = True
+        logger.warning(f"⚠️  PostgreSQL not available — falling back to SQLite: {_db_path}")
+
 # Create async engine with connection pool settings
 _engine_kwargs = {
     "echo": os.getenv("SQL_ECHO", "false").lower() == "true",
     "future": True,
-    "pool_size": int(os.getenv("DB_POOL_SIZE", "20")),
-    "max_overflow": int(os.getenv("DB_MAX_OVERFLOW", "10")),
-    "pool_timeout": 30,
-    "pool_recycle": 1800,  # Recycle connections every 30 min
-    "pool_pre_ping": True,  # Verify connections before use
 }
+
+# Only add pool settings for PostgreSQL (SQLite doesn't support them)
+if not _use_sqlite:
+    _engine_kwargs.update({
+        "pool_size": int(os.getenv("DB_POOL_SIZE", "20")),
+        "max_overflow": int(os.getenv("DB_MAX_OVERFLOW", "10")),
+        "pool_timeout": 30,
+        "pool_recycle": 1800,  # Recycle connections every 30 min
+        "pool_pre_ping": True,  # Verify connections before use
+    })
 
 engine = create_async_engine(DATABASE_URL, **_engine_kwargs)
 
