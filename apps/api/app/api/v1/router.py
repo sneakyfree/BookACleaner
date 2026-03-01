@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from app.api.v1 import auth, users, cleaners, clients, properties, jobs, reviews, messages, payments, uploads, notifications, ai, verification, admin, bids, feed, hitl, explain, disputes, moderation, route, sponsored, services, agreements
+from app.api.v1 import auth, users, cleaners, clients, properties, jobs, reviews, messages, payments, uploads, notifications, ai, verification, admin, bids, feed, hitl, explain, disputes, moderation, route, sponsored, services, agreements, privacy
 
 api_router = APIRouter()
 
@@ -28,6 +28,7 @@ api_router.include_router(route.router, prefix="/route", tags=["Route Optimizati
 api_router.include_router(sponsored.router, prefix="/sponsored", tags=["Sponsored Listings"])
 api_router.include_router(services.router, prefix="/services", tags=["Service Categories"])
 api_router.include_router(agreements.router, prefix="/agreements", tags=["Service Agreements"])
+api_router.include_router(privacy.router, prefix="/privacy", tags=["Privacy & GDPR"])
 
 
 

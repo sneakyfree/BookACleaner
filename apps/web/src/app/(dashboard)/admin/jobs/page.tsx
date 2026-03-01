@@ -1,14 +1,12 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
-import { useSession } from 'next-auth/react'
+import { useState } from 'react'
 import {
     Briefcase, Clock, CheckCircle2, XCircle, Play, AlertTriangle,
     Loader2, AlertCircle, Search, ChevronDown, ExternalLink, User, MapPin
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+import { useAdminJobs } from '@/hooks/use-api'
 
 interface AdminJob {
     id: string
@@ -35,41 +33,13 @@ const statusConfig: Record<string, { color: string; bg: string; icon: typeof Clo
 }
 
 export default function AdminJobsPage() {
-    const { data: session } = useSession()
-    const [jobs, setJobs] = useState<AdminJob[]>([])
-    const [loading, setLoading] = useState(true)
-    const [error, setError] = useState('')
     const [statusFilter, setStatusFilter] = useState('all')
     const [search, setSearch] = useState('')
     const [expandedId, setExpandedId] = useState<string | null>(null)
 
-    const fetchJobs = useCallback(async () => {
-        const token = (session as any)?.accessToken
-        if (!token) return
-        try {
-            setLoading(true)
-            setError('')
-            const params = new URLSearchParams()
-            if (statusFilter !== 'all') params.set('status', statusFilter)
-            if (search) params.set('q', search)
-            const res = await fetch(`${API_URL}/api/v1/admin/jobs?${params}`, {
-                headers: { Authorization: `Bearer ${token}` },
-            })
-            if (!res.ok) throw new Error(`Failed to load jobs (${res.status})`)
-            const data = await res.json()
-            setJobs(data.jobs || data.items || data || [])
-        } catch (err: any) {
-            setError(err.message)
-        } finally {
-            setLoading(false)
-        }
-    }, [session, statusFilter, search])
+    const { data: rawData, isLoading: loading, error, refetch } = useAdminJobs(1, statusFilter !== 'all' ? statusFilter : undefined)
 
-    useEffect(() => {
-        if (session) fetchJobs()
-    }, [session, fetchJobs])
-
-    const filtered = jobs
+    const filtered: AdminJob[] = rawData?.jobs || rawData?.items || rawData || []
 
     const formatDate = (d: string) => {
         const date = new Date(d)
@@ -123,8 +93,8 @@ export default function AdminJobsPage() {
                 {error && (
                     <div className="mb-6 p-4 bg-red-500/10 border border-red-500/30 rounded-lg flex items-center gap-3">
                         <AlertCircle className="w-5 h-5 text-red-400 shrink-0" />
-                        <p className="text-red-300 text-sm">{error}</p>
-                        <button onClick={fetchJobs} className="ml-auto text-red-400 hover:text-red-300 text-sm font-medium">Retry</button>
+                        <p className="text-red-300 text-sm">{(error as any)?.detail || 'Failed to load jobs'}</p>
+                        <button onClick={() => refetch()} className="ml-auto text-red-400 hover:text-red-300 text-sm font-medium">Retry</button>
                     </div>
                 )}
 

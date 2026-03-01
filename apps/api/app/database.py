@@ -1,7 +1,7 @@
 """
 Database module for BookACleaner.ai
-Uses PostgreSQL with SQLAlchemy for persistent storage
-Falls back to SQLite only in DEV_MODE when no DATABASE_URL is set
+Uses PostgreSQL with SQLAlchemy for persistent storage.
+Requires PostgreSQL — start with: docker-compose up db
 """
 import logging
 import os
@@ -20,34 +20,30 @@ from app.models import (
     Verification, Certification, PasswordReset, EmailVerification,
     PhoneVerification, Notification, Bid, Dispute, Badge,
     UserBadge, Subscription, FlaggedContent, FeedItem,
-    ApprovalQueueItem, SponsoredListing, ServiceAgreement
+    ApprovalQueueItem, SponsoredListing, ServiceAgreement,
+    Availability, PortfolioPhoto, PropertyPlaybook,
+    ServiceCategory, Service, CleanerService, FeedLike
 )
 
 logger = logging.getLogger(__name__)
 
-# Database configuration
-# Priority: DATABASE_URL env var > PostgreSQL default > SQLite fallback (dev only)
-_DEV_MODE = os.getenv("DEV_MODE", "true").lower() == "true"
-_DEFAULT_DB = "sqlite+aiosqlite:///./bookacleaner.db" if _DEV_MODE else "postgresql+asyncpg://bookacleaner:password@localhost:5432/bookacleaner"
-DATABASE_URL = os.getenv("DATABASE_URL", _DEFAULT_DB)
+# Database configuration — PostgreSQL only
+# Override via DATABASE_URL env var; defaults to local docker-compose PostgreSQL
+DATABASE_URL = os.getenv(
+    "DATABASE_URL",
+    "postgresql+asyncpg://bookacleaner:password@localhost:5432/bookacleaner"
+)
 
-IS_SQLITE = DATABASE_URL.startswith("sqlite")
-
-# Create async engine with appropriate settings
+# Create async engine with connection pool settings
 _engine_kwargs = {
     "echo": os.getenv("SQL_ECHO", "false").lower() == "true",
     "future": True,
+    "pool_size": int(os.getenv("DB_POOL_SIZE", "20")),
+    "max_overflow": int(os.getenv("DB_MAX_OVERFLOW", "10")),
+    "pool_timeout": 30,
+    "pool_recycle": 1800,  # Recycle connections every 30 min
+    "pool_pre_ping": True,  # Verify connections before use
 }
-
-# PostgreSQL-specific connection pool settings
-if not IS_SQLITE:
-    _engine_kwargs.update({
-        "pool_size": int(os.getenv("DB_POOL_SIZE", "20")),
-        "max_overflow": int(os.getenv("DB_MAX_OVERFLOW", "10")),
-        "pool_timeout": 30,
-        "pool_recycle": 1800,  # Recycle connections every 30 min
-        "pool_pre_ping": True,  # Verify connections before use
-    })
 
 engine = create_async_engine(DATABASE_URL, **_engine_kwargs)
 
@@ -413,6 +409,38 @@ class Database:
     @property
     def service_agreement(self):
         return TableAccessor(self, ServiceAgreement)
+
+    @property
+    def availability(self):
+        return TableAccessor(self, Availability)
+
+    @property
+    def portfolio_photo(self):
+        return TableAccessor(self, PortfolioPhoto)
+
+    @property
+    def property_playbook(self):
+        return TableAccessor(self, PropertyPlaybook)
+
+    @property
+    def service_category(self):
+        return TableAccessor(self, ServiceCategory)
+
+    @property
+    def service(self):
+        return TableAccessor(self, Service)
+
+    @property
+    def cleaner_service(self):
+        return TableAccessor(self, CleanerService)
+
+    @property
+    def feed_like(self):
+        return TableAccessor(self, FeedLike)
+
+    @property
+    def conversation_participant(self):
+        return TableAccessor(self, ConversationParticipant)
 
 
 class TableAccessor:

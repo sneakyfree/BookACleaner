@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useSession } from 'next-auth/react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -21,8 +21,7 @@ import {
     X,
 } from 'lucide-react'
 import { useRealtimeChat } from '@/hooks/use-websocket'
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+import { apiFetch } from '@/lib/auth/api-client'
 
 interface ApiConversation {
     id: string
@@ -100,10 +99,7 @@ export default function ClientMessagesPage() {
         clearMessages: clearWsMessages,
     } = useRealtimeChat(selectedConversation)
 
-    const getHeaders = useCallback(() => ({
-        Authorization: `Bearer ${(session as any)?.accessToken}`,
-        'Content-Type': 'application/json',
-    }), [session])
+
 
     // Populate current user id from session for WS message comparison
     useEffect(() => {
@@ -114,22 +110,10 @@ export default function ClientMessagesPage() {
 
     // Fetch conversations
     useEffect(() => {
-        const token = (session as any)?.accessToken
-        if (!token) {
-            setLoading(false)
-            return
-        }
-
         async function fetchConversations() {
             try {
                 setError(null)
-                const res = await fetch(`${API_URL}/api/v1/messages/conversations`, {
-                    headers: { Authorization: `Bearer ${(session as any)?.accessToken}` },
-                })
-
-                if (!res.ok) throw new Error(`Failed to load conversations (${res.status})`)
-
-                const data: ApiConversation[] = await res.json()
+                const data: ApiConversation[] = await apiFetch('/api/v1/messages/conversations')
 
                 const mapped: DisplayConversation[] = data.map((conv) => {
                     const timeAgo = (dateStr?: string) => {
@@ -168,23 +152,18 @@ export default function ClientMessagesPage() {
         }
 
         fetchConversations()
-    }, [session])
+    }, [])
 
     // Fetch messages when conversation selected
     useEffect(() => {
-        if (!selectedConversation || !(session as any)?.accessToken) return
+        if (!selectedConversation) return
 
         async function fetchMessages() {
             setMessagesLoading(true)
             try {
-                const res = await fetch(
-                    `${API_URL}/api/v1/messages/conversations/${selectedConversation}`,
-                    { headers: { Authorization: `Bearer ${(session as any)?.accessToken}` } }
+                const data: ApiConversationDetail = await apiFetch(
+                    `/api/v1/messages/conversations/${selectedConversation}`
                 )
-
-                if (!res.ok) throw new Error(`Failed to load messages (${res.status})`)
-
-                const data: ApiConversationDetail = await res.json()
 
                 const mapped: DisplayMessage[] = (data.messages || []).map((msg) => ({
                     id: msg.id,
@@ -199,9 +178,9 @@ export default function ClientMessagesPage() {
                 setMessages(mapped)
 
                 // Mark as read
-                await fetch(
-                    `${API_URL}/api/v1/messages/conversations/${selectedConversation}/read`,
-                    { method: 'POST', headers: { Authorization: `Bearer ${(session as any)?.accessToken}` } }
+                apiFetch(
+                    `/api/v1/messages/conversations/${selectedConversation}/read`,
+                    { method: 'POST' }
                 ).catch(() => { })
 
             } catch (err) {
@@ -212,7 +191,7 @@ export default function ClientMessagesPage() {
         }
 
         fetchMessages()
-    }, [selectedConversation, session])
+    }, [selectedConversation])
 
     // Append incoming WebSocket messages to the list
     useEffect(() => {
@@ -271,9 +250,8 @@ export default function ClientMessagesPage() {
                 sendChatMessage(selectedConversation, content, tempMsg.id)
             }
 
-            const res = await fetch(`${API_URL}/api/v1/messages/send`, {
+            const sent = await apiFetch('/api/v1/messages/send', {
                 method: 'POST',
-                headers: getHeaders(),
                 body: JSON.stringify({
                     conversation_id: selectedConversation,
                     recipient_id: '',
@@ -282,9 +260,6 @@ export default function ClientMessagesPage() {
                 }),
             })
 
-            if (!res.ok) throw new Error('Failed to send message')
-
-            const sent = await res.json()
             setMessages((prev) =>
                 prev.map((m) => (m.id === tempMsg.id ? { ...m, id: sent.id } : m))
             )
@@ -301,15 +276,13 @@ export default function ClientMessagesPage() {
         if (!selectedConversation) return
         setUploading(true)
         try {
-            const formData = new FormData()
-            formData.append('file', file)
-            const res = await fetch(`${API_URL}/api/v1/uploads/upload/message_attachment`, {
+            const fd = new FormData()
+            fd.append('file', file)
+            const { url } = await apiFetch('/api/v1/uploads/upload/message_attachment', {
                 method: 'POST',
-                headers: { Authorization: `Bearer ${(session as any)?.accessToken}` },
-                body: formData,
+                body: fd,
+                headers: {},
             })
-            if (!res.ok) throw new Error('Upload failed')
-            const { url } = await res.json()
             await handleSend(url, type, file.name)
         } catch (err) {
             console.error('Upload failed:', err)

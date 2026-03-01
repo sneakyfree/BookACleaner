@@ -4,8 +4,7 @@ import { useState, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
 import { Loader2, Star, ArrowUpDown, Filter } from 'lucide-react'
 import { ReviewCard, ReviewData } from './ReviewCard'
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+import { apiFetch } from '@/lib/auth/api-client'
 
 type SortOption = 'newest' | 'highest' | 'lowest'
 
@@ -36,9 +35,7 @@ export function ReviewList({ cleanerId, jobId }: ReviewListProps) {
             if (cleanerId) params.set('cleaner_id', cleanerId)
             if (jobId) params.set('job_id', jobId)
 
-            const res = await fetch(`${API_URL}/api/v1/reviews/?${params}`)
-            if (!res.ok) throw new Error(`Failed to load reviews (${res.status})`)
-            const data = await res.json()
+            const data = await apiFetch(`/api/v1/reviews/?${params}`)
             setReviews(data.reviews || [])
             setTotal(data.total || 0)
         } catch (err) {
@@ -103,8 +100,8 @@ export function ReviewList({ cleanerId, jobId }: ReviewListProps) {
                                 key={star}
                                 onClick={() => setFilterRating(filterRating === star ? null : star)}
                                 className={`flex items-center gap-0.5 px-2 py-1 rounded text-xs transition-all ${filterRating === star
-                                        ? 'bg-amber-100 dark:bg-amber-500/20 text-amber-700 dark:text-amber-300'
-                                        : 'bg-gray-100 dark:bg-gray-800 text-gray-500 hover:bg-gray-200'
+                                    ? 'bg-amber-100 dark:bg-amber-500/20 text-amber-700 dark:text-amber-300'
+                                    : 'bg-gray-100 dark:bg-gray-800 text-gray-500 hover:bg-gray-200'
                                     }`}
                             >
                                 {star}<Star className="w-3 h-3 fill-current" />

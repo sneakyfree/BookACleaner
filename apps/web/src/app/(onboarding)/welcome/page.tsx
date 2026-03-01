@@ -2,12 +2,10 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { useSession } from 'next-auth/react'
 import { ArrowRight, ArrowLeft, Check, Building2, Briefcase, MapPin, Sparkles } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+import { apiFetch } from '@/lib/auth/api-client'
 
 /**
  * Onboarding Wizard for New Users
@@ -33,7 +31,6 @@ interface OnboardingData {
 
 export default function OnboardingWizard() {
     const router = useRouter()
-    const { data: session } = useSession()
     const [step, setStep] = useState<OnboardingStep>('welcome')
     const [data, setData] = useState<OnboardingData>({
         userType: null,
@@ -73,30 +70,23 @@ export default function OnboardingWizard() {
         if (step === 'preferences') {
             setIsSubmitting(true)
             try {
-                const token = (session as any)?.accessToken
-                if (token) {
-                    await fetch(`${API_URL}/api/v1/users/me`, {
-                        method: 'PATCH',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            Authorization: `Bearer ${token}`,
+                await apiFetch('/api/v1/users/me', {
+                    method: 'PATCH',
+                    body: JSON.stringify({
+                        name: data.name,
+                        phone: data.phone,
+                        location: data.location,
+                        role: data.userType,
+                        preferences: {
+                            propertyType: data.propertyType,
+                            cleaningFrequency: data.cleaningFrequency,
+                            experience: data.experience,
+                            serviceArea: data.serviceArea,
+                            services: data.services,
                         },
-                        body: JSON.stringify({
-                            name: data.name,
-                            phone: data.phone,
-                            location: data.location,
-                            role: data.userType,
-                            preferences: {
-                                propertyType: data.propertyType,
-                                cleaningFrequency: data.cleaningFrequency,
-                                experience: data.experience,
-                                serviceArea: data.serviceArea,
-                                services: data.services,
-                            },
-                            onboarding_completed: true,
-                        }),
-                    })
-                }
+                        onboarding_completed: true,
+                    }),
+                })
             } catch (err) {
                 console.error('Failed to save onboarding data:', err)
             }

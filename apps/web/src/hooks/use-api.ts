@@ -164,6 +164,13 @@ export function useCompleteJob() {
 
 // ==================== REVIEWS ====================
 
+export function useReviews() {
+    return useQuery({
+        queryKey: ['reviews'],
+        queryFn: () => api.reviews.list(),
+    })
+}
+
 export function useCreateReview() {
     const queryClient = useQueryClient()
 
@@ -221,6 +228,434 @@ export function useSendMessage() {
         onSuccess: (_, { conversationId }) => {
             queryClient.invalidateQueries({ queryKey: ['conversations'] })
             queryClient.invalidateQueries({ queryKey: ['conversations', conversationId] })
+        },
+    })
+}
+
+// ==================== NOTIFICATIONS ====================
+
+export function useNotifications(page = 1) {
+    return useQuery({
+        queryKey: ['notifications', page],
+        queryFn: () => api.notifications.list(page),
+    })
+}
+
+export function useUnreadCount() {
+    return useQuery({
+        queryKey: ['notifications', 'unread-count'],
+        queryFn: () => api.notifications.unreadCount(),
+        refetchInterval: 30_000, // Poll every 30s
+    })
+}
+
+export function useMarkNotificationRead() {
+    const queryClient = useQueryClient()
+
+    return useMutation({
+        mutationFn: (id: string) => api.notifications.markAsRead(id),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['notifications'] })
+        },
+    })
+}
+
+export function useMarkAllNotificationsRead() {
+    const queryClient = useQueryClient()
+
+    return useMutation({
+        mutationFn: () => api.notifications.markAllRead(),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['notifications'] })
+        },
+    })
+}
+
+// ==================== FEED ====================
+
+export function useFeed(page = 1) {
+    return useQuery({
+        queryKey: ['feed', page],
+        queryFn: () => api.feed.list(page),
+    })
+}
+
+export function useLikeFeedItem() {
+    const queryClient = useQueryClient()
+
+    return useMutation({
+        mutationFn: (id: string) => api.feed.like(id),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['feed'] })
+        },
+    })
+}
+
+export function useCreateFeedItem() {
+    const queryClient = useQueryClient()
+
+    return useMutation({
+        mutationFn: (data: any) => api.feed.create(data),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['feed'] })
+        },
+    })
+}
+
+export function useDeleteFeedItem() {
+    const queryClient = useQueryClient()
+
+    return useMutation({
+        mutationFn: (id: string) => api.feed.delete(id),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['feed'] })
+        },
+    })
+}
+
+// ==================== PAYMENTS ====================
+
+export function useCreatePaymentIntent() {
+    return useMutation({
+        mutationFn: (data: { amount: number; jobId: string; capture_method?: string }) =>
+            api.payments.createIntent(data),
+    })
+}
+
+export function useReleasePayment() {
+    const queryClient = useQueryClient()
+
+    return useMutation({
+        mutationFn: (jobId: string) => api.payments.release(jobId),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['jobs'] })
+        },
+    })
+}
+
+export function useCreateConnectedAccount() {
+    return useMutation({
+        mutationFn: (data: { email: string; businessName?: string }) =>
+            api.payments.createConnectedAccount(data),
+    })
+}
+
+export function useCreateCheckoutSession() {
+    return useMutation({
+        mutationFn: (plan: string) => api.payments.createCheckoutSession(plan),
+    })
+}
+
+// ==================== ADMIN ====================
+
+export function useAdminStats(timeRange?: string) {
+    return useQuery({
+        queryKey: ['admin', 'stats', timeRange],
+        queryFn: () => api.admin.stats(timeRange),
+    })
+}
+
+export function useAdminUsers(page = 1, role?: string, status?: string) {
+    return useQuery({
+        queryKey: ['admin', 'users', page, role, status],
+        queryFn: () => api.admin.users(page, role, status),
+    })
+}
+
+export function useAdminJobs(page = 1, status?: string) {
+    return useQuery({
+        queryKey: ['admin', 'jobs', page, status],
+        queryFn: () => api.admin.jobs(page, status),
+    })
+}
+
+export function useAdminDisputes(page = 1, status?: string) {
+    return useQuery({
+        queryKey: ['admin', 'disputes', page, status],
+        queryFn: () => api.admin.disputes(page, status),
+    })
+}
+
+export function useResolveDispute() {
+    const queryClient = useQueryClient()
+
+    return useMutation({
+        mutationFn: ({ id, data }: { id: string; data: any }) =>
+            api.admin.resolveDispute(id, data),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['admin', 'disputes'] })
+        },
+    })
+}
+
+export function useAdminVerifications(page = 1, status?: string) {
+    return useQuery({
+        queryKey: ['admin', 'verifications', page, status],
+        queryFn: () => api.admin.verifications(page, status),
+    })
+}
+
+export function useAdminApprovals(page = 1, status?: string) {
+    return useQuery({
+        queryKey: ['admin', 'approvals', page, status],
+        queryFn: () => api.admin.approvals(page, status),
+    })
+}
+
+export function useApproveItem() {
+    const queryClient = useQueryClient()
+
+    return useMutation({
+        mutationFn: ({ id, notes }: { id: string; notes?: string }) =>
+            api.admin.approveItem(id, notes),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['admin', 'approvals'] })
+        },
+    })
+}
+
+export function useRejectItem() {
+    const queryClient = useQueryClient()
+
+    return useMutation({
+        mutationFn: ({ id, reason }: { id: string; reason: string }) =>
+            api.admin.rejectItem(id, reason),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['admin', 'approvals'] })
+        },
+    })
+}
+
+export function useAdminAuditLog(page = 1, action?: string) {
+    return useQuery({
+        queryKey: ['admin', 'audit', page, action],
+        queryFn: () => api.admin.auditLog(page, action),
+    })
+}
+
+export function useAdminModeration(page = 1, status?: string) {
+    return useQuery({
+        queryKey: ['admin', 'moderation', page, status],
+        queryFn: () => api.admin.moderation(page, status),
+    })
+}
+
+// ==================== VERIFICATION ====================
+
+export function useVerificationStatus() {
+    return useQuery({
+        queryKey: ['verification', 'status'],
+        queryFn: () => api.verification.getStatus(),
+    })
+}
+
+export function useSubmitVerification() {
+    const queryClient = useQueryClient()
+
+    return useMutation({
+        mutationFn: (data: { type: string; document_url: string }) =>
+            api.verification.submit(data),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['verification'] })
+        },
+    })
+}
+
+export function useSendPhoneCode() {
+    return useMutation({
+        mutationFn: (phone: string) => api.verification.sendPhoneCode(phone),
+    })
+}
+
+export function useVerifyPhone() {
+    const queryClient = useQueryClient()
+
+    return useMutation({
+        mutationFn: (code: string) => api.verification.verifyPhone(code),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['verification'] })
+        },
+    })
+}
+
+// ==================== BIDS ====================
+
+export function useBids(status?: string) {
+    return useQuery({
+        queryKey: ['bids', status],
+        queryFn: () => api.bids.list(status),
+    })
+}
+
+export function useCreateBid() {
+    const queryClient = useQueryClient()
+
+    return useMutation({
+        mutationFn: (data: { job_id: string; amount: number; message?: string }) =>
+            api.bids.create(data),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['bids'] })
+            queryClient.invalidateQueries({ queryKey: ['jobs'] })
+        },
+    })
+}
+
+export function useAcceptBid() {
+    const queryClient = useQueryClient()
+
+    return useMutation({
+        mutationFn: (id: string) => api.bids.accept(id),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['bids'] })
+            queryClient.invalidateQueries({ queryKey: ['jobs'] })
+        },
+    })
+}
+
+export function useWithdrawBid() {
+    const queryClient = useQueryClient()
+
+    return useMutation({
+        mutationFn: (id: string) => api.bids.withdraw(id),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['bids'] })
+        },
+    })
+}
+
+// ==================== CLEANER PROFILE ====================
+
+export function useMyCleanerProfile() {
+    return useQuery({
+        queryKey: ['cleaner', 'me'],
+        queryFn: () => api.cleanerProfile.getMe(),
+    })
+}
+
+export function useUpdateCleanerProfile() {
+    const queryClient = useQueryClient()
+
+    return useMutation({
+        mutationFn: (data: any) => api.cleanerProfile.updateMe(data),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['cleaner', 'me'] })
+        },
+    })
+}
+
+export function useMyAvailability() {
+    return useQuery({
+        queryKey: ['cleaner', 'availability'],
+        queryFn: () => api.cleanerProfile.getAvailability(),
+    })
+}
+
+export function useUpdateAvailability() {
+    const queryClient = useQueryClient()
+
+    return useMutation({
+        mutationFn: (schedule: any[]) => api.cleanerProfile.updateAvailability(schedule),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['cleaner', 'availability'] })
+        },
+    })
+}
+
+export function useMyPortfolio() {
+    return useQuery({
+        queryKey: ['cleaner', 'portfolio'],
+        queryFn: () => api.cleanerProfile.getPortfolio(),
+    })
+}
+
+export function useAddPortfolioPhoto() {
+    const queryClient = useQueryClient()
+
+    return useMutation({
+        mutationFn: ({ url, caption }: { url: string; caption?: string }) =>
+            api.cleanerProfile.addPhoto(url, caption),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['cleaner', 'portfolio'] })
+        },
+    })
+}
+
+export function useDeletePortfolioPhoto() {
+    const queryClient = useQueryClient()
+
+    return useMutation({
+        mutationFn: (photoId: string) => api.cleanerProfile.deletePhoto(photoId),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['cleaner', 'portfolio'] })
+        },
+    })
+}
+
+// ==================== SCHEDULING ====================
+
+export function useOptimizeRoute() {
+    return useMutation({
+        mutationFn: (date?: string) => api.scheduling.optimizeRoute(date),
+    })
+}
+
+export function useScheduleGaps(startDate?: string) {
+    return useQuery({
+        queryKey: ['schedule', 'gaps', startDate],
+        queryFn: () => api.scheduling.getGaps(startDate),
+        enabled: !!startDate,
+    })
+}
+
+export function useSyncCalendar() {
+    const queryClient = useQueryClient()
+
+    return useMutation({
+        mutationFn: (propertyId: string) => api.scheduling.syncCalendar(propertyId),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['properties'] })
+            queryClient.invalidateQueries({ queryKey: ['jobs'] })
+        },
+    })
+}
+
+// ==================== SPONSORED ====================
+
+export function useSponsoredListings() {
+    return useQuery({
+        queryKey: ['sponsored'],
+        queryFn: () => api.sponsored.list(),
+    })
+}
+
+export function useCreateSponsoredListing() {
+    const queryClient = useQueryClient()
+
+    return useMutation({
+        mutationFn: (data: any) => api.sponsored.create(data),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['sponsored'] })
+        },
+    })
+}
+
+// ==================== AGREEMENTS ====================
+
+export function useAgreements() {
+    return useQuery({
+        queryKey: ['agreements'],
+        queryFn: () => api.agreements.list(),
+    })
+}
+
+export function useAcceptAgreement() {
+    const queryClient = useQueryClient()
+
+    return useMutation({
+        mutationFn: (jobId: string) => api.agreements.accept(jobId),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['agreements'] })
+            queryClient.invalidateQueries({ queryKey: ['jobs'] })
         },
     })
 }

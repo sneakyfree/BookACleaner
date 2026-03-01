@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useMemo } from 'react'
 import { useSession } from 'next-auth/react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -13,8 +13,9 @@ import {
     AlertCircle,
 } from 'lucide-react'
 import { toast } from 'sonner'
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+import { useReviews, useJobs } from '@/hooks/use-api'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { apiFetch } from '@/lib/auth/api-client'
 
 interface ApiReview {
     id: string
@@ -57,10 +58,6 @@ interface DisplayReview {
 
 export default function ClientReviewsPage() {
     const { data: session } = useSession()
-    const [reviews, setReviews] = useState<DisplayReview[]>([])
-    const [completedJobs, setCompletedJobs] = useState<CompletedJob[]>([])
-    const [loading, setLoading] = useState(true)
-    const [error, setError] = useState<string | null>(null)
     const [filter, setFilter] = useState<'all' | 'pending' | 'submitted'>('all')
     const [revealedReviews, setRevealedReviews] = useState<Record<string, any>>({})
     const [revealingId, setRevealingId] = useState<string | null>(null)
@@ -70,138 +67,88 @@ export default function ClientReviewsPage() {
     const [selectedRating, setSelectedRating] = useState(0)
     const [hoverRating, setHoverRating] = useState(0)
     const [reviewText, setReviewText] = useState('')
-    const [submittingReview, setSubmittingReview] = useState(false)
 
-    useEffect(() => {
-        const token = (session as any)?.accessToken
-        if (!token) {
-            setLoading(false)
-            return
-        }
+    const { data: reviewsData, isLoading: reviewsLoading, error: reviewsError } = useReviews()
+    const { data: jobsData, isLoading: jobsLoading } = useJobs()
+    const queryClient = useQueryClient()
 
-        async function fetchData() {
-            try {
-                setError(null)
-                const headers = { Authorization: `Bearer ${(session as any)?.accessToken}` }
+    const loading = reviewsLoading || jobsLoading
+    const error = reviewsError
 
-                // Fetch reviews
-                const reviewsRes = await fetch(`${API_URL}/api/v1/reviews/`, { headers })
-                if (!reviewsRes.ok) throw new Error(`Failed to load reviews (${reviewsRes.status})`)
-                const reviewsData = await reviewsRes.json()
-                const apiReviews: ApiReview[] = reviewsData.reviews || []
+    const { reviews, completedJobs } = useMemo(() => {
+        const apiReviews: ApiReview[] = (reviewsData as any)?.reviews || []
+        const mapped: DisplayReview[] = apiReviews.map((r) => ({
+            id: r.id,
+            cleaner: r.cleaner_name || r.author?.name || 'Cleaner',
+            service: r.service_type || 'Cleaning',
+            property: r.property_name || 'Property',
+            date: r.created_at
+                ? new Date(r.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                : '',
+            rating: r.overall_rating,
+            text: r.text || null,
+            status: r.overall_rating ? 'submitted' as const : 'pending' as const,
+            job_id: r.job_id,
+        }))
 
-                const mapped: DisplayReview[] = apiReviews.map((r) => ({
-                    id: r.id,
-                    cleaner: r.cleaner_name || r.author?.name || 'Cleaner',
-                    service: r.service_type || 'Cleaning',
-                    property: r.property_name || 'Property',
-                    date: r.created_at
-                        ? new Date(r.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-                        : '',
-                    rating: r.overall_rating,
-                    text: r.text || null,
-                    status: r.overall_rating ? 'submitted' : 'pending',
-                    job_id: r.job_id,
-                }))
-                setReviews(mapped)
+        const jobs: any[] = Array.isArray(jobsData) ? jobsData : (jobsData as any)?.jobs || []
+        const completedOnly = jobs.filter((j: any) => j.status === 'completed' || j.status === 'COMPLETED')
+        const reviewedJobIds = new Set(apiReviews.map((r) => r.job_id))
+        const unreviewed: CompletedJob[] = completedOnly
+            .filter((j: any) => !reviewedJobIds.has(j.id))
+            .map((j: any) => ({
+                id: j.id,
+                title: j.title,
+                cleaner_name: j.cleaner_name || j.cleaner?.name,
+                property_name: j.property_name || j.property?.name,
+                completed_at: j.completed_at,
+            }))
 
-                // Fetch completed jobs (to find unreviewd ones)
-                const jobsRes = await fetch(`${API_URL}/api/v1/jobs/?status=completed`, { headers })
-                if (jobsRes.ok) {
-                    const jobsData = await jobsRes.json()
-                    const jobs = Array.isArray(jobsData) ? jobsData : jobsData.jobs || []
-                    const reviewedJobIds = new Set(apiReviews.map((r) => r.job_id))
-                    const unreviewed = jobs.filter((j: any) => !reviewedJobIds.has(j.id))
-                    setCompletedJobs(
-                        unreviewed.map((j: any) => ({
-                            id: j.id,
-                            title: j.title,
-                            cleaner_name: j.cleaner_name || j.cleaner?.name,
-                            property_name: j.property_name || j.property?.name,
-                            completed_at: j.completed_at,
-                        }))
-                    )
-                }
-            } catch (err) {
-                console.error('Failed to fetch reviews:', err)
-                setError(err instanceof Error ? err.message : 'Failed to load reviews')
-            } finally {
-                setLoading(false)
-            }
-        }
-
-        fetchData()
-    }, [session])
+        return { reviews: mapped, completedJobs: unreviewed }
+    }, [reviewsData, jobsData])
 
     // ── Submit review ───────────────────────────────────────────────
-    const handleSubmitReview = async (jobId: string) => {
+    const submitMut = useMutation({
+        mutationFn: ({ jobId, rating, text }: { jobId: string; rating: number; text: string }) =>
+            apiFetch('/api/v1/reviews/', {
+                method: 'POST',
+                body: JSON.stringify({
+                    job_id: jobId,
+                    overall_rating: rating,
+                    text: text || undefined,
+                }),
+            }),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['reviews'] })
+            queryClient.invalidateQueries({ queryKey: ['jobs'] })
+            setReviewingJobId(null)
+            setSelectedRating(0)
+            setReviewText('')
+            toast.success('Review submitted!')
+        },
+        onError: (err: any) => {
+            toast.error(err?.detail || 'Failed to submit review')
+        },
+    })
+
+    const handleSubmitReview = (jobId: string) => {
         if (selectedRating === 0) {
             toast.error('Please select a rating')
             return
         }
-        setSubmittingReview(true)
-        try {
-            const res = await fetch(`${API_URL}/api/v1/reviews/`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    Authorization: `Bearer ${(session as any)?.accessToken}`,
-                },
-                body: JSON.stringify({
-                    job_id: jobId,
-                    overall_rating: selectedRating,
-                    text: reviewText || undefined,
-                }),
-            })
-            if (!res.ok) {
-                const err = await res.json()
-                throw new Error(err.detail || 'Failed to submit review')
-            }
-            const newReview = await res.json()
-            toast.success('Review submitted!')
-
-            // Update UI
-            setReviews((prev) => [
-                {
-                    id: newReview.id,
-                    cleaner: 'Cleaner',
-                    service: 'Cleaning',
-                    property: 'Property',
-                    date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
-                    rating: selectedRating,
-                    text: reviewText || null,
-                    status: 'submitted',
-                    job_id: jobId,
-                },
-                ...prev,
-            ])
-            setCompletedJobs((prev) => prev.filter((j) => j.id !== jobId))
-            setReviewingJobId(null)
-            setSelectedRating(0)
-            setReviewText('')
-        } catch (err) {
-            toast.error(err instanceof Error ? err.message : 'Failed to submit review')
-        } finally {
-            setSubmittingReview(false)
-        }
+        submitMut.mutate({ jobId, rating: selectedRating, text: reviewText })
     }
+    const submittingReview = submitMut.isPending
 
     // ── Reveal ──────────────────────────────────────────────────────
     const handleRevealReview = async (reviewId: string) => {
         setRevealingId(reviewId)
         try {
-            const res = await fetch(`${API_URL}/api/v1/reviews/${reviewId}/reveal`, {
+            const data = await apiFetch(`/api/v1/reviews/${reviewId}/reveal`, {
                 method: 'POST',
-                headers: { Authorization: `Bearer ${(session as any)?.accessToken}` },
             })
-            if (res.ok) {
-                const data = await res.json()
-                setRevealedReviews((prev) => ({ ...prev, [reviewId]: data }))
-                toast.success("Review revealed! You can now see the cleaner's review.")
-            } else {
-                const err = await res.json()
-                toast.error(err.detail || 'Unable to reveal review')
-            }
+            setRevealedReviews((prev) => ({ ...prev, [reviewId]: data }))
+            toast.success("Review revealed! You can now see the cleaner's review.")
         } catch {
             toast.error('Failed to reveal review')
         } finally {
@@ -229,7 +176,7 @@ export default function ClientReviewsPage() {
             <Card>
                 <CardContent className="py-12 text-center">
                     <AlertCircle className="w-12 h-12 mx-auto text-red-500 mb-4" />
-                    <p className="text-lg font-medium text-red-600">{error}</p>
+                    <p className="text-lg font-medium text-red-600">{(error as any)?.detail || 'Failed to load reviews'}</p>
                     <Button className="mt-4" onClick={() => window.location.reload()}>
                         Try Again
                     </Button>
@@ -313,8 +260,8 @@ export default function ClientReviewsPage() {
                                                 >
                                                     <Star
                                                         className={`w-7 h-7 ${star <= (hoverRating || selectedRating)
-                                                                ? 'fill-amber-400 text-amber-400'
-                                                                : 'text-slate-300'
+                                                            ? 'fill-amber-400 text-amber-400'
+                                                            : 'text-slate-300'
                                                             }`}
                                                     />
                                                 </button>
@@ -419,8 +366,8 @@ export default function ClientReviewsPage() {
                                                             <Star
                                                                 key={i}
                                                                 className={`w-4 h-4 ${i < review.rating!
-                                                                        ? 'fill-amber-400 text-amber-400'
-                                                                        : 'text-slate-200'
+                                                                    ? 'fill-amber-400 text-amber-400'
+                                                                    : 'text-slate-200'
                                                                     }`}
                                                             />
                                                         ))}
@@ -465,8 +412,8 @@ export default function ClientReviewsPage() {
                                                         <Star
                                                             key={i}
                                                             className={`w-3 h-3 ${i < (revealedReviews[review.id].rating || 0)
-                                                                    ? 'fill-amber-400 text-amber-400'
-                                                                    : 'text-slate-200'
+                                                                ? 'fill-amber-400 text-amber-400'
+                                                                : 'text-slate-200'
                                                                 }`}
                                                         />
                                                     ))}

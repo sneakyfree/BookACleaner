@@ -27,7 +27,7 @@ def validate_environment() -> Tuple[bool, List[str]]:
     
     # Critical: These must be set for the app to function
     critical_vars = [
-        ("DATABASE_URL", "Database connection (can use SQLite for dev)"),
+        ("DATABASE_URL", "PostgreSQL connection (start docker-compose up db)"),
         ("JWT_SECRET", "JWT token signing secret"),
         ("NEXTAUTH_SECRET", "NextAuth session secret"),
     ]
@@ -55,8 +55,8 @@ def validate_environment() -> Tuple[bool, List[str]]:
         if not value:
             # Provide defaults for dev mode
             if var == "DATABASE_URL":
-                os.environ[var] = "sqlite+aiosqlite:///./bookacleaner.db"
-                warnings.append(f"{var} not set, using SQLite default")
+                os.environ[var] = "postgresql+asyncpg://bookacleaner:password@localhost:5432/bookacleaner"
+                warnings.append(f"{var} not set, using docker-compose PostgreSQL default")
             elif var == "JWT_SECRET":
                 os.environ[var] = "dev-secret-change-in-production"
                 warnings.append(f"{var} not set, using dev default (CHANGE IN PRODUCTION)")

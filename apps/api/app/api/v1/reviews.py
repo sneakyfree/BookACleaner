@@ -167,7 +167,43 @@ async def create_review(
                 }
             )
     
-    return review
+    # Contradiction detection: flag rating-text mismatches
+    contradictions = []
+    if data.text and len(data.text) > 10:
+        try:
+            negative_words = {"terrible", "horrible", "awful", "worst", "disgusting", "dirty",
+                              "broken", "damaged", "never", "angry", "furious", "unacceptable",
+                              "scam", "fraud", "steal", "lied", "incompetent", "rude"}
+            positive_words = {"amazing", "excellent", "perfect", "wonderful", "fantastic",
+                              "incredible", "outstanding", "spotless", "flawless", "best"}
+            text_lower = data.text.lower()
+            neg_count = sum(1 for w in negative_words if w in text_lower)
+            pos_count = sum(1 for w in positive_words if w in text_lower)
+            
+            if data.overall_rating >= 4 and neg_count >= 2 and pos_count == 0:
+                contradictions.append({
+                    "type": "rating_text_mismatch",
+                    "severity": "warning",
+                    "message": f"High rating ({data.overall_rating}★) with negative text detected",
+                })
+            elif data.overall_rating <= 2 and pos_count >= 2 and neg_count == 0:
+                contradictions.append({
+                    "type": "rating_text_mismatch",
+                    "severity": "warning",
+                    "message": f"Low rating ({data.overall_rating}★) with positive text detected",
+                })
+            
+            if contradictions:
+                logger.info(f"Review contradictions detected for review {review.get('id')}: {contradictions}")
+                # Store in review metadata for admin visibility
+                await db.review.update(
+                    where={"id": review["id"]},
+                    data={"metadata": {"contradictions": contradictions}}
+                )
+        except Exception as e:
+            logger.warning(f"Contradiction detection failed: {e}")
+    
+    return {**review, "contradictions": contradictions}
 
 
 @router.get("/")

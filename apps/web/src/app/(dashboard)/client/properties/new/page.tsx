@@ -1,8 +1,7 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { useSession } from 'next-auth/react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -15,11 +14,13 @@ import {
     Sparkles,
 } from 'lucide-react'
 import { toast } from 'sonner'
+import { apiFetch } from '@/lib/auth/api-client'
 
 export default function NewPropertyPage() {
     const router = useRouter()
-    const { data: session } = useSession()
     const [isLoading, setIsLoading] = useState(false)
+    const [detecting, setDetecting] = useState(false)
+    const [detected, setDetected] = useState<any>(null)
     const [detectedInfo, setDetectedInfo] = useState<any>(null)
     const [formData, setFormData] = useState({
         name: '',
@@ -36,13 +37,8 @@ export default function NewPropertyPage() {
         setIsLoading(true)
 
         try {
-            const token = (session as any)?.accessToken
-            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/v1/properties/`, {
+            const data = await apiFetch('/api/v1/properties/', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    Authorization: `Bearer ${token}`,
-                },
                 body: JSON.stringify({
                     name: formData.name,
                     address: formData.address,
@@ -54,9 +50,6 @@ export default function NewPropertyPage() {
                 }),
             })
 
-            if (!res.ok) throw new Error('Failed to create property')
-
-            const data = await res.json()
             setDetectedInfo(data)
             toast.success('Property added successfully!')
 
@@ -158,6 +151,74 @@ export default function NewPropertyPage() {
                                     required
                                 />
                             </div>
+                        </div>
+
+                        {/* AI Detect Property Details */}
+                        <div className="p-4 bg-purple-50 dark:bg-purple-500/5 rounded-xl border border-purple-200 dark:border-purple-500/20">
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    <p className="text-sm font-medium flex items-center gap-2">
+                                        <Sparkles className="w-4 h-4 text-purple-500" />
+                                        AI Property Detection
+                                    </p>
+                                    <p className="text-xs text-muted-foreground mt-0.5">
+                                        Auto-detect property size, type, and room count from the address
+                                    </p>
+                                </div>
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    disabled={detecting || !formData.address || !formData.city}
+                                    onClick={async () => {
+                                        setDetecting(true)
+                                        try {
+                                            const fullAddress = `${formData.address}, ${formData.city}, ${formData.state} ${formData.zipCode}`
+                                            const result = await apiFetch('/api/v1/ai/detect-property', {
+                                                method: 'POST',
+                                                body: JSON.stringify({ address: fullAddress }),
+                                            })
+                                            setDetected(result)
+                                            toast.success('Property details detected!')
+                                        } catch {
+                                            toast.error('Could not detect property details')
+                                        } finally {
+                                            setDetecting(false)
+                                        }
+                                    }}
+                                >
+                                    {detecting ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" /> : <Sparkles className="w-3.5 h-3.5 mr-1" />}
+                                    Detect
+                                </Button>
+                            </div>
+                            {detected && (
+                                <div className="mt-3 grid grid-cols-3 gap-3">
+                                    {detected.sqft && (
+                                        <div className="p-2 bg-white dark:bg-slate-800 rounded-lg text-center">
+                                            <p className="text-xs text-muted-foreground">Sqft</p>
+                                            <p className="font-semibold text-sm">{detected.sqft}</p>
+                                        </div>
+                                    )}
+                                    {detected.bedrooms != null && (
+                                        <div className="p-2 bg-white dark:bg-slate-800 rounded-lg text-center">
+                                            <p className="text-xs text-muted-foreground">Bedrooms</p>
+                                            <p className="font-semibold text-sm">{detected.bedrooms}</p>
+                                        </div>
+                                    )}
+                                    {detected.bathrooms != null && (
+                                        <div className="p-2 bg-white dark:bg-slate-800 rounded-lg text-center">
+                                            <p className="text-xs text-muted-foreground">Baths</p>
+                                            <p className="font-semibold text-sm">{detected.bathrooms}</p>
+                                        </div>
+                                    )}
+                                    {detected.property_type && (
+                                        <div className="col-span-3 p-2 bg-white dark:bg-slate-800 rounded-lg text-center">
+                                            <p className="text-xs text-muted-foreground">Type</p>
+                                            <p className="font-semibold text-sm capitalize">{detected.property_type}</p>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
                         </div>
 
                         <div className="border-t pt-6 space-y-2">

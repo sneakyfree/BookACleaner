@@ -1,15 +1,15 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
-import { useSession } from 'next-auth/react'
+import { useState } from 'react'
 import {
     Users, Search, Shield, ShieldAlert, ShieldCheck, MoreVertical,
     Mail, Calendar, Filter, ChevronLeft, ChevronRight, UserX, UserCheck,
     Loader2, AlertCircle
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+import { useAdminUsers } from '@/hooks/use-api'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { api } from '@/lib/api'
 
 interface UserRecord {
     id: string
@@ -36,66 +36,30 @@ const statusColors: Record<string, string> = {
 }
 
 export default function AdminUsersPage() {
-    const { data: session } = useSession()
-    const [users, setUsers] = useState<UserRecord[]>([])
-    const [loading, setLoading] = useState(true)
-    const [error, setError] = useState('')
     const [search, setSearch] = useState('')
     const [roleFilter, setRoleFilter] = useState<string>('all')
     const [statusFilter, setStatusFilter] = useState<string>('all')
     const [page, setPage] = useState(1)
-    const [total, setTotal] = useState(0)
     const [actionMenuId, setActionMenuId] = useState<string | null>(null)
 
-    const fetchUsers = useCallback(async () => {
-        const token = (session as any)?.accessToken
-        if (!token) return
+    const { data: rawData, isLoading: loading, error, refetch } = useAdminUsers(page, roleFilter !== 'all' ? roleFilter : undefined)
+    const queryClient = useQueryClient()
 
-        try {
-            setLoading(true)
-            setError('')
-            const params = new URLSearchParams({ page: String(page), limit: '20' })
-            if (roleFilter !== 'all') params.set('role', roleFilter)
+    const users: UserRecord[] = rawData?.users || rawData || []
+    const total = rawData?.total || users.length
 
-            const res = await fetch(`${API_URL}/api/v1/admin/users?${params}`, {
-                headers: { Authorization: `Bearer ${token}` },
-            })
-            if (!res.ok) throw new Error(`Failed to load users (${res.status})`)
-            const data = await res.json()
-            setUsers(data.users || [])
-            setTotal(data.total || 0)
-        } catch (err: any) {
-            setError(err.message || 'Failed to load users')
-        } finally {
-            setLoading(false)
-        }
-    }, [session, page, roleFilter])
+    const toggleStatusMut = useMutation({
+        mutationFn: ({ userId, status }: { userId: string; status: string }) =>
+            api.admin.updateUser(userId, { status }),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['admin', 'users'] })
+            setActionMenuId(null)
+        },
+    })
 
-    useEffect(() => {
-        if (session) fetchUsers()
-    }, [session, fetchUsers])
-
-    const toggleStatus = useCallback(async (userId: string, newStatus: string) => {
-        const token = (session as any)?.accessToken
-        if (!token) return
-
-        try {
-            const res = await fetch(`${API_URL}/api/v1/admin/users/${userId}`, {
-                method: 'PATCH',
-                headers: {
-                    Authorization: `Bearer ${token}`,
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ status: newStatus }),
-            })
-            if (!res.ok) throw new Error('Failed to update user')
-            // Update local state
-            setUsers(prev => prev.map(u => u.id === userId ? { ...u, status: newStatus } : u))
-        } catch (err: any) {
-            setError(err.message || 'Failed to update user status')
-        }
-        setActionMenuId(null)
-    }, [session])
+    const toggleStatus = (userId: string, newStatus: string) => {
+        toggleStatusMut.mutate({ userId, status: newStatus })
+    }
 
     const filteredUsers = users.filter(u => {
         const matchSearch = !search || (u.full_name || '').toLowerCase().includes(search.toLowerCase()) || u.email.toLowerCase().includes(search.toLowerCase())
@@ -121,8 +85,8 @@ export default function AdminUsersPage() {
                 {error && (
                     <div className="mb-6 p-4 bg-red-500/10 border border-red-500/30 rounded-lg flex items-center gap-3">
                         <AlertCircle className="w-5 h-5 text-red-400 shrink-0" />
-                        <p className="text-red-300 text-sm">{error}</p>
-                        <button onClick={fetchUsers} className="ml-auto text-red-400 hover:text-red-300 text-sm font-medium">Retry</button>
+                        <p className="text-red-300 text-sm">{(error as any)?.detail || 'Failed to load users'}</p>
+                        <button onClick={() => refetch()} className="ml-auto text-red-400 hover:text-red-300 text-sm font-medium">Retry</button>
                     </div>
                 )}
 

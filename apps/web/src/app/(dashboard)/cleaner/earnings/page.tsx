@@ -1,7 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { useSession } from 'next-auth/react'
+import { useMemo } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import {
@@ -17,6 +16,8 @@ import {
     Banknote,
 } from 'lucide-react'
 import { toast } from 'sonner'
+import { useJobs } from '@/hooks/use-api'
+import { apiFetch } from '@/lib/auth/api-client'
 
 interface ApiJob {
     id: string
@@ -41,99 +42,60 @@ interface Transaction {
 }
 
 export default function CleanerEarningsPage() {
-    const { data: session } = useSession()
-    const [loading, setLoading] = useState(true)
-    const [error, setError] = useState<string | null>(null)
-    const [stats, setStats] = useState({
-        thisMonth: 0,
-        lastMonth: 0,
-        pending: 0,
-        available: 0,
-    })
-    const [transactions, setTransactions] = useState<Transaction[]>([])
+    const { data: rawJobs, isLoading: loading, error } = useJobs()
 
-    const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+    const { stats, transactions } = useMemo(() => {
+        const jobs: ApiJob[] = Array.isArray(rawJobs) ? rawJobs : (rawJobs as any)?.jobs || []
 
-    useEffect(() => {
-        const token = (session as any)?.accessToken
-        if (!token) {
-            setLoading(false)
-            return
-        }
+        const now = new Date()
+        const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1)
+        const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1)
+        const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0)
 
-        async function fetchEarnings() {
-            try {
-                setError(null)
-                const res = await fetch(`${API_URL}/api/v1/jobs/`, {
-                    headers: {
-                        Authorization: `Bearer ${(session as any)?.accessToken}`,
-                    },
-                })
+        let thisMonthTotal = 0
+        let lastMonthTotal = 0
+        let pendingTotal = 0
+        const txList: Transaction[] = []
 
-                if (!res.ok) {
-                    throw new Error(`Failed to load earnings (${res.status})`)
+        jobs.forEach((job) => {
+            const jobDate = new Date(job.completed_at || job.scheduled_date || '')
+            const price = job.total_price || 0
+
+            if (job.status === 'completed') {
+                if (jobDate >= thisMonthStart) {
+                    thisMonthTotal += price
+                } else if (jobDate >= lastMonthStart && jobDate <= lastMonthEnd) {
+                    lastMonthTotal += price
                 }
 
-                const jobs: ApiJob[] = await res.json()
-
-                const now = new Date()
-                const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1)
-                const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1)
-                const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0)
-
-                let thisMonthTotal = 0
-                let lastMonthTotal = 0
-                let pendingTotal = 0
-                const txList: Transaction[] = []
-
-                jobs.forEach((job) => {
-                    const jobDate = new Date(job.completed_at || job.scheduled_date || '')
-                    const price = job.total_price || 0
-
-                    if (job.status === 'completed') {
-                        if (jobDate >= thisMonthStart) {
-                            thisMonthTotal += price
-                        } else if (jobDate >= lastMonthStart && jobDate <= lastMonthEnd) {
-                            lastMonthTotal += price
-                        }
-
-                        txList.push({
-                            id: job.id,
-                            type: 'earning',
-                            description: (job.services || []).join(', ') || job.title || 'Cleaning Job',
-                            client: job.client_name || 'Client',
-                            amount: price,
-                            date: jobDate.toLocaleDateString('en-US', {
-                                month: 'short',
-                                day: 'numeric',
-                                year: 'numeric',
-                            }),
-                            status: 'completed',
-                        })
-                    } else if (job.status === 'confirmed' || job.status === 'pending') {
-                        pendingTotal += price
-                    }
+                txList.push({
+                    id: job.id,
+                    type: 'earning',
+                    description: (job.services || []).join(', ') || job.title || 'Cleaning Job',
+                    client: job.client_name || 'Client',
+                    amount: price,
+                    date: jobDate.toLocaleDateString('en-US', {
+                        month: 'short', day: 'numeric', year: 'numeric',
+                    }),
+                    status: 'completed',
                 })
-
-                // Sort transactions by date descending
-                txList.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-
-                setStats({
-                    thisMonth: thisMonthTotal,
-                    lastMonth: lastMonthTotal,
-                    pending: pendingTotal,
-                    available: thisMonthTotal + lastMonthTotal,
-                })
-                setTransactions(txList.slice(0, 20))
-            } catch (err) {
-                console.error('Failed to fetch earnings:', err)
-                setError(err instanceof Error ? err.message : 'Failed to load earnings')
-            } finally {
-                setLoading(false)
+            } else if (job.status === 'confirmed' || job.status === 'pending') {
+                pendingTotal += price
             }
+        })
+
+        txList.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+
+        return {
+            stats: {
+                thisMonth: thisMonthTotal,
+                lastMonth: lastMonthTotal,
+                pending: pendingTotal,
+                available: thisMonthTotal + lastMonthTotal,
+            },
+            transactions: txList.slice(0, 20),
         }
-        fetchEarnings()
-    }, [API_URL, session])
+    }, [rawJobs])
 
     const monthlyChange = stats.lastMonth > 0
         ? ((stats.thisMonth - stats.lastMonth) / stats.lastMonth) * 100
@@ -158,7 +120,7 @@ export default function CleanerEarningsPage() {
                 <Card className="border-red-200 dark:border-red-800">
                     <CardContent className="py-8 text-center">
                         <AlertCircle className="w-10 h-10 mx-auto text-red-500 mb-3" />
-                        <p className="text-red-600 dark:text-red-400 font-medium">{error}</p>
+                        <p className="text-red-600 dark:text-red-400 font-medium">{(error as any)?.detail || 'Failed to load earnings'}</p>
                         <p className="text-sm text-muted-foreground mt-1">Please try refreshing the page</p>
                     </CardContent>
                 </Card>
@@ -187,14 +149,11 @@ export default function CleanerEarningsPage() {
                         onClick={async () => {
                             if (stats.available <= 0) { toast.error('No available balance to withdraw'); return }
                             try {
-                                const token = (session as any)?.accessToken
-                                const res = await fetch(`${API_URL}/api/v1/payments/request-payout`, {
+                                await apiFetch('/api/v1/payments/request-payout', {
                                     method: 'POST',
-                                    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
                                     body: JSON.stringify({ amount: stats.available }),
                                 })
-                                if (res.ok) toast.success(`Payout of $${stats.available} requested!`)
-                                else toast.error('Failed to request payout')
+                                toast.success(`Payout of $${stats.available} requested!`)
                             } catch { toast.error('Payout request failed') }
                         }}
                     >
@@ -285,49 +244,51 @@ export default function CleanerEarningsPage() {
             </div>
 
             {/* Earnings Chart (Last 7 Days) */}
-            {transactions.length > 0 && (
-                <Card>
-                    <CardHeader>
-                        <CardTitle className="text-base">Last 7 Days</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                        <div className="flex items-end gap-2 h-32">
-                            {(() => {
-                                const days: Record<string, number> = {}
-                                const now = new Date()
-                                for (let i = 6; i >= 0; i--) {
-                                    const d = new Date(now)
-                                    d.setDate(d.getDate() - i)
-                                    days[d.toLocaleDateString('en-US', { weekday: 'short' })] = 0
-                                }
-                                transactions.forEach(tx => {
-                                    const txDate = new Date(tx.date)
-                                    const daysDiff = Math.floor((now.getTime() - txDate.getTime()) / (1000 * 60 * 60 * 24))
-                                    if (daysDiff >= 0 && daysDiff < 7) {
-                                        const key = txDate.toLocaleDateString('en-US', { weekday: 'short' })
-                                        if (key in days) days[key] += tx.amount
+            {
+                transactions.length > 0 && (
+                    <Card>
+                        <CardHeader>
+                            <CardTitle className="text-base">Last 7 Days</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                            <div className="flex items-end gap-2 h-32">
+                                {(() => {
+                                    const days: Record<string, number> = {}
+                                    const now = new Date()
+                                    for (let i = 6; i >= 0; i--) {
+                                        const d = new Date(now)
+                                        d.setDate(d.getDate() - i)
+                                        days[d.toLocaleDateString('en-US', { weekday: 'short' })] = 0
                                     }
-                                })
-                                const maxVal = Math.max(...Object.values(days), 1)
-                                return Object.entries(days).map(([day, val]) => (
-                                    <div key={day} className="flex-1 flex flex-col items-center gap-1">
-                                        <span className="text-xs text-muted-foreground font-medium">
-                                            {val > 0 ? `$${val}` : ''}
-                                        </span>
-                                        <div className="w-full relative" style={{ height: '80px' }}>
-                                            <div
-                                                className="absolute bottom-0 w-full rounded-t-md bg-gradient-to-t from-brand-600 to-brand-400 transition-all"
-                                                style={{ height: `${Math.max((val / maxVal) * 100, val > 0 ? 8 : 2)}%` }}
-                                            />
+                                    transactions.forEach(tx => {
+                                        const txDate = new Date(tx.date)
+                                        const daysDiff = Math.floor((now.getTime() - txDate.getTime()) / (1000 * 60 * 60 * 24))
+                                        if (daysDiff >= 0 && daysDiff < 7) {
+                                            const key = txDate.toLocaleDateString('en-US', { weekday: 'short' })
+                                            if (key in days) days[key] += tx.amount
+                                        }
+                                    })
+                                    const maxVal = Math.max(...Object.values(days), 1)
+                                    return Object.entries(days).map(([day, val]) => (
+                                        <div key={day} className="flex-1 flex flex-col items-center gap-1">
+                                            <span className="text-xs text-muted-foreground font-medium">
+                                                {val > 0 ? `$${val}` : ''}
+                                            </span>
+                                            <div className="w-full relative" style={{ height: '80px' }}>
+                                                <div
+                                                    className="absolute bottom-0 w-full rounded-t-md bg-gradient-to-t from-brand-600 to-brand-400 transition-all"
+                                                    style={{ height: `${Math.max((val / maxVal) * 100, val > 0 ? 8 : 2)}%` }}
+                                                />
+                                            </div>
+                                            <span className="text-xs text-muted-foreground">{day}</span>
                                         </div>
-                                        <span className="text-xs text-muted-foreground">{day}</span>
-                                    </div>
-                                ))
-                            })()}
-                        </div>
-                    </CardContent>
-                </Card>
-            )}
+                                    ))
+                                })()}
+                            </div>
+                        </CardContent>
+                    </Card>
+                )
+            }
 
             {/* Transactions */}
             <Card>
@@ -389,6 +350,6 @@ export default function CleanerEarningsPage() {
                     )}
                 </CardContent>
             </Card>
-        </div>
+        </div >
     )
 }

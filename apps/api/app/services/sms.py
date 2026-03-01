@@ -21,11 +21,28 @@ class SMSService:
     """Service for sending SMS notifications via Twilio"""
     
     def __init__(self):
-        self.client = twilio_client
         self.from_number = settings.twilio_phone_number
+        # Dev-mode detection
+        sid = settings.twilio_account_sid or ""
+        self.is_dev = (
+            not sid
+            or sid.startswith("AC_mock")
+            or sid == "AC_mock_dev_sid"
+            or len(sid) < 20
+        )
+        self.client = None if self.is_dev else twilio_client
+        if self.is_dev:
+            logger.info("📱 SMS service running in DEV MODE — messages will be logged to console")
     
     async def send_sms(self, to: str, message: str) -> dict:
         """Send an SMS message"""
+        if self.is_dev:
+            logger.info(f"\n{'='*60}")
+            logger.info(f"📱 DEV SMS — To: {to}")
+            logger.info(f"   Message: {message}")
+            logger.info(f"{'='*60}\n")
+            return {"success": True, "dev_mode": True}
+
         try:
             message = self.client.messages.create(
                 body=message,

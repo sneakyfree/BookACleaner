@@ -1,6 +1,5 @@
 'use client'
 
-import { useState, useEffect } from 'react'
 import { useSession } from 'next-auth/react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -15,6 +14,7 @@ import {
     Loader2,
 } from 'lucide-react'
 import Link from 'next/link'
+import { useJobs, useProperties } from '@/hooks/use-api'
 
 interface Job {
     id: string
@@ -39,46 +39,13 @@ interface Property {
 
 export default function ClientDashboard() {
     const { data: session } = useSession()
-    const [jobs, setJobs] = useState<Job[]>([])
-    const [properties, setProperties] = useState<Property[]>([])
-    const [loading, setLoading] = useState(true)
 
-    const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+    const { data: jobsData, isLoading: jobsLoading } = useJobs()
+    const { data: propsData, isLoading: propsLoading } = useProperties()
 
-    useEffect(() => {
-        const token = (session as any)?.accessToken
-        if (!token) {
-            setLoading(false)
-            return
-        }
-
-        async function fetchData() {
-            try {
-                const headers = {
-                    Authorization: `Bearer ${(session as any)?.accessToken}`,
-                }
-                const [jobsRes, propsRes] = await Promise.all([
-                    fetch(`${API_URL}/api/v1/jobs/`, { headers }),
-                    fetch(`${API_URL}/api/v1/properties/`, { headers }),
-                ])
-
-                if (jobsRes.ok) {
-                    const jobsData = await jobsRes.json()
-                    setJobs(jobsData)
-                }
-
-                if (propsRes.ok) {
-                    const propsData = await propsRes.json()
-                    setProperties(propsData)
-                }
-            } catch (error) {
-                console.error('Failed to fetch dashboard data:', error)
-            } finally {
-                setLoading(false)
-            }
-        }
-        fetchData()
-    }, [API_URL, session])
+    const jobs: Job[] = Array.isArray(jobsData) ? jobsData : (jobsData as any)?.jobs || []
+    const properties: Property[] = Array.isArray(propsData) ? propsData : (propsData as any)?.properties || []
+    const loading = jobsLoading || propsLoading
 
     // Calculate stats from real data
     const pendingJobs = jobs.filter(j => j.status === 'PENDING' || j.status === 'ACCEPTED')

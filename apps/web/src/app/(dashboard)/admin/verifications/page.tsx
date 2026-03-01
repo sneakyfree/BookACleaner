@@ -1,14 +1,15 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState } from 'react'
 import { useSession } from 'next-auth/react'
 import {
     Shield, ShieldCheck, ShieldAlert, FileText, Eye, CheckCircle2,
     XCircle, Clock, User, Loader2, AlertCircle, ExternalLink, Sparkles
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+import { useAdminVerifications } from '@/hooks/use-api'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { apiFetch } from '@/lib/auth/api-client'
 
 interface VerificationItem {
     id: string
@@ -44,84 +45,46 @@ const statusConfig: Record<string, { color: string; icon: typeof Clock }> = {
 
 export default function AdminVerificationsPage() {
     const { data: session } = useSession()
-    const [verifications, setVerifications] = useState<VerificationItem[]>([])
-    const [loading, setLoading] = useState(true)
-    const [error, setError] = useState('')
     const [selectedId, setSelectedId] = useState<string | null>(null)
     const [rejectReason, setRejectReason] = useState('')
     const [statusFilter, setStatusFilter] = useState<string>('pending')
-    const [actionLoading, setActionLoading] = useState(false)
+    const [aiVerdict, setAiVerdict] = useState<any>(null)
+    const [aiVerifying, setAiVerifying] = useState(false)
 
+    const { data: rawData, isLoading: loading, error, refetch } = useAdminVerifications(1, statusFilter !== 'all' ? statusFilter : undefined)
+    const queryClient = useQueryClient()
+
+    const verifications: VerificationItem[] = rawData?.items || rawData || []
     const selected = verifications.find(v => v.id === selectedId)
 
-    const fetchQueue = useCallback(async () => {
-        const token = (session as any)?.accessToken
-        if (!token) return
-
-        try {
-            setLoading(true)
-            setError('')
-            const res = await fetch(`${API_URL}/api/v1/admin/verifications/queue`, {
-                headers: { Authorization: `Bearer ${token}` },
-            })
-            if (!res.ok) throw new Error(`Failed to load verification queue (${res.status})`)
-            const data = await res.json()
-            setVerifications(data.items || data || [])
-        } catch (err: any) {
-            setError(err.message || 'Failed to load verification queue')
-        } finally {
-            setLoading(false)
-        }
-    }, [session])
-
-    useEffect(() => {
-        if (session) fetchQueue()
-    }, [session, fetchQueue])
-
-    const handleApprove = async (id: string) => {
-        const token = (session as any)?.accessToken
-        if (!token) return
-
-        try {
-            setActionLoading(true)
-            const res = await fetch(`${API_URL}/api/v1/admin/verifications/${id}/approve`, {
-                method: 'POST',
-                headers: { Authorization: `Bearer ${token}` },
-            })
-            if (!res.ok) throw new Error('Failed to approve verification')
-            setVerifications(prev => prev.map(v => v.id === id ? { ...v, status: 'verified' } : v))
+    const approveMut = useMutation({
+        mutationFn: (id: string) =>
+            apiFetch(`/api/v1/admin/verifications/${id}/approve`, { method: 'POST' }),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['admin', 'verifications'] })
             setSelectedId(null)
-        } catch (err: any) {
-            setError(err.message)
-        } finally {
-            setActionLoading(false)
-        }
-    }
+        },
+    })
 
-    const handleReject = async (id: string) => {
-        const token = (session as any)?.accessToken
-        if (!token || !rejectReason.trim()) return
-
-        try {
-            setActionLoading(true)
-            const res = await fetch(`${API_URL}/api/v1/admin/verifications/${id}/reject`, {
+    const rejectMut = useMutation({
+        mutationFn: ({ id, reason }: { id: string; reason: string }) =>
+            apiFetch(`/api/v1/admin/verifications/${id}/reject`, {
                 method: 'POST',
-                headers: {
-                    Authorization: `Bearer ${token}`,
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ reason: rejectReason }),
-            })
-            if (!res.ok) throw new Error('Failed to reject verification')
-            setVerifications(prev => prev.map(v => v.id === id ? { ...v, status: 'rejected' } : v))
+                body: JSON.stringify({ reason }),
+            }),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['admin', 'verifications'] })
             setRejectReason('')
             setSelectedId(null)
-        } catch (err: any) {
-            setError(err.message)
-        } finally {
-            setActionLoading(false)
-        }
+        },
+    })
+
+    const handleApprove = (id: string) => approveMut.mutate(id)
+    const handleReject = (id: string) => {
+        if (!rejectReason.trim()) return
+        rejectMut.mutate({ id, reason: rejectReason })
     }
+    const actionLoading = approveMut.isPending || rejectMut.isPending
 
     const filtered = verifications.filter(v => statusFilter === 'all' || v.status === statusFilter)
 
@@ -152,8 +115,8 @@ export default function AdminVerificationsPage() {
                 {error && (
                     <div className="mb-6 p-4 bg-red-500/10 border border-red-500/30 rounded-lg flex items-center gap-3">
                         <AlertCircle className="w-5 h-5 text-red-400 shrink-0" />
-                        <p className="text-red-300 text-sm">{error}</p>
-                        <button onClick={fetchQueue} className="ml-auto text-red-400 hover:text-red-300 text-sm font-medium">Retry</button>
+                        <p className="text-red-300 text-sm">{(error as any)?.detail || 'Failed to load verification queue'}</p>
+                        <button onClick={() => refetch()} className="ml-auto text-red-400 hover:text-red-300 text-sm font-medium">Retry</button>
                     </div>
                 )}
 
@@ -254,27 +217,57 @@ export default function AdminVerificationsPage() {
                                                     </a>
                                                     <button
                                                         onClick={async () => {
-                                                            const token = (session as any)?.accessToken
-                                                            if (!token) return
                                                             try {
-                                                                const res = await fetch(`${API_URL}/api/v1/ai/parse-document`, {
+                                                                await apiFetch('/api/v1/ai/parse-document', {
                                                                     method: 'POST',
-                                                                    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
                                                                     body: JSON.stringify({ document_url: selected.document_url, type: selected.verification_type }),
                                                                 })
-                                                                if (res.ok) {
-                                                                    const data = await res.json()
-                                                                    setVerifications(prev => prev.map(v =>
-                                                                        v.id === selected.id ? { ...v, extracted_data: data.extracted || data } : v
-                                                                    ))
-                                                                }
+                                                                refetch()
                                                             } catch { /* AI unavailable */ }
                                                         }}
                                                         className="px-3 py-2 bg-purple-500/10 border border-purple-500/20 rounded-lg text-purple-400 hover:text-purple-300 text-sm flex items-center gap-1.5"
                                                     >
                                                         <Sparkles className="w-3.5 h-3.5" /> AI Parse
                                                     </button>
+                                                    <button
+                                                        disabled={aiVerifying}
+                                                        onClick={async () => {
+                                                            setAiVerifying(true)
+                                                            setAiVerdict(null)
+                                                            try {
+                                                                const result = await apiFetch('/api/v1/ai/verify-document', {
+                                                                    method: 'POST',
+                                                                    body: JSON.stringify({ document_url: selected.document_url, type: selected.verification_type }),
+                                                                })
+                                                                setAiVerdict(result)
+                                                            } catch { setAiVerdict({ error: 'AI verification unavailable' }) }
+                                                            finally { setAiVerifying(false) }
+                                                        }}
+                                                        className="px-3 py-2 bg-emerald-500/10 border border-emerald-500/20 rounded-lg text-emerald-400 hover:text-emerald-300 text-sm flex items-center gap-1.5"
+                                                    >
+                                                        {aiVerifying ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ShieldCheck className="w-3.5 h-3.5" />} AI Verify
+                                                    </button>
                                                 </div>
+                                                {aiVerdict && !aiVerdict.error && (
+                                                    <div className="mt-3 p-3 bg-black/20 rounded-lg space-y-2">
+                                                        <div className="flex items-center gap-2">
+                                                            {aiVerdict.is_valid ? (
+                                                                <span className="text-green-400 text-xs font-medium px-2 py-0.5 bg-green-500/20 rounded-full">✓ Valid</span>
+                                                            ) : (
+                                                                <span className="text-red-400 text-xs font-medium px-2 py-0.5 bg-red-500/20 rounded-full">✗ Invalid</span>
+                                                            )}
+                                                            <span className="text-white/50 text-xs">Confidence: {Math.round((aiVerdict.confidence || 0) * 100)}%</span>
+                                                        </div>
+                                                        {aiVerdict.concerns?.length > 0 && (
+                                                            <div className="text-xs">
+                                                                <span className="text-amber-400">Concerns:</span>
+                                                                <ul className="list-disc list-inside text-white/60 mt-1">
+                                                                    {aiVerdict.concerns.map((c: string, i: number) => <li key={i}>{c}</li>)}
+                                                                </ul>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                )}
                                             </div>
                                         )}
                                         {selected.extracted_data && Object.keys(selected.extracted_data).length > 0 && (

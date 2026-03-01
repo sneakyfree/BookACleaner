@@ -76,6 +76,24 @@ async def get_platform_stats(
     week_ago = datetime.utcnow() - timedelta(days=7)
     new_users_this_week = sum(1 for u in all_users if u.get("created_at") and datetime.fromisoformat(str(u["created_at"]).replace("Z", "+00:00").replace("+00:00", "")) > week_ago)
     
+    # Celery task schedule
+    try:
+        from app.worker import celery_app
+        beat_schedule = celery_app.conf.beat_schedule or {}
+        scheduled_tasks = [
+            {"name": name, "schedule": str(cfg.get("schedule", "N/A")), "task": cfg.get("task", name)}
+            for name, cfg in beat_schedule.items()
+        ]
+    except Exception:
+        scheduled_tasks = []
+
+    # Cache status
+    try:
+        from app.cache import cache as cache_instance
+        cache_connected = cache_instance._client is not None
+    except Exception:
+        cache_connected = False
+
     return {
         "users": {
             "total": total_users,
@@ -95,7 +113,11 @@ async def get_platform_stats(
         },
         "verifications": {
             "pending": pending_verifications,
-        }
+        },
+        "background_tasks": {
+            "scheduled": scheduled_tasks,
+            "cache_connected": cache_connected,
+        },
     }
 
 

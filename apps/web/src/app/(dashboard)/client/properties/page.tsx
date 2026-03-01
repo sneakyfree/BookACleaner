@@ -1,7 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { useSession } from 'next-auth/react'
+import { useState, useMemo } from 'react'
 import Link from 'next/link'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -17,8 +16,8 @@ import {
     AlertCircle,
 } from 'lucide-react'
 import { toast } from 'sonner'
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { apiFetch } from '@/lib/auth/api-client'
 
 interface ApiProperty {
     id: string
@@ -49,103 +48,65 @@ interface DisplayProperty {
 }
 
 export default function PropertiesPage() {
-    const { data: session } = useSession()
-    const [properties, setProperties] = useState<DisplayProperty[]>([])
-    const [loading, setLoading] = useState(true)
-    const [error, setError] = useState<string | null>(null)
     const [deleteTarget, setDeleteTarget] = useState<DisplayProperty | null>(null)
-    const [deleting, setDeleting] = useState(false)
+    const queryClient = useQueryClient()
 
-    const handleDelete = async (id: string) => {
-        const token = (session as any)?.accessToken
-        if (!token) return
-        setDeleting(true)
-        try {
-            const res = await fetch(`${API_URL}/api/v1/properties/${id}`, {
-                method: 'DELETE',
-                headers: { Authorization: `Bearer ${token}` },
-            })
-            if (!res.ok) throw new Error('Failed to delete property')
-            setProperties(prev => prev.filter(p => p.id !== id))
+    const { data: rawData, isLoading: loading, error } = useQuery({
+        queryKey: ['properties'],
+        queryFn: () => apiFetch('/api/v1/properties/'),
+    })
+
+    const deleteMut = useMutation({
+        mutationFn: (id: string) => apiFetch(`/api/v1/properties/${id}`, { method: 'DELETE' }),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['properties'] })
             toast.success('Property deleted successfully')
             setDeleteTarget(null)
-        } catch {
-            toast.error('Failed to delete property')
-        } finally {
-            setDeleting(false)
-        }
-    }
+        },
+        onError: () => toast.error('Failed to delete property'),
+    })
+    const deleting = deleteMut.isPending
+    const handleDelete = (id: string) => deleteMut.mutate(id)
 
-    useEffect(() => {
-        const token = (session as any)?.accessToken
-        if (!token) {
-            setLoading(false)
-            return
-        }
-
-        async function fetchProperties() {
-            try {
-                setError(null)
-                const res = await fetch(`${API_URL}/api/v1/properties/`, {
-                    headers: {
-                        Authorization: `Bearer ${(session as any)?.accessToken}`,
-                    },
-                })
-
-                if (!res.ok) {
-                    throw new Error(`Failed to load properties (${res.status})`)
-                }
-
-                const data: ApiProperty[] = await res.json()
-
-                const mapped: DisplayProperty[] = data.map((prop) => {
-                    const timeSince = (dateStr?: string) => {
-                        if (!dateStr) return 'Never'
-                        const diff = Date.now() - new Date(dateStr).getTime()
-                        const days = Math.floor(diff / (1000 * 60 * 60 * 24))
-                        if (days === 0) return 'Today'
-                        if (days === 1) return 'Yesterday'
-                        if (days < 7) return `${days} days ago`
-                        if (days < 30) return `${Math.floor(days / 7)} week${Math.floor(days / 7) > 1 ? 's' : ''} ago`
-                        return `${Math.floor(days / 30)} month${Math.floor(days / 30) > 1 ? 's' : ''} ago`
-                    }
-
-                    const timeUntil = (dateStr?: string) => {
-                        if (!dateStr) return null
-                        const diff = new Date(dateStr).getTime() - Date.now()
-                        const days = Math.floor(diff / (1000 * 60 * 60 * 24))
-                        if (days < 0) return null
-                        if (days === 0) return 'Today'
-                        if (days === 1) return 'Tomorrow'
-                        return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-                    }
-
-                    return {
-                        id: prop.id,
-                        name: prop.name || 'Unnamed Property',
-                        address: prop.address || '',
-                        city: prop.city || '',
-                        state: prop.state || '',
-                        sqFt: prop.square_feet || 0,
-                        bedrooms: prop.bedrooms || 0,
-                        bathrooms: prop.bathrooms || 0,
-                        lastCleaned: timeSince(prop.last_cleaned_at),
-                        nextCleaning: timeUntil(prop.next_cleaning_at),
-                        hasAirbnb: prop.airbnb_linked || false,
-                    }
-                })
-
-                setProperties(mapped)
-            } catch (err) {
-                console.error('Failed to fetch properties:', err)
-                setError(err instanceof Error ? err.message : 'Failed to load properties')
-            } finally {
-                setLoading(false)
+    const properties: DisplayProperty[] = useMemo(() => {
+        const data: ApiProperty[] = Array.isArray(rawData) ? rawData : []
+        return data.map((prop) => {
+            const timeSince = (dateStr?: string) => {
+                if (!dateStr) return 'Never'
+                const diff = Date.now() - new Date(dateStr).getTime()
+                const days = Math.floor(diff / (1000 * 60 * 60 * 24))
+                if (days === 0) return 'Today'
+                if (days === 1) return 'Yesterday'
+                if (days < 7) return `${days} days ago`
+                if (days < 30) return `${Math.floor(days / 7)} week${Math.floor(days / 7) > 1 ? 's' : ''} ago`
+                return `${Math.floor(days / 30)} month${Math.floor(days / 30) > 1 ? 's' : ''} ago`
             }
-        }
 
-        fetchProperties()
-    }, [API_URL, session])
+            const timeUntil = (dateStr?: string) => {
+                if (!dateStr) return null
+                const diff = new Date(dateStr).getTime() - Date.now()
+                const days = Math.floor(diff / (1000 * 60 * 60 * 24))
+                if (days < 0) return null
+                if (days === 0) return 'Today'
+                if (days === 1) return 'Tomorrow'
+                return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+            }
+
+            return {
+                id: prop.id,
+                name: prop.name || 'Unnamed Property',
+                address: prop.address || '',
+                city: prop.city || '',
+                state: prop.state || '',
+                sqFt: prop.square_feet || 0,
+                bedrooms: prop.bedrooms || 0,
+                bathrooms: prop.bathrooms || 0,
+                lastCleaned: timeSince(prop.last_cleaned_at),
+                nextCleaning: timeUntil(prop.next_cleaning_at),
+                hasAirbnb: prop.airbnb_linked || false,
+            }
+        })
+    }, [rawData])
 
     if (loading) {
         return (
@@ -160,7 +121,7 @@ export default function PropertiesPage() {
             <Card>
                 <CardContent className="py-12 text-center">
                     <AlertCircle className="w-12 h-12 mx-auto text-red-500 mb-4" />
-                    <p className="text-lg font-medium text-red-600">{error}</p>
+                    <p className="text-lg font-medium text-red-600">{(error as any)?.message || 'Failed to load properties'}</p>
                     <Button className="mt-4" onClick={() => window.location.reload()}>
                         Try Again
                     </Button>

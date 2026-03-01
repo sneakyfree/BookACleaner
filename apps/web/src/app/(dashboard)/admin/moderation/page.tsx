@@ -1,14 +1,14 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
-import { useSession } from 'next-auth/react'
+import { useState } from 'react'
 import {
     Flag, Eye, Trash2, AlertTriangle, MessageSquare, Star,
     CheckCircle2, XCircle, Clock, ChevronDown, Loader2, AlertCircle
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+import { useAdminModeration } from '@/hooks/use-api'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { apiFetch } from '@/lib/auth/api-client'
 
 interface FlaggedItem {
     id: string
@@ -38,59 +38,26 @@ const typeIcons: Record<string, typeof Star> = {
 }
 
 export default function AdminModerationPage() {
-    const { data: session } = useSession()
-    const [items, setItems] = useState<FlaggedItem[]>([])
-    const [loading, setLoading] = useState(true)
-    const [error, setError] = useState('')
     const [statusFilter, setStatusFilter] = useState<string>('pending')
     const [actionLoading, setActionLoading] = useState<string | null>(null)
 
-    const fetchFlagged = useCallback(async () => {
-        const token = (session as any)?.accessToken
-        if (!token) return
+    const { data: rawData, isLoading: loading, error, refetch } = useAdminModeration(1, statusFilter !== 'all' ? statusFilter : undefined)
+    const queryClient = useQueryClient()
 
-        try {
-            setLoading(true)
-            setError('')
-            const params = new URLSearchParams()
-            if (statusFilter !== 'all') params.set('status', statusFilter)
+    const items: FlaggedItem[] = rawData?.items || rawData || []
 
-            const res = await fetch(`${API_URL}/api/v1/moderation/flagged?${params}`, {
-                headers: { Authorization: `Bearer ${token}` },
-            })
-            if (!res.ok) throw new Error(`Failed to load flagged content (${res.status})`)
-            const data = await res.json()
-            setItems(data.items || [])
-        } catch (err: any) {
-            setError(err.message || 'Failed to load flagged content')
-        } finally {
-            setLoading(false)
-        }
-    }, [session, statusFilter])
+    const actionMut = useMutation({
+        mutationFn: ({ id, action }: { id: string; action: 'remove' | 'dismiss' }) =>
+            apiFetch(`/api/v1/moderation/flagged/${id}/review?action=${action}`, { method: 'POST' }),
+        onMutate: ({ id }) => setActionLoading(id),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['admin', 'moderation'] })
+        },
+        onSettled: () => setActionLoading(null),
+    })
 
-    useEffect(() => {
-        if (session) fetchFlagged()
-    }, [session, fetchFlagged])
-
-    const handleAction = async (id: string, action: 'remove' | 'dismiss') => {
-        const token = (session as any)?.accessToken
-        if (!token) return
-
-        try {
-            setActionLoading(id)
-            const res = await fetch(`${API_URL}/api/v1/moderation/flagged/${id}/review?action=${action}`, {
-                method: 'POST',
-                headers: { Authorization: `Bearer ${token}` },
-            })
-            if (!res.ok) throw new Error('Failed to review content')
-            // Update local state
-            const newStatus = action === 'remove' ? 'removed' : 'dismissed'
-            setItems(prev => prev.map(i => i.id === id ? { ...i, status: newStatus } : i))
-        } catch (err: any) {
-            setError(err.message || 'Failed to review content')
-        } finally {
-            setActionLoading(null)
-        }
+    const handleAction = (id: string, action: 'remove' | 'dismiss') => {
+        actionMut.mutate({ id, action })
     }
 
     return (
@@ -121,8 +88,8 @@ export default function AdminModerationPage() {
                 {error && (
                     <div className="mb-6 p-4 bg-red-500/10 border border-red-500/30 rounded-lg flex items-center gap-3">
                         <AlertCircle className="w-5 h-5 text-red-400 shrink-0" />
-                        <p className="text-red-300 text-sm">{error}</p>
-                        <button onClick={fetchFlagged} className="ml-auto text-red-400 hover:text-red-300 text-sm font-medium">Retry</button>
+                        <p className="text-red-300 text-sm">{(error as any)?.detail || 'Failed to load flagged content'}</p>
+                        <button onClick={() => refetch()} className="ml-auto text-red-400 hover:text-red-300 text-sm font-medium">Retry</button>
                     </div>
                 )}
 

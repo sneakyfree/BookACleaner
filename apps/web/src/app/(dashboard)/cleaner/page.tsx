@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useMemo } from 'react'
 import { useSession } from 'next-auth/react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -17,8 +17,7 @@ import {
     AlertCircle,
 } from 'lucide-react'
 import Link from 'next/link'
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+import { useJobs } from '@/hooks/use-api'
 
 interface ApiJob {
     id: string
@@ -53,96 +52,43 @@ interface UpcomingJob {
 
 export default function CleanerDashboard() {
     const { data: session } = useSession()
-    const [stats, setStats] = useState<DashboardStats>({
-        todayJobs: 0, weekEarnings: 0, rating: 0, completedJobs: 0, pendingJobs: 0,
-    })
-    const [upcomingJobs, setUpcomingJobs] = useState<UpcomingJob[]>([])
-    const [loading, setLoading] = useState(true)
-    const [error, setError] = useState<string | null>(null)
+    const { data: rawJobs, isLoading: loading, error } = useJobs()
 
-    useEffect(() => {
-        const token = (session as any)?.accessToken
-        if (!token) {
-            setLoading(false)
-            return
+    const { stats, upcomingJobs } = useMemo(() => {
+        const jobs: ApiJob[] = Array.isArray(rawJobs) ? rawJobs : (rawJobs as any)?.jobs || []
+        const today = new Date().toISOString().split('T')[0]
+        const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+
+        const todayJobs = jobs.filter(j => j.scheduled_date?.startsWith(today)).length
+        const completedJobs = jobs.filter(j => j.status === 'completed').length
+        const pendingJobs = jobs.filter(j => j.status === 'pending').length
+
+        const weekEarnings = jobs
+            .filter(j => j.status === 'completed' && j.scheduled_date >= weekAgo)
+            .reduce((sum, j) => sum + (j.total_price || 0), 0)
+
+        const upcoming: UpcomingJob[] = jobs
+            .filter(j =>
+                j.scheduled_date >= today &&
+                (j.status === 'confirmed' || j.status === 'pending' || j.status === 'in_progress')
+            )
+            .sort((a, b) => (a.scheduled_date + (a.scheduled_time || '')).localeCompare(b.scheduled_date + (b.scheduled_time || '')))
+            .slice(0, 5)
+            .map(j => ({
+                id: j.id,
+                title: j.services?.join(', ') || 'Cleaning',
+                property: j.property_name || 'Property',
+                client: j.client_name || 'Client',
+                time: j.scheduled_time || 'TBD',
+                address: j.property_address || '',
+                price: j.total_price || 0,
+            }))
+
+        return {
+            stats: { todayJobs, weekEarnings, rating: 0, completedJobs, pendingJobs } as DashboardStats,
+            upcomingJobs: upcoming,
         }
-
-        async function fetchDashboardData() {
-            try {
-                setError(null)
-                const headers = {
-                    Authorization: `Bearer ${(session as any)?.accessToken}`,
-                }
-
-                const res = await fetch(`${API_URL}/api/v1/jobs/`, { headers })
-                if (!res.ok) {
-                    throw new Error(`Failed to load dashboard data (${res.status})`)
-                }
-
-                const jobs: ApiJob[] = await res.json()
-
-                // Derive stats from jobs
-                const today = new Date().toISOString().split('T')[0]
-                const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
-
-                const todayJobs = jobs.filter(j => j.scheduled_date?.startsWith(today)).length
-                const completedJobs = jobs.filter(j => j.status === 'completed').length
-                const pendingJobs = jobs.filter(j => j.status === 'pending').length
-
-                const weekEarnings = jobs
-                    .filter(j => j.status === 'completed' && j.scheduled_date >= weekAgo)
-                    .reduce((sum, j) => sum + (j.total_price || 0), 0)
-
-                // Fetch actual rating from reviews API
-                let rating = 0
-                try {
-                    const userId = (session as any)?.user?.id
-                    if (userId) {
-                        const ratingRes = await fetch(`${API_URL}/api/v1/reviews/stats/${userId}`, { headers })
-                        if (ratingRes.ok) {
-                            const ratingData = await ratingRes.json()
-                            rating = ratingData.overall_rating || ratingData.average_rating || 0
-                        }
-                    }
-                } catch { /* rating unavailable */ }
-
-                setStats({
-                    todayJobs,
-                    weekEarnings,
-                    rating,
-                    completedJobs,
-                    pendingJobs,
-                })
-
-                // Map today's/upcoming jobs for display
-                const upcoming: UpcomingJob[] = jobs
-                    .filter(j =>
-                        j.scheduled_date >= today &&
-                        (j.status === 'confirmed' || j.status === 'pending' || j.status === 'in_progress')
-                    )
-                    .sort((a, b) => (a.scheduled_date + (a.scheduled_time || '')).localeCompare(b.scheduled_date + (b.scheduled_time || '')))
-                    .slice(0, 5)
-                    .map(j => ({
-                        id: j.id,
-                        title: j.services?.join(', ') || 'Cleaning',
-                        property: j.property_name || 'Property',
-                        client: j.client_name || 'Client',
-                        time: j.scheduled_time || 'TBD',
-                        address: j.property_address || '',
-                        price: j.total_price || 0,
-                    }))
-
-                setUpcomingJobs(upcoming)
-            } catch (err) {
-                console.error('Failed to fetch dashboard data:', err)
-                setError(err instanceof Error ? err.message : 'Failed to load dashboard')
-            } finally {
-                setLoading(false)
-            }
-        }
-
-        fetchDashboardData()
-    }, [API_URL, session])
+    }, [rawJobs])
 
     if (loading) {
         return (
@@ -157,7 +103,7 @@ export default function CleanerDashboard() {
             <Card>
                 <CardContent className="py-12 text-center">
                     <AlertCircle className="w-12 h-12 mx-auto text-red-500 mb-4" />
-                    <p className="text-lg font-medium text-red-600">{error}</p>
+                    <p className="text-lg font-medium text-red-600">{(error as any)?.detail || 'Failed to load dashboard'}</p>
                     <Button className="mt-4" onClick={() => window.location.reload()}>
                         Try Again
                     </Button>

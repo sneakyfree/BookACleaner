@@ -58,8 +58,8 @@ export default function RegisterPage() {
                 throw new Error(data.detail || 'Registration failed')
             }
 
-            // Redirect to login with success message
-            router.push('/login?registered=true')
+            // Redirect to onboarding flow
+            router.push('/onboarding')
         } catch (err) {
             if (err instanceof TypeError && err.message === 'Failed to fetch') {
                 setError('Cannot connect to server. The backend API may not be running.')

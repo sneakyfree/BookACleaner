@@ -1,14 +1,12 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
-import { useSession } from 'next-auth/react'
+import { useState } from 'react'
 import {
     Bell, Check, CheckCheck, Mail, Calendar, DollarSign, Star,
     ShieldCheck, AlertTriangle, Loader2, AlertCircle
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+import { useNotifications, useMarkNotificationRead, useMarkAllNotificationsRead } from '@/hooks/use-api'
 
 interface Notification {
     id: string
@@ -39,64 +37,15 @@ const typeColors: Record<string, string> = {
 }
 
 export default function NotificationsPage() {
-    const { data: session } = useSession()
-    const [notifications, setNotifications] = useState<Notification[]>([])
-    const [loading, setLoading] = useState(true)
-    const [error, setError] = useState('')
-    const [unreadCount, setUnreadCount] = useState(0)
+    const { data: rawData, isLoading: loading, error, refetch } = useNotifications()
+    const markReadMut = useMarkNotificationRead()
+    const markAllReadMut = useMarkAllNotificationsRead()
 
-    const fetchNotifications = useCallback(async () => {
-        const token = (session as any)?.accessToken
-        if (!token) return
+    const notifications: Notification[] = rawData?.notifications || rawData?.items || rawData || []
+    const unreadCount = notifications.filter(n => !n.is_read).length
 
-        try {
-            setLoading(true)
-            setError('')
-            const res = await fetch(`${API_URL}/api/v1/notifications`, {
-                headers: { Authorization: `Bearer ${token}` },
-            })
-            if (!res.ok) throw new Error(`Failed to load notifications (${res.status})`)
-            const data = await res.json()
-            setNotifications(data.notifications || data.items || data || [])
-            setUnreadCount((data.notifications || data.items || data || []).filter((n: Notification) => !n.is_read).length)
-        } catch (err: any) {
-            setError(err.message || 'Failed to load notifications')
-        } finally {
-            setLoading(false)
-        }
-    }, [session])
-
-    useEffect(() => {
-        if (session) fetchNotifications()
-    }, [session, fetchNotifications])
-
-    const markAsRead = async (id: string) => {
-        const token = (session as any)?.accessToken
-        if (!token) return
-
-        try {
-            await fetch(`${API_URL}/api/v1/notifications/${id}/read`, {
-                method: 'POST',
-                headers: { Authorization: `Bearer ${token}` },
-            })
-            setNotifications(prev => prev.map(n => n.id === id ? { ...n, is_read: true } : n))
-            setUnreadCount(prev => Math.max(0, prev - 1))
-        } catch { /* ignore */ }
-    }
-
-    const markAllRead = async () => {
-        const token = (session as any)?.accessToken
-        if (!token) return
-
-        try {
-            await fetch(`${API_URL}/api/v1/notifications/read-all`, {
-                method: 'POST',
-                headers: { Authorization: `Bearer ${token}` },
-            })
-            setNotifications(prev => prev.map(n => ({ ...n, is_read: true })))
-            setUnreadCount(0)
-        } catch { /* ignore */ }
-    }
+    const markAsRead = (id: string) => markReadMut.mutate(id)
+    const markAllRead = () => markAllReadMut.mutate()
 
     const formatDate = (dateStr: string) => {
         const date = new Date(dateStr)
@@ -143,8 +92,8 @@ export default function NotificationsPage() {
                 {error && (
                     <div className="mb-6 p-4 bg-red-500/10 border border-red-500/30 rounded-lg flex items-center gap-3">
                         <AlertCircle className="w-5 h-5 text-red-400 shrink-0" />
-                        <p className="text-red-300 text-sm">{error}</p>
-                        <button onClick={fetchNotifications} className="ml-auto text-red-400 hover:text-red-300 text-sm font-medium">Retry</button>
+                        <p className="text-red-300 text-sm">{(error as any)?.detail || 'Failed to load notifications'}</p>
+                        <button onClick={() => refetch()} className="ml-auto text-red-400 hover:text-red-300 text-sm font-medium">Retry</button>
                     </div>
                 )}
 

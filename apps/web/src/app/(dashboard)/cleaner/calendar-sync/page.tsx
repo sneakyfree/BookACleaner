@@ -1,14 +1,12 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
-import { useSession } from 'next-auth/react'
+import { useState } from 'react'
 import {
     CalendarCheck, Link2, Unlink, RefreshCw, ExternalLink,
     Loader2, AlertCircle, Check, CalendarDays
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+import { apiFetch } from '@/lib/auth/api-client'
 
 /**
  * Calendar Sync page — iCal / Google Calendar integration
@@ -16,7 +14,6 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
  */
 
 export default function CalendarSyncPage() {
-    const { data: session } = useSession()
     const [googleConnected, setGoogleConnected] = useState(false)
     const [icalUrl, setIcalUrl] = useState('')
     const [loading, setLoading] = useState(false)
@@ -25,23 +22,16 @@ export default function CalendarSyncPage() {
     const [success, setSuccess] = useState('')
 
     const connectGoogle = async () => {
-        const token = (session as any)?.accessToken
-        if (!token) return
-
         try {
             setLoading(true)
             setError('')
             const redirectUri = `${window.location.origin}/api/calendar/callback`
-            const res = await fetch(`${API_URL}/api/v1/calendar/auth-url?redirect_uri=${encodeURIComponent(redirectUri)}`, {
-                headers: { Authorization: `Bearer ${token}` },
-            })
-            if (!res.ok) throw new Error('Failed to get authorization URL')
-            const data = await res.json()
+            const data = await apiFetch(`/api/v1/calendar/auth-url?redirect_uri=${encodeURIComponent(redirectUri)}`)
             if (data.url) {
                 window.location.href = data.url
             }
         } catch (err: any) {
-            setError(err.message || 'Failed to connect Google Calendar')
+            setError(err?.detail || err?.message || 'Failed to connect Google Calendar')
         } finally {
             setLoading(false)
         }
@@ -49,8 +39,19 @@ export default function CalendarSyncPage() {
 
     const saveIcalUrl = async () => {
         if (!icalUrl.trim()) return
-        setSuccess('iCal URL saved! Your calendar will sync automatically.')
-        // In production, POST to backend to store and start periodic sync
+        try {
+            setLoading(true)
+            setError('')
+            await apiFetch('/api/v1/calendar/ical-sync', {
+                method: 'POST',
+                body: JSON.stringify({ ical_url: icalUrl.trim() }),
+            })
+            setSuccess('iCal URL saved! Your calendar will sync automatically.')
+        } catch (err: any) {
+            setError(err?.detail || err?.message || 'Failed to save iCal URL')
+        } finally {
+            setLoading(false)
+        }
     }
 
     return (
@@ -162,11 +163,11 @@ export default function CalendarSyncPage() {
                         </p>
                         <div className="flex items-center gap-3 bg-black/20 rounded-lg px-4 py-3">
                             <code className="text-brand-400 text-sm flex-1 truncate">
-                                {API_URL}/api/v1/calendar/export/{(session as any)?.user?.id || 'your-id'}.ics
+                                {(process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000')}/api/v1/calendar/export/your-id.ics
                             </code>
                             <button
                                 onClick={() => {
-                                    navigator.clipboard.writeText(`${API_URL}/api/v1/calendar/export/${(session as any)?.user?.id || 'your-id'}.ics`)
+                                    navigator.clipboard.writeText(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/v1/calendar/export/your-id.ics`)
                                     setSuccess('Export URL copied to clipboard!')
                                 }}
                                 className="text-white/60 hover:text-white text-sm font-medium whitespace-nowrap"

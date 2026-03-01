@@ -6,6 +6,7 @@ import { usePathname } from 'next/navigation'
 import { useSession, signOut } from 'next-auth/react'
 import { requestPushPermission, setupForegroundListener } from '@/lib/push'
 import { cn } from '@/lib/utils'
+import { apiFetch } from '@/lib/auth/api-client'
 import { Button } from '@/components/ui/button'
 import {
     Sparkles,
@@ -35,7 +36,7 @@ import {
     CreditCard,
 } from 'lucide-react'
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+
 
 interface NavItem {
     label: string
@@ -91,9 +92,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
     // Initialize push notifications after auth
     useEffect(() => {
-        const token = (session as any)?.accessToken
-        if (!token) return
-        requestPushPermission(token).catch(() => { })
+        if (!session) return
+        requestPushPermission().catch(() => { })
         setupForegroundListener().catch(() => { })
     }, [session])
 
@@ -172,14 +172,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                         onClick={async () => {
                             try {
                                 const fcmToken = localStorage.getItem('fcm_token')
-                                const token = (session as any)?.accessToken
-                                if (fcmToken && token) {
-                                    await fetch(`${API_URL}/api/v1/notifications/unregister-device`, {
+                                if (fcmToken) {
+                                    await apiFetch('/api/v1/notifications/unregister-device', {
                                         method: 'DELETE',
-                                        headers: {
-                                            'Content-Type': 'application/json',
-                                            Authorization: `Bearer ${token}`,
-                                        },
                                         body: JSON.stringify({ token: fcmToken }),
                                     }).catch(() => { })
                                     localStorage.removeItem('fcm_token')

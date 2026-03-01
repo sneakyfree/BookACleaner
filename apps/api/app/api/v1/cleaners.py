@@ -10,6 +10,8 @@ import logging
 
 from app.database import get_db
 from app.config import get_settings
+from app.cache import get_cache, CacheClient
+import hashlib
 
 router = APIRouter()
 settings = get_settings()
@@ -69,9 +71,18 @@ async def search_cleaners(
     min_tier: Optional[int] = Query(None, alias="minTier"),
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
-    db = Depends(get_db)
+    db = Depends(get_db),
+    cache: CacheClient = Depends(get_cache),
 ):
     """Search for cleaners with filters"""
+
+    # Cache key from query params
+    key_raw = f"cleaners:search:{location}:{service}:{min_rating}:{min_tier}:{page}:{limit}"
+    cache_key = f"cleaners:search:{hashlib.md5(key_raw.encode()).hexdigest()}"
+
+    cached = await cache.get_json(cache_key)
+    if cached:
+        return cached
     
     # Get all cleaner profiles
     cleaners = await db.cleaner.find_many()
@@ -126,12 +137,17 @@ async def search_cleaners(
     start = (page - 1) * limit
     end = start + limit
     
-    return {
+    result = {
         "cleaners": results[start:end],
         "total": len(results),
         "page": page,
         "limit": limit,
     }
+
+    # Cache for 60 seconds
+    await cache.set_json(cache_key, result, ttl=60)
+
+    return result
 
 
 @router.get("/me")
@@ -200,6 +216,151 @@ async def update_my_cleaner_profile(
     return updated
 
 
+# ==================== AVAILABILITY MANAGEMENT ====================
+# NOTE: These /me/* routes MUST be defined BEFORE /{cleaner_id}/* routes
+# because FastAPI matches in order and would treat "me" as a cleaner_id.
+
+class AvailabilitySlot(BaseModel):
+    day_of_week: int  # 0-6
+    start_time: str   # "08:00"
+    end_time: str      # "17:00"
+    is_available: bool = True
+
+class AvailabilityUpdateRequest(BaseModel):
+    schedule: List[AvailabilitySlot]
+
+
+@router.get("/me/availability")
+async def get_my_availability(
+    authorization: str = Header(None),
+    db = Depends(get_db)
+):
+    """Get current cleaner's availability schedule"""
+    user = await get_current_user(authorization, db)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    cleaner = await db.cleaner.find_first(where={"user_id": user["id"]})
+    if not cleaner:
+        raise HTTPException(status_code=404, detail="Cleaner profile not found")
+    
+    return await get_cleaner_availability(cleaner["id"], db=db)
+
+
+@router.put("/me/availability")
+async def update_my_availability(
+    data: AvailabilityUpdateRequest,
+    authorization: str = Header(None),
+    db = Depends(get_db)
+):
+    """Update current cleaner's weekly availability"""
+    user = await get_current_user(authorization, db)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    cleaner = await db.cleaner.find_first(where={"user_id": user["id"]})
+    if not cleaner:
+        raise HTTPException(status_code=404, detail="Cleaner profile not found")
+    
+    # Upsert each day
+    for slot in data.schedule:
+        if slot.day_of_week < 0 or slot.day_of_week > 6:
+            continue
+        existing = await db.availability.find_first(
+            where={"cleaner_id": cleaner["id"], "day_of_week": slot.day_of_week}
+        )
+        if existing:
+            await db.availability.update(
+                where={"id": existing["id"]},
+                data={
+                    "start_time": slot.start_time,
+                    "end_time": slot.end_time,
+                    "is_available": slot.is_available,
+                }
+            )
+        else:
+            await db.availability.create(data={
+                "cleaner_id": cleaner["id"],
+                "day_of_week": slot.day_of_week,
+                "start_time": slot.start_time,
+                "end_time": slot.end_time,
+                "is_available": slot.is_available,
+            })
+    
+    return {"message": "Availability updated", "schedule": data.schedule}
+
+
+# ==================== PORTFOLIO PHOTOS ====================
+
+@router.get("/me/portfolio")
+async def get_my_portfolio(
+    authorization: str = Header(None),
+    db = Depends(get_db)
+):
+    """Get current cleaner's portfolio photos"""
+    user = await get_current_user(authorization, db)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    cleaner = await db.cleaner.find_first(where={"user_id": user["id"]})
+    if not cleaner:
+        raise HTTPException(status_code=404, detail="Cleaner profile not found")
+    
+    photos = await db.portfolio_photo.find_many(where={"cleaner_id": cleaner["id"]})
+    photos.sort(key=lambda p: p.get("display_order", 0))
+    return {"photos": photos}
+
+
+@router.post("/me/portfolio")
+async def add_portfolio_photo(
+    url: str,
+    caption: Optional[str] = None,
+    authorization: str = Header(None),
+    db = Depends(get_db)
+):
+    """Add a photo to the cleaner's portfolio"""
+    user = await get_current_user(authorization, db)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    cleaner = await db.cleaner.find_first(where={"user_id": user["id"]})
+    if not cleaner:
+        raise HTTPException(status_code=404, detail="Cleaner profile not found")
+    
+    # Get current count for ordering
+    existing = await db.portfolio_photo.find_many(where={"cleaner_id": cleaner["id"]})
+    
+    photo = await db.portfolio_photo.create(data={
+        "cleaner_id": cleaner["id"],
+        "url": url,
+        "caption": caption,
+        "display_order": len(existing),
+    })
+    return photo
+
+
+@router.delete("/me/portfolio/{photo_id}")
+async def delete_portfolio_photo(
+    photo_id: str,
+    authorization: str = Header(None),
+    db = Depends(get_db)
+):
+    """Delete a portfolio photo"""
+    user = await get_current_user(authorization, db)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    cleaner = await db.cleaner.find_first(where={"user_id": user["id"]})
+    if not cleaner:
+        raise HTTPException(status_code=404, detail="Cleaner profile not found")
+    
+    photo = await db.portfolio_photo.find_unique(where={"id": photo_id})
+    if not photo or photo.get("cleaner_id") != cleaner["id"]:
+        raise HTTPException(status_code=404, detail="Photo not found")
+    
+    await db.portfolio_photo.delete(where={"id": photo_id})
+    return {"message": "Photo deleted"}
+
 @router.get("/{cleaner_id}")
 async def get_cleaner(cleaner_id: str, db = Depends(get_db)):
     """Get cleaner profile by ID"""
@@ -236,24 +397,94 @@ async def get_cleaner_availability(
     date: Optional[str] = Query(None),
     db = Depends(get_db)
 ):
-    """Get cleaner's availability for a specific date"""
+    """Get cleaner's weekly availability schedule"""
     
     cleaner = await db.cleaner.find_unique(where={"id": cleaner_id})
-    
     if not cleaner:
         raise HTTPException(status_code=404, detail="Cleaner not found")
     
-    # In production, would check against actual calendar/bookings
-    # For now, return mock available slots
-    slots = ["08:00", "09:00", "10:00", "11:00", "13:00", "14:00", "15:00", "16:00", "17:00"]
+    avail_records = await db.availability.find_many(where={"cleaner_id": cleaner_id})
     
-    # Simulate some slots being taken
-    if date:
-        # Remove some slots based on date hash
-        date_hash = sum(ord(c) for c in date)
-        slots = [s for i, s in enumerate(slots) if i % 3 != date_hash % 3]
+    # Build a 7-day schedule (0=Mon, 6=Sun)
+    schedule = {}
+    for a in avail_records:
+        schedule[a.get("day_of_week")] = {
+            "day_of_week": a.get("day_of_week"),
+            "start_time": a.get("start_time"),
+            "end_time": a.get("end_time"),
+            "is_available": a.get("is_available", True),
+        }
     
-    return {"date": date, "slots": slots, "timezone": "America/Los_Angeles"}
+    # Fill missing days with defaults
+    day_names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+    full_schedule = []
+    for d in range(7):
+        if d in schedule:
+            full_schedule.append({**schedule[d], "day_name": day_names[d]})
+        else:
+            full_schedule.append({
+                "day_of_week": d,
+                "day_name": day_names[d],
+                "start_time": "08:00",
+                "end_time": "17:00",
+                "is_available": d < 5,  # Mon-Fri by default
+            })
+    
+    return {"schedule": full_schedule, "cleaner_id": cleaner_id}
+
+
+@router.get("/{cleaner_id}/available-slots")
+async def get_available_slots(
+    cleaner_id: str,
+    date: str = Query(..., description="Date in YYYY-MM-DD format"),
+    db = Depends(get_db)
+):
+    """Get available time slots for a specific date, considering existing bookings"""
+    
+    cleaner = await db.cleaner.find_unique(where={"id": cleaner_id})
+    if not cleaner:
+        raise HTTPException(status_code=404, detail="Cleaner not found")
+    
+    from datetime import datetime as dt
+    try:
+        target_date = dt.strptime(date, "%Y-%m-%d")
+        day_of_week = target_date.weekday()  # 0=Mon, 6=Sun
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
+    
+    # Check availability for this day of week
+    avail = await db.availability.find_first(
+        where={"cleaner_id": cleaner_id, "day_of_week": day_of_week}
+    )
+    
+    if avail and not avail.get("is_available", True):
+        return {"date": date, "slots": [], "message": "Cleaner is not available on this day"}
+    
+    start_hour = int((avail.get("start_time") or "08:00").split(":")[0]) if avail else 8
+    end_hour = int((avail.get("end_time") or "17:00").split(":")[0]) if avail else 17
+    
+    # Generate hourly slots
+    all_slots = [f"{h:02d}:00" for h in range(start_hour, end_hour)]
+    
+    # Get existing jobs on this date to remove booked slots
+    all_jobs = await db.job.find_many(where={"cleaner_id": cleaner_id})
+    booked_times = set()
+    for job in all_jobs:
+        job_date = job.get("scheduled_date")
+        if job_date and str(job_date)[:10] == date and job.get("status") not in ("cancelled",):
+            booked_time = job.get("scheduled_time")
+            if booked_time:
+                booked_times.add(booked_time[:5])
+                # Block estimated hours around the booking
+                est_hours = int(job.get("estimated_hours") or 2)
+                start_h = int(booked_time[:2])
+                for offset in range(1, est_hours):
+                    booked_times.add(f"{start_h + offset:02d}:00")
+    
+    available_slots = [s for s in all_slots if s not in booked_times]
+    
+    return {"date": date, "slots": available_slots, "timezone": "America/Los_Angeles"}
+
 
 
 @router.get("/{cleaner_id}/reviews")
@@ -305,3 +536,4 @@ async def get_cleaner_reviews(
         "page": page,
         "limit": limit,
     }
+

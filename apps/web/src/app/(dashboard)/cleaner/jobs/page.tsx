@@ -1,7 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
-import { useSession } from 'next-auth/react'
+import { useState, useMemo } from 'react'
 import Link from 'next/link'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -19,6 +18,9 @@ import {
     Filter,
     Loader2,
 } from 'lucide-react'
+import { useJobs } from '@/hooks/use-api'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { apiFetch } from '@/lib/auth/api-client'
 
 type JobStatus = 'pending' | 'confirmed' | 'in_progress' | 'completed' | 'cancelled'
 
@@ -81,75 +83,38 @@ interface DisplayJob {
 }
 
 export default function CleanerJobsPage() {
-    const { data: session } = useSession()
     const [filter, setFilter] = useState<'all' | 'pending' | 'upcoming' | 'past'>('all')
-    const [jobs, setJobs] = useState<DisplayJob[]>([])
-    const [loading, setLoading] = useState(true)
-    const [error, setError] = useState<string | null>(null)
     const [actionLoading, setActionLoading] = useState<string | null>(null)
 
-    const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+    const { data: rawJobs, isLoading: loading, error } = useJobs()
+    const queryClient = useQueryClient()
 
-    useEffect(() => {
-        const token = (session as any)?.accessToken
-        if (!token) {
-            setLoading(false)
-            return
-        }
-
-        async function fetchJobs() {
-            try {
-                setError(null)
-                const res = await fetch(`${API_URL}/api/v1/jobs/`, {
-                    headers: {
-                        Authorization: `Bearer ${(session as any)?.accessToken}`,
-                    },
+    const jobs: DisplayJob[] = useMemo(() => {
+        const data: ApiJob[] = Array.isArray(rawJobs) ? rawJobs : (rawJobs as any)?.jobs || []
+        return data.map((job) => {
+            const scheduledDate = job.scheduled_date
+                ? new Date(job.scheduled_date).toLocaleDateString('en-US', {
+                    month: 'short', day: 'numeric', year: 'numeric',
                 })
-
-                if (!res.ok) {
-                    throw new Error(`Failed to load jobs (${res.status})`)
-                }
-
-                const data: ApiJob[] = await res.json()
-
-                const mapped: DisplayJob[] = data.map((job) => {
-                    const scheduledDate = job.scheduled_date
-                        ? new Date(job.scheduled_date).toLocaleDateString('en-US', {
-                            month: 'short',
-                            day: 'numeric',
-                            year: 'numeric',
-                        })
-                        : 'TBD'
-
-                    const normalizedStatus = (job.status?.toLowerCase().replace(/ /g, '_') || 'pending') as JobStatus
-
-                    return {
-                        id: job.id,
-                        client: { name: job.client_name || 'Client', rating: 0 },
-                        property: {
-                            name: job.property_name || job.property?.name || job.title || 'Cleaning Job',
-                            address: job.property_address || job.property?.address || job.description || '',
-                            sqFt: 0,
-                        },
-                        services: job.services || [],
-                        date: scheduledDate,
-                        time: job.scheduled_time || 'TBD',
-                        price: job.total_price || 0,
-                        status: normalizedStatus,
-                        isUrgent: normalizedStatus === 'pending',
-                    }
-                })
-
-                setJobs(mapped)
-            } catch (err) {
-                console.error('Failed to fetch jobs:', err)
-                setError(err instanceof Error ? err.message : 'Failed to load jobs')
-            } finally {
-                setLoading(false)
+                : 'TBD'
+            const normalizedStatus = (job.status?.toLowerCase().replace(/ /g, '_') || 'pending') as JobStatus
+            return {
+                id: job.id,
+                client: { name: job.client_name || 'Client', rating: 0 },
+                property: {
+                    name: job.property_name || job.property?.name || job.title || 'Cleaning Job',
+                    address: job.property_address || job.property?.address || job.description || '',
+                    sqFt: 0,
+                },
+                services: job.services || [],
+                date: scheduledDate,
+                time: job.scheduled_time || 'TBD',
+                price: job.total_price || 0,
+                status: normalizedStatus,
+                isUrgent: normalizedStatus === 'pending',
             }
-        }
-        fetchJobs()
-    }, [API_URL, session])
+        })
+    }, [rawJobs])
 
     const filteredJobs = jobs.filter((job) => {
         if (filter === 'all') return true
@@ -161,42 +126,21 @@ export default function CleanerJobsPage() {
 
     const pendingCount = jobs.filter((j) => j.status === 'pending').length
 
-    const handleJobAction = useCallback(async (jobId: string, action: 'accept' | 'decline' | 'start' | 'complete') => {
-        const token = (session as any)?.accessToken
-        if (!token) return
+    const actionMut = useMutation({
+        mutationFn: ({ jobId, action }: { jobId: string; action: string }) =>
+            apiFetch(`/api/v1/jobs/${jobId}/${action}`, { method: 'POST' }),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['jobs'] })
+        },
+    })
 
+    const handleJobAction = (jobId: string, action: 'accept' | 'decline' | 'start' | 'complete') => {
         setActionLoading(`${jobId}-${action}`)
-        try {
-            const res = await fetch(`${API_URL}/api/v1/jobs/${jobId}/${action}`, {
-                method: 'POST',
-                headers: {
-                    Authorization: `Bearer ${token}`,
-                    'Content-Type': 'application/json',
-                },
-            })
-
-            if (!res.ok) {
-                const err = await res.json().catch(() => ({ detail: 'Action failed' }))
-                throw new Error(err.detail || `Failed to ${action} job`)
-            }
-
-            // Update local state immediately for better UX
-            const statusMap: Record<string, JobStatus> = {
-                accept: 'confirmed',
-                decline: 'pending',
-                start: 'in_progress',
-                complete: 'completed',
-            }
-            setJobs(prev => prev.map(j =>
-                j.id === jobId ? { ...j, status: statusMap[action], isUrgent: false } : j
-            ))
-        } catch (err) {
-            console.error(`Failed to ${action} job:`, err)
-            setError(err instanceof Error ? err.message : `Failed to ${action} job`)
-        } finally {
-            setActionLoading(null)
-        }
-    }, [session, API_URL])
+        actionMut.mutate(
+            { jobId, action },
+            { onSettled: () => setActionLoading(null) }
+        )
+    }
 
     if (loading) {
         return (
@@ -217,7 +161,7 @@ export default function CleanerJobsPage() {
                 <Card className="border-red-200 dark:border-red-800">
                     <CardContent className="py-8 text-center">
                         <AlertCircle className="w-10 h-10 mx-auto text-red-500 mb-3" />
-                        <p className="text-red-600 dark:text-red-400 font-medium">{error}</p>
+                        <p className="text-red-600 dark:text-red-400 font-medium">{(error as any)?.detail || 'Failed to load jobs'}</p>
                         <p className="text-sm text-muted-foreground mt-1">Please try refreshing the page</p>
                     </CardContent>
                 </Card>

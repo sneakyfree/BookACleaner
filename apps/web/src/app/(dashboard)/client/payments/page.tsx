@@ -1,7 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { useSession } from 'next-auth/react'
+import { useMemo } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import {
@@ -9,8 +8,7 @@ import {
     Loader2, AlertCircle, Download, ShieldCheck, Clock
 } from 'lucide-react'
 import Link from 'next/link'
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+import { useJobs } from '@/hooks/use-api'
 
 interface PaymentRecord {
     id: string
@@ -34,57 +32,35 @@ const statusConfig: Record<string, { label: string; color: string; bg: string; i
 }
 
 export default function ClientPaymentHistoryPage() {
-    const { data: session } = useSession()
-    const [payments, setPayments] = useState<PaymentRecord[]>([])
-    const [loading, setLoading] = useState(true)
-    const [error, setError] = useState<string | null>(null)
-    const [stats, setStats] = useState({ total: 0, escrow: 0, released: 0 })
+    const { data: rawJobs, isLoading: loading, error } = useJobs()
 
-    useEffect(() => {
-        const token = (session as any)?.accessToken
-        if (!token) { setLoading(false); return }
+    const { payments, stats } = useMemo(() => {
+        const jobs: any[] = Array.isArray(rawJobs) ? rawJobs : (rawJobs as any)?.jobs || []
 
-        async function fetchPayments() {
-            try {
-                setError(null)
-                const res = await fetch(`${API_URL}/api/v1/jobs/`, {
-                    headers: { Authorization: `Bearer ${token}` },
-                })
-                if (!res.ok) throw new Error(`Failed to load payments (${res.status})`)
-                const jobs = await res.json()
+        const paymentList: PaymentRecord[] = jobs
+            .filter((j: any) => j.total_price > 0)
+            .map((j: any) => ({
+                id: j.stripe_payment_intent_id || j.id,
+                job_id: j.id,
+                job_title: j.title || (j.services || []).join(', ') || 'Cleaning',
+                amount: j.total_price,
+                status: j.payment_status || 'pending',
+                created_at: j.created_at || j.scheduled_date,
+                cleaner_name: j.cleaner_name,
+            }))
+            .sort((a: PaymentRecord, b: PaymentRecord) =>
+                new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+            )
 
-                const paymentList: PaymentRecord[] = jobs
-                    .filter((j: any) => j.total_price > 0)
-                    .map((j: any) => ({
-                        id: j.stripe_payment_intent_id || j.id,
-                        job_id: j.id,
-                        job_title: j.title || (j.services || []).join(', ') || 'Cleaning',
-                        amount: j.total_price,
-                        status: j.payment_status || 'pending',
-                        created_at: j.created_at || j.scheduled_date,
-                        cleaner_name: j.cleaner_name,
-                    }))
-                    .sort((a: PaymentRecord, b: PaymentRecord) =>
-                        new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-                    )
+        let totalSpent = 0, escrow = 0, released = 0
+        paymentList.forEach(p => {
+            if (['held', 'captured', 'released'].includes(p.status)) totalSpent += p.amount
+            if (p.status === 'held') escrow += p.amount
+            if (p.status === 'released' || p.status === 'captured') released += p.amount
+        })
 
-                let totalSpent = 0, escrow = 0, released = 0
-                paymentList.forEach(p => {
-                    if (['held', 'captured', 'released'].includes(p.status)) totalSpent += p.amount
-                    if (p.status === 'held') escrow += p.amount
-                    if (p.status === 'released' || p.status === 'captured') released += p.amount
-                })
-
-                setPayments(paymentList)
-                setStats({ total: totalSpent, escrow, released })
-            } catch (err) {
-                setError(err instanceof Error ? err.message : 'Failed to load payments')
-            } finally {
-                setLoading(false)
-            }
-        }
-        fetchPayments()
-    }, [session])
+        return { payments: paymentList, stats: { total: totalSpent, escrow, released } }
+    }, [rawJobs])
 
     if (loading) {
         return (
@@ -111,7 +87,7 @@ export default function ClientPaymentHistoryPage() {
                 <Card className="border-red-200 dark:border-red-800">
                     <CardContent className="py-6 text-center">
                         <AlertCircle className="w-8 h-8 mx-auto text-red-500 mb-2" />
-                        <p className="text-red-600 dark:text-red-400">{error}</p>
+                        <p className="text-red-600 dark:text-red-400">{(error as any)?.detail || 'Failed to load payments'}</p>
                     </CardContent>
                 </Card>
             )}

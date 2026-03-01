@@ -1,7 +1,6 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { useSession } from 'next-auth/react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import {
@@ -9,8 +8,7 @@ import {
     Loader2, AlertCircle, File, X
 } from 'lucide-react'
 import { toast } from 'sonner'
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+import { apiFetch } from '@/lib/auth/api-client'
 
 interface UploadedFile {
     key: string
@@ -35,7 +33,6 @@ export function FileManager({
     onFileSelect,
     className = '',
 }: FileManagerProps) {
-    const { data: session } = useSession()
     const [files, setFiles] = useState<UploadedFile[]>([])
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState('')
@@ -43,36 +40,26 @@ export function FileManager({
     const [deletingKey, setDeletingKey] = useState<string | null>(null)
 
     const fetchFiles = useCallback(async () => {
-        const token = (session as any)?.accessToken
-        if (!token) return
-
         try {
             setLoading(true)
             setError('')
             const params = category ? `?category=${category}` : ''
-            const res = await fetch(`${API_URL}/api/v1/uploads/my-files${params}`, {
-                headers: { Authorization: `Bearer ${token}` },
-            })
-            if (!res.ok) throw new Error('Failed to load files')
-            const data = await res.json()
+            const data = await apiFetch(`/api/v1/uploads/my-files${params}`)
             setFiles(data.files || data || [])
         } catch (err: any) {
             setError(err.message)
         } finally {
             setLoading(false)
         }
-    }, [session, category])
+    }, [category])
 
     useEffect(() => {
-        if (session) fetchFiles()
-    }, [session, fetchFiles])
+        fetchFiles()
+    }, [fetchFiles])
 
     const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0]
         if (!file) return
-
-        const token = (session as any)?.accessToken
-        if (!token) return
 
         setUploading(true)
         try {
@@ -81,24 +68,18 @@ export function FileManager({
 
             // Use presigned upload for large files (>5MB)
             if (file.size > 5 * 1024 * 1024) {
-                // Get presigned URL
-                const presignRes = await fetch(`${API_URL}/api/v1/uploads/presigned-upload`, {
+                // Get presigned URL from our API
+                const presignData = await apiFetch('/api/v1/uploads/presigned-upload', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        Authorization: `Bearer ${token}`,
-                    },
                     body: JSON.stringify({
                         filename: file.name,
                         content_type: file.type,
                         category: category || 'general',
                     }),
                 })
-                if (!presignRes.ok) throw new Error('Failed to get upload URL')
-                const { upload_url } = await presignRes.json()
 
-                // Upload directly to presigned URL
-                const uploadRes = await fetch(upload_url, {
+                // Upload directly to S3 presigned URL (raw fetch is correct here)
+                const uploadRes = await fetch(presignData.upload_url, {
                     method: 'PUT',
                     body: file,
                     headers: { 'Content-Type': file.type },
@@ -107,12 +88,11 @@ export function FileManager({
             } else {
                 // Direct upload for smaller files
                 const cat = category || 'general'
-                const res = await fetch(`${API_URL}/api/v1/uploads/upload/${cat}`, {
+                await apiFetch(`/api/v1/uploads/upload/${cat}`, {
                     method: 'POST',
-                    headers: { Authorization: `Bearer ${token}` },
                     body: formData,
+                    headers: {},  // Let browser set Content-Type with boundary
                 })
-                if (!res.ok) throw new Error('Upload failed')
             }
 
             toast.success('File uploaded successfully')
@@ -126,16 +106,11 @@ export function FileManager({
     }
 
     const handleDelete = async (key: string) => {
-        const token = (session as any)?.accessToken
-        if (!token) return
-
         setDeletingKey(key)
         try {
-            const res = await fetch(`${API_URL}/api/v1/uploads/${encodeURIComponent(key)}`, {
+            await apiFetch(`/api/v1/uploads/${encodeURIComponent(key)}`, {
                 method: 'DELETE',
-                headers: { Authorization: `Bearer ${token}` },
             })
-            if (!res.ok) throw new Error('Failed to delete file')
             setFiles(prev => prev.filter(f => f.key !== key))
             toast.success('File deleted')
         } catch {
@@ -146,16 +121,9 @@ export function FileManager({
     }
 
     const handleDownload = async (key: string, filename: string) => {
-        const token = (session as any)?.accessToken
-        if (!token) return
-
         try {
-            const res = await fetch(`${API_URL}/api/v1/uploads/presigned/${encodeURIComponent(key)}`, {
-                headers: { Authorization: `Bearer ${token}` },
-            })
-            if (!res.ok) throw new Error('Failed to get download URL')
-            const { url } = await res.json()
-            window.open(url, '_blank')
+            const data = await apiFetch(`/api/v1/uploads/presigned/${encodeURIComponent(key)}`)
+            window.open(data.url, '_blank')
         } catch {
             toast.error('Failed to download file')
         }

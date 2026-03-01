@@ -4,8 +4,7 @@
  */
 
 import { toast } from 'sonner'
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+import { apiFetch } from '@/lib/auth/api-client'
 
 let messagingInstance: any = null
 
@@ -14,7 +13,7 @@ async function getFirebaseMessaging() {
 
     try {
         const { initializeApp, getApps }: any = await import('firebase/app')
-        const { getMessaging, getToken, onMessage }: any = await import('firebase/messaging')
+        const firebaseMessaging: any = await import('firebase/messaging')
 
         const firebaseConfig = {
             apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
@@ -30,7 +29,7 @@ async function getFirebaseMessaging() {
         }
 
         const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0]
-        messagingInstance = getMessaging(app)
+        messagingInstance = firebaseMessaging.getMessaging(app)
         return messagingInstance
     } catch (err) {
         console.error('Failed to initialize Firebase:', err)
@@ -41,7 +40,7 @@ async function getFirebaseMessaging() {
 /**
  * Request notification permission and register FCM token with server.
  */
-export async function requestPushPermission(accessToken: string): Promise<boolean> {
+export async function requestPushPermission(): Promise<boolean> {
     if (!('Notification' in window)) {
         console.warn('Push notifications not supported')
         return false
@@ -65,18 +64,15 @@ export async function requestPushPermission(accessToken: string): Promise<boolea
         })
 
         if (fcmToken) {
-            // Register token with backend
-            await fetch(`${API_URL}/api/v1/notifications/register-device`, {
+            // Register token with backend via apiFetch (auth handled automatically)
+            await apiFetch('/api/v1/notifications/register-device', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    Authorization: `Bearer ${accessToken}`,
-                },
                 body: JSON.stringify({
                     fcm_token: fcmToken,
                     device_type: 'web',
                 }),
             })
+            localStorage.setItem('fcm_token', fcmToken)
             return true
         }
     } catch (err) {

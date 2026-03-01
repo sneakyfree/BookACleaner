@@ -1,17 +1,17 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { useSession } from 'next-auth/react'
+import { useState } from 'react'
 import {
     TrendingUp, TrendingDown, Users, Calendar, DollarSign, Star,
     ArrowUpRight, ArrowDownRight, BarChart3, PieChart, Activity,
-    Loader2, AlertCircle,
+    Loader2, AlertCircle, Server, Database,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { useAdminStats } from '@/hooks/use-api'
 
 /**
  * Analytics Dashboard for Admins
- * Comprehensive usage metrics — wired to GET /api/v1/admin/stats
+ * Comprehensive usage metrics — wired via useAdminStats React Query hook
  */
 
 interface PlatformStats {
@@ -34,48 +34,15 @@ interface PlatformStats {
     verifications: {
         pending: number
     }
+    background_tasks?: {
+        scheduled: { name: string; schedule: string; task: string }[]
+        cache_connected: boolean
+    }
 }
 
 export default function AnalyticsDashboard() {
-    const { data: session } = useSession()
     const [timeRange, setTimeRange] = useState<'7d' | '30d' | '90d' | '1y'>('30d')
-    const [loading, setLoading] = useState(true)
-    const [error, setError] = useState<string | null>(null)
-    const [stats, setStats] = useState<PlatformStats | null>(null)
-
-    const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
-
-    useEffect(() => {
-        const token = (session as any)?.accessToken
-        if (!token) {
-            setLoading(false)
-            return
-        }
-
-        async function fetchStats() {
-            try {
-                setError(null)
-                const res = await fetch(`${API_URL}/api/v1/admin/stats`, {
-                    headers: {
-                        Authorization: `Bearer ${(session as any)?.accessToken}`,
-                    },
-                })
-
-                if (!res.ok) {
-                    throw new Error(`Failed to load analytics (${res.status})`)
-                }
-
-                const data: PlatformStats = await res.json()
-                setStats(data)
-            } catch (err) {
-                console.error('Failed to fetch analytics:', err)
-                setError(err instanceof Error ? err.message : 'Failed to load analytics')
-            } finally {
-                setLoading(false)
-            }
-        }
-        fetchStats()
-    }, [API_URL, session])
+    const { data: stats, isLoading: loading, error } = useAdminStats(timeRange)
 
     if (loading) {
         return (
@@ -93,7 +60,7 @@ export default function AnalyticsDashboard() {
                     <h1 className="text-2xl font-bold text-white mb-4">Analytics Dashboard</h1>
                     <div className="bg-white/5 rounded-xl border border-red-500/30 p-8 text-center">
                         <AlertCircle className="w-10 h-10 mx-auto text-red-400 mb-3" />
-                        <p className="text-red-400 font-medium">{error || 'No data available'}</p>
+                        <p className="text-red-400 font-medium">{(error as any)?.detail || 'No data available'}</p>
                         <p className="text-white/40 text-sm mt-1">Please try refreshing the page</p>
                     </div>
                 </div>
@@ -268,6 +235,35 @@ export default function AnalyticsDashboard() {
                                 <span className="text-brand-400 font-bold text-lg">{stats.users.new_this_week}</span>
                             </div>
                         </div>
+
+                        {/* Background Tasks */}
+                        {stats.background_tasks && (
+                            <div className="p-4 rounded-xl bg-white/5 border border-white/10 space-y-3">
+                                <div className="flex items-center gap-2">
+                                    <Server className="w-4 h-4 text-brand-400" />
+                                    <span className="text-white/80 font-medium text-sm">Background Tasks</span>
+                                </div>
+                                <div className="flex items-center gap-3 text-xs">
+                                    <span className={`flex items-center gap-1.5 px-2 py-1 rounded-full ${stats.background_tasks.cache_connected ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
+                                        <Database className="w-3 h-3" />
+                                        Redis {stats.background_tasks.cache_connected ? 'Connected' : 'Disconnected'}
+                                    </span>
+                                    <span className="text-white/40">
+                                        {stats.background_tasks.scheduled.length} scheduled tasks
+                                    </span>
+                                </div>
+                                {stats.background_tasks.scheduled.length > 0 && (
+                                    <div className="space-y-1">
+                                        {stats.background_tasks.scheduled.map((t, i) => (
+                                            <div key={i} className="flex justify-between text-xs p-2 rounded bg-white/5">
+                                                <span className="text-white/60 truncate">{t.name}</span>
+                                                <span className="text-white/40 ml-2 flex-shrink-0">{t.schedule}</span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        )}
                     </div>
                 </div>
             </div>

@@ -1,7 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { useSession } from 'next-auth/react'
+import { useState, useRef } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -18,6 +17,8 @@ import {
     Upload,
     Loader2,
 } from 'lucide-react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { apiFetch } from '@/lib/auth/api-client'
 
 interface VerificationStatus {
     tier: number
@@ -26,8 +27,6 @@ interface VerificationStatus {
     next_tier_requirements: Array<{ type: string; label: string; completed: boolean }>
     progress_percentage: number
 }
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
 const TIER_COLORS: Record<number, string> = {
     1: 'bg-gray-500',
@@ -56,9 +55,7 @@ const VERIFICATION_ICONS: Record<string, any> = {
 }
 
 export default function VerificationPage() {
-    const { data: session } = useSession()
-    const [status, setStatus] = useState<VerificationStatus | null>(null)
-    const [loading, setLoading] = useState(true)
+    const queryClient = useQueryClient()
     const [error, setError] = useState('')
 
     // Phone verification state
@@ -71,58 +68,35 @@ export default function VerificationPage() {
 
     // Upload state
     const [uploading, setUploading] = useState<string | null>(null)
+    const fileInputRef = useRef<HTMLInputElement>(null)
+    const pendingUploadType = useRef<string | null>(null)
 
-    const fetchStatus = async () => {
-        try {
-            const token = (session as any)?.accessToken
-            if (!token) return
-
-            const res = await fetch(`${API_URL}/api/v1/verification/status`, {
-                headers: { 'Authorization': `Bearer ${token}` }
-            })
-
-            if (res.ok) {
-                const data = await res.json()
-                setStatus(data)
-            } else {
+    const { data: status, isLoading: loading } = useQuery<VerificationStatus | null>({
+        queryKey: ['verification-status'],
+        queryFn: async () => {
+            try {
+                return await apiFetch('/api/v1/verification/status')
+            } catch {
                 setError('Failed to fetch verification status')
+                return null
             }
-        } catch (err) {
-            setError('Failed to connect to server')
-        } finally {
-            setLoading(false)
-        }
-    }
+        },
+    })
 
-    useEffect(() => {
-        if (session) {
-            fetchStatus()
-        }
-    }, [session])
+    const refetchStatus = () => queryClient.invalidateQueries({ queryKey: ['verification-status'] })
 
     const sendPhoneCode = async () => {
         setPhoneSending(true)
         setPhoneMessage('')
         try {
-            const token = (session as any)?.accessToken
-            const res = await fetch(`${API_URL}/api/v1/verification/phone/send`, {
+            await apiFetch('/api/v1/verification/phone/send', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}`
-                },
-                body: JSON.stringify({ phone: phoneNumber })
+                body: JSON.stringify({ phone: phoneNumber }),
             })
-
-            if (res.ok) {
-                setPhoneStep('verify')
-                setPhoneMessage('Code sent! Check your phone.')
-            } else {
-                const data = await res.json()
-                setPhoneMessage(data.detail || 'Failed to send code')
-            }
-        } catch (err) {
-            setPhoneMessage('Failed to send code')
+            setPhoneStep('verify')
+            setPhoneMessage('Code sent! Check your phone.')
+        } catch (err: any) {
+            setPhoneMessage(err?.detail || 'Failed to send code')
         } finally {
             setPhoneSending(false)
         }
@@ -132,51 +106,50 @@ export default function VerificationPage() {
         setPhoneVerifying(true)
         setPhoneMessage('')
         try {
-            const token = (session as any)?.accessToken
-            const res = await fetch(`${API_URL}/api/v1/verification/phone/verify`, {
+            await apiFetch('/api/v1/verification/phone/verify', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}`
-                },
-                body: JSON.stringify({ code: verifyCode })
+                body: JSON.stringify({ code: verifyCode }),
             })
-
-            if (res.ok) {
-                setPhoneMessage('Phone verified!')
-                setPhoneStep('input')
-                setPhoneNumber('')
-                setVerifyCode('')
-                fetchStatus() // Refresh status
-            } else {
-                const data = await res.json()
-                setPhoneMessage(data.detail || 'Invalid code')
-            }
-        } catch (err) {
-            setPhoneMessage('Failed to verify code')
+            setPhoneMessage('Phone verified!')
+            setPhoneStep('input')
+            setPhoneNumber('')
+            setVerifyCode('')
+            refetchStatus()
+        } catch (err: any) {
+            setPhoneMessage(err?.detail || 'Invalid code')
         } finally {
             setPhoneVerifying(false)
         }
     }
 
-    const uploadDocument = async (type: string) => {
+    const uploadDocument = (type: string) => {
+        pendingUploadType.current = type
+        if (fileInputRef.current) {
+            fileInputRef.current.value = ''
+            fileInputRef.current.click()
+        }
+    }
+
+    const handleFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0]
+        const type = pendingUploadType.current
+        if (!file || !type) return
+
         setUploading(type)
         try {
-            const token = (session as any)?.accessToken
-            const res = await fetch(`${API_URL}/api/v1/verification/upload/${type}`, {
+            const fd = new FormData()
+            fd.append('file', file)
+            await apiFetch(`/api/v1/verification/upload/${type}`, {
                 method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${token}`
-                },
+                body: fd,
+                headers: {},  // Let browser set Content-Type with boundary
             })
-
-            if (res.ok) {
-                fetchStatus() // Refresh status
-            }
-        } catch (err) {
-            // Handle error
+            refetchStatus()
+        } catch {
+            setError(`Failed to upload ${type.replace('_', ' ')}`)
         } finally {
             setUploading(null)
+            pendingUploadType.current = null
         }
     }
 
@@ -200,6 +173,14 @@ export default function VerificationPage() {
 
     return (
         <div className="max-w-4xl mx-auto space-y-8">
+            {/* Hidden file input for document uploads */}
+            <input
+                type="file"
+                ref={fileInputRef}
+                className="hidden"
+                accept=".pdf,.jpg,.jpeg,.png,.webp,.doc,.docx"
+                onChange={handleFileSelected}
+            />
             <div>
                 <h1 className="text-2xl font-bold">Verification Center</h1>
                 <p className="text-muted-foreground mt-1">
@@ -425,16 +406,16 @@ export default function VerificationPage() {
                         <div className="flex items-center justify-between">
                             <div className="flex items-center gap-3">
                                 <div className={`w-10 h-10 rounded-full flex items-center justify-center ${verifications.background_check?.status === 'verified'
-                                        ? 'bg-green-100'
-                                        : verifications.background_check?.status === 'pending'
-                                            ? 'bg-blue-100'
-                                            : 'bg-slate-100'
+                                    ? 'bg-green-100'
+                                    : verifications.background_check?.status === 'pending'
+                                        ? 'bg-blue-100'
+                                        : 'bg-slate-100'
                                     }`}>
                                     <Shield className={`w-5 h-5 ${verifications.background_check?.status === 'verified'
-                                            ? 'text-green-600'
-                                            : verifications.background_check?.status === 'pending'
-                                                ? 'text-blue-600'
-                                                : 'text-slate-500'
+                                        ? 'text-green-600'
+                                        : verifications.background_check?.status === 'pending'
+                                            ? 'text-blue-600'
+                                            : 'text-slate-500'
                                         }`} />
                                 </div>
                                 <div>

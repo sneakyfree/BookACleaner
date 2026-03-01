@@ -1,7 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { useSession } from 'next-auth/react'
+import { useState, useMemo } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import {
@@ -14,8 +13,8 @@ import {
     ArrowRight,
 } from 'lucide-react'
 import Link from 'next/link'
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+import { useQuery } from '@tanstack/react-query'
+import { apiFetch } from '@/lib/auth/api-client'
 
 interface ScheduleGap {
     start: string
@@ -31,45 +30,19 @@ interface ScheduleGap {
 }
 
 export default function ScheduleGapsPage() {
-    const { data: session } = useSession()
-    const [gaps, setGaps] = useState<ScheduleGap[]>([])
-    const [loading, setLoading] = useState(true)
-    const [error, setError] = useState<string | null>(null)
     const [selectedDate, setSelectedDate] = useState(
         new Date().toISOString().split('T')[0]
     )
 
-    useEffect(() => {
-        const token = (session as any)?.accessToken
-        if (!token) {
-            setLoading(false)
-            return
-        }
-        fetchGaps(token)
-    }, [session, selectedDate])
+    const { data: rawData, isLoading: loading, error } = useQuery({
+        queryKey: ['schedule-gaps', selectedDate],
+        queryFn: () => apiFetch(`/api/v1/route/gaps?date=${selectedDate}`),
+    })
 
-    const fetchGaps = async (token: string) => {
-        try {
-            setLoading(true)
-            setError(null)
-            const res = await fetch(
-                `${API_URL}/api/v1/route/gaps?date=${selectedDate}`,
-                {
-                    headers: { Authorization: `Bearer ${token}` },
-                }
-            )
-            if (!res.ok) throw new Error(`Failed to fetch gaps (${res.status})`)
-            const data = await res.json()
-            setGaps(data.gaps || data || [])
-        } catch (err) {
-            console.error('Failed to fetch schedule gaps:', err)
-            setError(
-                err instanceof Error ? err.message : 'Failed to load schedule gaps'
-            )
-        } finally {
-            setLoading(false)
-        }
-    }
+    const gaps: ScheduleGap[] = useMemo(() => {
+        const d = rawData as any
+        return d?.gaps || (Array.isArray(d) ? d : [])
+    }, [rawData])
 
     const formatTime = (iso: string) => {
         try {
@@ -111,15 +84,12 @@ export default function ScheduleGapsPage() {
                 <Card className="border-red-200 dark:border-red-500/30">
                     <CardContent className="py-6 text-center">
                         <AlertCircle className="w-8 h-8 mx-auto mb-2 text-red-500" />
-                        <p className="text-sm text-red-600">{error}</p>
+                        <p className="text-sm text-red-600">{(error as any)?.detail || 'Failed to load schedule gaps'}</p>
                         <Button
                             variant="outline"
                             size="sm"
                             className="mt-3"
-                            onClick={() => {
-                                const token = (session as any)?.accessToken
-                                if (token) fetchGaps(token)
-                            }}
+                            onClick={() => window.location.reload()}
                         >
                             Retry
                         </Button>

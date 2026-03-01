@@ -7,7 +7,7 @@ from datetime import datetime
 from typing import Optional, List
 from sqlalchemy import (
     Column, String, Text, Integer, Float, Boolean, DateTime, 
-    ForeignKey, Enum, JSON, create_engine
+    ForeignKey, Enum, JSON, Numeric, UniqueConstraint, create_engine
 )
 from sqlalchemy.orm import declarative_base, relationship
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
@@ -164,6 +164,9 @@ class CleanerProfile(Base):
     user = relationship("User", back_populates="cleaner_profile")
     jobs = relationship("Job", back_populates="cleaner")
     certifications = relationship("Certification", back_populates="cleaner")
+    availability = relationship("Availability", back_populates="cleaner", cascade="all, delete-orphan")
+    portfolio_photos = relationship("PortfolioPhoto", back_populates="cleaner", cascade="all, delete-orphan")
+    cleaner_services = relationship("CleanerService", back_populates="cleaner", cascade="all, delete-orphan")
 
 
 class ClientProfile(Base):
@@ -226,6 +229,7 @@ class Property(Base):
     # Relationships
     client = relationship("ClientProfile", back_populates="properties")
     jobs = relationship("Job", back_populates="property")
+    playbook = relationship("PropertyPlaybook", back_populates="property", uselist=False, cascade="all, delete-orphan")
 
 
 class Job(Base):
@@ -626,3 +630,117 @@ class ServiceAgreement(Base):
     # Relationships
     job = relationship("Job")
     user = relationship("User")
+
+
+# ==================== DNA STRAND GAP MODELS ====================
+
+class Availability(Base):
+    """Cleaner weekly availability schedule"""
+    __tablename__ = "availability"
+    __table_args__ = (UniqueConstraint('cleaner_id', 'day_of_week', name='uq_availability_cleaner_day'),)
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    cleaner_id = Column(String(36), ForeignKey("cleaner_profiles.id"), nullable=False)
+    day_of_week = Column(Integer, nullable=False)  # 0=Mon, 6=Sun
+    start_time = Column(String(5), nullable=False)  # "08:00"
+    end_time = Column(String(5), nullable=False)    # "17:00"
+    is_available = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    cleaner = relationship("CleanerProfile", back_populates="availability")
+
+
+class PortfolioPhoto(Base):
+    """Cleaner portfolio/gallery images"""
+    __tablename__ = "portfolio_photos"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    cleaner_id = Column(String(36), ForeignKey("cleaner_profiles.id"), nullable=False)
+    url = Column(String(500), nullable=False)
+    caption = Column(String(255), nullable=True)
+    display_order = Column(Integer, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    cleaner = relationship("CleanerProfile", back_populates="portfolio_photos")
+
+
+class PropertyPlaybook(Base):
+    """Per-property cleaning instructions and preferences"""
+    __tablename__ = "property_playbooks"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    property_id = Column(String(36), ForeignKey("properties.id"), unique=True, nullable=False)
+    host_preferences = Column(JSON, default=dict)   # {"no_shoes": true, ...}
+    quirks = Column(JSON, default=list)              # ["Doorbell doesn't work", ...]
+    cleaner_notes = Column(JSON, default=list)       # ["Leave keys under mat", ...]
+    checklist = Column(JSON, default=list)           # [{"task": "...", "required": true}, ...]
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    property = relationship("Property", back_populates="playbook")
+
+
+class ServiceCategory(Base):
+    """Cleaning service categories (7-tier system)"""
+    __tablename__ = "service_categories"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    name = Column(String(100), unique=True, nullable=False)
+    tier = Column(Integer, nullable=False)  # 1-7
+    description = Column(Text, nullable=True)
+    icon = Column(String(100), nullable=True)  # emoji or icon name
+    requires_cert = Column(Boolean, default=False)
+    required_certs = Column(JSON, default=list)  # ["iicrc", "epa"]
+    display_order = Column(Integer, default=0)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    services = relationship("Service", back_populates="category", cascade="all, delete-orphan")
+
+
+class Service(Base):
+    """Individual cleaning services within a category"""
+    __tablename__ = "services"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    category_id = Column(String(36), ForeignKey("service_categories.id"), nullable=False)
+    name = Column(String(100), nullable=False)
+    description = Column(Text, nullable=True)
+    pricing_model = Column(String(20), default="flat")  # flat, per_sqft, per_hour
+    base_price = Column(Numeric(10, 2), default=0)
+    price_per_sqft = Column(Numeric(10, 4), nullable=True)
+    price_per_hour = Column(Numeric(10, 2), nullable=True)
+    estimated_minutes = Column(Integer, nullable=True)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    category = relationship("ServiceCategory", back_populates="services")
+    cleaner_services = relationship("CleanerService", back_populates="service")
+
+
+class CleanerService(Base):
+    """Junction table: which services a cleaner offers"""
+    __tablename__ = "cleaner_services"
+    __table_args__ = (UniqueConstraint('cleaner_id', 'service_id', name='uq_cleaner_service'),)
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    cleaner_id = Column(String(36), ForeignKey("cleaner_profiles.id"), nullable=False)
+    service_id = Column(String(36), ForeignKey("services.id"), nullable=False)
+    custom_price = Column(Numeric(10, 2), nullable=True)  # override default price
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    cleaner = relationship("CleanerProfile", back_populates="cleaner_services")
+    service = relationship("Service", back_populates="cleaner_services")
+
+
+class FeedLike(Base):
+    """Tracks user likes on feed items"""
+    __tablename__ = "feed_likes"
+    __table_args__ = (UniqueConstraint('item_id', 'user_id', name='uq_feed_like'),)
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    item_id = Column(String(36), ForeignKey("feed_items.id"), nullable=False)
+    user_id = Column(String(36), ForeignKey("users.id"), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)

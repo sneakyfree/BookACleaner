@@ -1,13 +1,13 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useMemo } from 'react'
 import { useSession } from 'next-auth/react'
 import {
     MapPin, TrendingUp, Zap, Clock, ArrowRight, Loader2, AlertCircle, Navigation
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+import { useQuery, useMutation } from '@tanstack/react-query'
+import { apiFetch } from '@/lib/auth/api-client'
 
 interface RouteStop {
     job_id: string
@@ -37,67 +37,39 @@ interface Job {
 
 export default function CleanerRoutesPage() {
     const { data: session } = useSession()
-    const [jobs, setJobs] = useState<Job[]>([])
     const [routeResult, setRouteResult] = useState<RouteResult | null>(null)
-    const [loading, setLoading] = useState(true)
     const [error, setError] = useState('')
-    const [isOptimizing, setIsOptimizing] = useState(false)
 
-    const fetchJobs = useCallback(async () => {
-        const token = (session as any)?.accessToken
-        if (!token) return
+    const { data: rawJobs, isLoading: loading } = useQuery({
+        queryKey: ['route-jobs'],
+        queryFn: () => apiFetch('/api/v1/jobs/?status=confirmed'),
+    })
 
-        try {
-            setLoading(true)
-            setError('')
-            const res = await fetch(`${API_URL}/api/v1/jobs/?status=confirmed`, {
-                headers: { Authorization: `Bearer ${token}` },
-            })
-            if (!res.ok) throw new Error(`Failed to load jobs (${res.status})`)
-            const data = await res.json()
-            const jobsList = data.jobs || data || []
-            // Filter to today's jobs
-            const today = new Date().toISOString().split('T')[0]
-            const todayJobs = jobsList.filter((j: Job) => {
-                const sd = j.scheduled_date
-                return sd && String(sd).substring(0, 10) === today
-            })
-            setJobs(todayJobs.length > 0 ? todayJobs : jobsList.slice(0, 10))
-        } catch (err: any) {
-            setError(err.message || 'Failed to load jobs')
-        } finally {
-            setLoading(false)
-        }
-    }, [session])
+    const jobs: Job[] = useMemo(() => {
+        const jobsList = (rawJobs as any)?.jobs || rawJobs || []
+        const list = Array.isArray(jobsList) ? jobsList : []
+        const today = new Date().toISOString().split('T')[0]
+        const todayJobs = list.filter((j: Job) => {
+            const sd = j.scheduled_date
+            return sd && String(sd).substring(0, 10) === today
+        })
+        return todayJobs.length > 0 ? todayJobs : list.slice(0, 10)
+    }, [rawJobs])
 
-    useEffect(() => {
-        if (session) fetchJobs()
-    }, [session, fetchJobs])
+    const optimizeMut = useMutation({
+        mutationFn: () => apiFetch('/api/v1/route/optimize', {
+            method: 'POST',
+            body: JSON.stringify({ date: new Date().toISOString().split('T')[0] }),
+        }),
+        onSuccess: (data: any) => setRouteResult(data),
+        onError: (err: any) => setError(err?.detail || 'Route optimization failed'),
+    })
 
-    const handleOptimize = async () => {
-        const token = (session as any)?.accessToken
-        if (!token) return
-
-        try {
-            setIsOptimizing(true)
-            setError('')
-            const res = await fetch(`${API_URL}/api/v1/route/optimize`, {
-                method: 'POST',
-                headers: {
-                    Authorization: `Bearer ${token}`,
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ date: new Date().toISOString().split('T')[0] }),
-            })
-            if (!res.ok) throw new Error(`Route optimization failed (${res.status})`)
-            const data = await res.json()
-            setRouteResult(data)
-        } catch (err: any) {
-            setError(err.message || 'Route optimization failed')
-        } finally {
-            setIsOptimizing(false)
-        }
+    const handleOptimize = () => {
+        setError('')
+        optimizeMut.mutate()
     }
+    const isOptimizing = optimizeMut.isPending
 
     const displayRoute = routeResult?.route || []
 

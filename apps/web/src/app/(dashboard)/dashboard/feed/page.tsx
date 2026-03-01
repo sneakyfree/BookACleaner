@@ -1,13 +1,12 @@
 'use client'
 
-import { useState, useEffect, useCallback, useRef } from 'react'
-import { useSession } from 'next-auth/react'
+import { useState, useEffect, useRef } from 'react'
 import {
     Newspaper, Heart, Pin, Clock, ExternalLink, Sparkles, Loader2, AlertCircle, Share2
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+import { useFeed, useLikeFeedItem } from '@/hooks/use-api'
+import { apiFetch } from '@/lib/auth/api-client'
 
 interface FeedItem {
     id: string
@@ -35,64 +34,30 @@ const typeColors: Record<string, string> = {
 }
 
 export default function FeedPage() {
-    const { data: session } = useSession()
-    const [feed, setFeed] = useState<FeedItem[]>([])
-    const [loading, setLoading] = useState(true)
-    const [error, setError] = useState('')
     const [audienceFilter, setAudienceFilter] = useState<string>('all')
     const [likedIds, setLikedIds] = useState<Set<string>>(new Set())
     const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set())
 
-    const fetchFeed = useCallback(async () => {
-        try {
-            setLoading(true)
-            setError('')
-            const params = new URLSearchParams()
-            if (audienceFilter !== 'all') params.set('role', audienceFilter)
+    const { data: rawData, isLoading: loading, error, refetch } = useFeed()
+    const likeMut = useLikeFeedItem()
 
-            const res = await fetch(`${API_URL}/api/v1/feed?${params}`)
-            if (!res.ok) throw new Error(`Failed to load feed (${res.status})`)
-            const data = await res.json()
-            setFeed(data.items || [])
-        } catch (err: any) {
-            setError(err.message || 'Failed to load feed')
-        } finally {
-            setLoading(false)
-        }
-    }, [audienceFilter])
-
-    useEffect(() => {
-        fetchFeed()
-    }, [fetchFeed])
+    const feed: FeedItem[] = rawData?.items || rawData || []
 
     // Track view (with dedup)
     const viewedRef = useRef<Set<string>>(new Set())
     useEffect(() => {
-        const token = (session as any)?.accessToken
         feed.forEach(item => {
             if (viewedRef.current.has(item.id)) return
             viewedRef.current.add(item.id)
-            fetch(`${API_URL}/api/v1/feed/${item.id}/view`, {
+            apiFetch(`/api/v1/feed/${item.id}/view`, {
                 method: 'POST',
-                headers: token ? { Authorization: `Bearer ${token}` } : {},
             }).catch(() => { })
         })
-    }, [feed, session])
+    }, [feed])
 
-    const toggleLike = async (id: string) => {
-        const token = (session as any)?.accessToken
-        if (!token) return
-
-        try {
-            const res = await fetch(`${API_URL}/api/v1/feed/${id}/like`, {
-                method: 'POST',
-                headers: { Authorization: `Bearer ${token}` },
-            })
-            if (!res.ok) return
-            const data = await res.json()
-            setLikedIds(prev => new Set(prev).add(id))
-            setFeed(prev => prev.map(item => item.id === id ? { ...item, likes: data.likes } : item))
-        } catch { /* ignore like errors */ }
+    const toggleLike = (id: string) => {
+        setLikedIds(prev => new Set(prev).add(id))
+        likeMut.mutate(id)
     }
 
     const formatDate = (dateStr?: string) => {
@@ -132,8 +97,8 @@ export default function FeedPage() {
                 {error && (
                     <div className="mb-6 p-4 bg-red-500/10 border border-red-500/30 rounded-lg flex items-center gap-3">
                         <AlertCircle className="w-5 h-5 text-red-400 shrink-0" />
-                        <p className="text-red-300 text-sm">{error}</p>
-                        <button onClick={fetchFeed} className="ml-auto text-red-400 hover:text-red-300 text-sm font-medium">Retry</button>
+                        <p className="text-red-300 text-sm">{(error as any)?.detail || 'Failed to load feed'}</p>
+                        <button onClick={() => refetch()} className="ml-auto text-red-400 hover:text-red-300 text-sm font-medium">Retry</button>
                     </div>
                 )}
 

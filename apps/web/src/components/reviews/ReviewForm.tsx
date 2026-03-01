@@ -1,12 +1,10 @@
 'use client'
 
 import { useState } from 'react'
-import { useSession } from 'next-auth/react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Star, Loader2, Camera, X, Eye } from 'lucide-react'
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+import { apiFetch } from '@/lib/auth/api-client'
 
 const RATING_CATEGORIES = [
     { key: 'overall_rating', label: 'Overall' },
@@ -27,7 +25,6 @@ interface ReviewFormProps {
 }
 
 export function ReviewForm({ jobId, onSuccess, onCancel }: ReviewFormProps) {
-    const { data: session } = useSession()
     const [ratings, setRatings] = useState<Record<string, number>>({})
     const [hoveredStar, setHoveredStar] = useState<Record<string, number>>({})
     const [text, setText] = useState('')
@@ -55,13 +52,8 @@ export function ReviewForm({ jobId, onSuccess, onCancel }: ReviewFormProps) {
         setError(null)
 
         try {
-            const token = (session as any)?.accessToken
-            const res = await fetch(`${API_URL}/api/v1/reviews/`, {
+            await apiFetch('/api/v1/reviews/', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    Authorization: `Bearer ${token}`,
-                },
                 body: JSON.stringify({
                     job_id: jobId,
                     overall_rating: ratings.overall_rating,
@@ -73,11 +65,6 @@ export function ReviewForm({ jobId, onSuccess, onCancel }: ReviewFormProps) {
                     photos: [],
                 }),
             })
-
-            if (!res.ok) {
-                const err = await res.json().catch(() => ({ detail: 'Failed to submit review' }))
-                throw new Error(err.detail || 'Failed to submit review')
-            }
 
             onSuccess?.()
         } catch (err) {
@@ -103,8 +90,8 @@ export function ReviewForm({ jobId, onSuccess, onCancel }: ReviewFormProps) {
                     >
                         <Star
                             className={`w-6 h-6 transition-colors ${star <= (hovered || rating)
-                                    ? 'fill-amber-400 text-amber-400'
-                                    : 'text-gray-300 dark:text-gray-600'
+                                ? 'fill-amber-400 text-amber-400'
+                                : 'text-gray-300 dark:text-gray-600'
                                 }`}
                         />
                     </button>
@@ -127,8 +114,8 @@ export function ReviewForm({ jobId, onSuccess, onCancel }: ReviewFormProps) {
                             <Star
                                 key={star}
                                 className={`w-5 h-5 ${star <= (ratings.overall_rating || 0)
-                                        ? 'fill-amber-400 text-amber-400'
-                                        : 'text-gray-300'
+                                    ? 'fill-amber-400 text-amber-400'
+                                    : 'text-gray-300'
                                     }`}
                             />
                         ))}
@@ -219,8 +206,8 @@ export function ReviewForm({ jobId, onSuccess, onCancel }: ReviewFormProps) {
                                 type="button"
                                 onClick={() => toggleTag(tag)}
                                 className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all ${selectedTags.includes(tag)
-                                        ? 'bg-brand-500 text-white shadow-sm'
-                                        : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'
+                                    ? 'bg-brand-500 text-white shadow-sm'
+                                    : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'
                                     }`}
                             >
                                 {tag}

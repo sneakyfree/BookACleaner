@@ -1,12 +1,11 @@
 'use client'
 
-import { useState } from 'react'
-import { useSession } from 'next-auth/react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import { useParams } from 'next/navigation'
 import { Book, Save, Plus, Trash2, CheckCircle2, ChevronDown, Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+import { apiFetch } from '@/lib/auth/api-client'
+import { useQuery } from '@tanstack/react-query'
 
 /**
  * Property Playbook Editor — G6
@@ -20,25 +19,46 @@ interface PlaybookSection {
 }
 
 const defaultSections: PlaybookSection[] = [
-    { id: 's1', title: 'Access Instructions', content: 'Lockbox code: 4521. Located on the front door handle. Please lock up when finished.' },
-    { id: 's2', title: 'Pet Information', content: 'One friendly golden retriever named Max. He stays in the backyard during cleanings.' },
-    { id: 's3', title: 'Special Cleaning Areas', content: 'Pay extra attention to the master bathroom and kitchen counters. Guest bedroom only needs basic dusting.' },
-    { id: 's4', title: 'Supply Notes', content: 'Cleaning supplies are under the kitchen sink. Please use the eco-friendly products only.' },
-    { id: 's5', title: 'Airbnb Turnover Checklist', content: '1. Strip and remake all beds with fresh linens (hall closet)\n2. Set thermostat to 72°F\n3. Place welcome basket on counter\n4. Turn on porch light' },
+    { id: 's1', title: 'Access Instructions', content: '' },
+    { id: 's2', title: 'Pet Information', content: '' },
+    { id: 's3', title: 'Special Cleaning Areas', content: '' },
+    { id: 's4', title: 'Supply Notes', content: '' },
+    { id: 's5', title: 'Airbnb Turnover Checklist', content: '' },
 ]
 
 export default function PropertyPlaybookPage() {
-    const { data: session } = useSession()
     const params = useParams()
     const propertyId = params?.id as string
-    const [sections, setSections] = useState(defaultSections)
+    const [sections, setSections] = useState<PlaybookSection[]>(defaultSections)
     const [saved, setSaved] = useState(false)
     const [saving, setSaving] = useState(false)
     const [error, setError] = useState<string | null>(null)
+    const autoSaveTimer = useRef<NodeJS.Timeout | null>(null)
+    const initialized = useRef(false)
+
+    // Load playbook from API
+    const { data: playbookData } = useQuery({
+        queryKey: ['playbook', propertyId],
+        queryFn: () => apiFetch(`/api/v1/properties/${propertyId}/playbook`),
+        enabled: !!propertyId,
+    })
+
+    // Initialize sections from API data
+    useEffect(() => {
+        if (playbookData && !initialized.current) {
+            initialized.current = true
+            if (playbookData.sections && playbookData.sections.length > 0) {
+                setSections(playbookData.sections)
+            }
+        }
+    }, [playbookData])
 
     const updateSection = (id: string, field: 'title' | 'content', value: string) => {
         setSections(prev => prev.map(s => s.id === id ? { ...s, [field]: value } : s))
         setSaved(false)
+        // Debounced auto-save
+        if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current)
+        autoSaveTimer.current = setTimeout(() => { doSave() }, 800)
     }
 
     const addSection = () => {
@@ -49,22 +69,19 @@ export default function PropertyPlaybookPage() {
     const removeSection = (id: string) => {
         setSections(prev => prev.filter(s => s.id !== id))
         setSaved(false)
+        // Auto-save after removal
+        if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current)
+        autoSaveTimer.current = setTimeout(() => { doSave() }, 800)
     }
 
-    const handleSave = async () => {
+    const doSave = useCallback(async () => {
         setSaving(true)
         setError(null)
         try {
-            const token = (session as any)?.accessToken
-            const res = await fetch(`${API_URL}/api/v1/properties/${propertyId}/playbook`, {
+            await apiFetch(`/api/v1/properties/${propertyId}/playbook`, {
                 method: 'PUT',
-                headers: {
-                    'Content-Type': 'application/json',
-                    Authorization: `Bearer ${token}`,
-                },
                 body: JSON.stringify({ sections }),
             })
-            if (!res.ok) throw new Error(`Failed to save playbook (${res.status})`)
             setSaved(true)
             setTimeout(() => setSaved(false), 2000)
         } catch (err) {
@@ -72,6 +89,11 @@ export default function PropertyPlaybookPage() {
         } finally {
             setSaving(false)
         }
+    }, [propertyId, sections])
+
+    const handleSave = () => {
+        if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current)
+        doSave()
     }
 
     return (

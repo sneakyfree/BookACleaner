@@ -1,7 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { useSession } from 'next-auth/react'
+import { useState, useMemo } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import {
@@ -13,8 +12,8 @@ import {
     ChevronDown,
     ChevronUp,
 } from 'lucide-react'
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+import { useQuery } from '@tanstack/react-query'
+import { apiFetch } from '@/lib/auth/api-client'
 
 interface Agreement {
     id: string
@@ -29,33 +28,17 @@ interface Agreement {
 }
 
 export default function ClientAgreementsPage() {
-    const { data: session } = useSession()
-    const [agreements, setAgreements] = useState<Agreement[]>([])
-    const [loading, setLoading] = useState(true)
-    const [error, setError] = useState<string | null>(null)
     const [expandedId, setExpandedId] = useState<string | null>(null)
 
-    useEffect(() => {
-        const token = (session as any)?.accessToken
-        if (!token) { setLoading(false); return }
+    const { data: rawData, isLoading: loading, error } = useQuery({
+        queryKey: ['my-agreements'],
+        queryFn: () => apiFetch('/api/v1/agreements/my'),
+    })
 
-        async function fetchAgreements() {
-            try {
-                const res = await fetch(`${API_URL}/api/v1/agreements/my`, {
-                    headers: { Authorization: `Bearer ${token}` },
-                })
-                if (!res.ok) throw new Error(`Failed to load agreements (${res.status})`)
-                const data = await res.json()
-                setAgreements(data.agreements || [])
-            } catch (err) {
-                setError(err instanceof Error ? err.message : 'Failed to load agreements')
-            } finally {
-                setLoading(false)
-            }
-        }
-
-        fetchAgreements()
-    }, [session])
+    const agreements: Agreement[] = useMemo(() => {
+        const d = rawData as any
+        return d?.agreements || (Array.isArray(d) ? d : [])
+    }, [rawData])
 
     if (loading) {
         return (
@@ -70,7 +53,7 @@ export default function ClientAgreementsPage() {
             <Card>
                 <CardContent className="py-12 text-center">
                     <AlertCircle className="w-12 h-12 mx-auto text-red-500 mb-4" />
-                    <p className="text-lg font-medium text-red-600">{error}</p>
+                    <p className="text-lg font-medium text-red-600">{(error as any)?.message || 'Failed to load agreements'}</p>
                     <Button className="mt-4" onClick={() => window.location.reload()}>Try Again</Button>
                 </CardContent>
             </Card>

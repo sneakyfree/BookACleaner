@@ -1,7 +1,6 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useSession } from 'next-auth/react'
 import { useRouter } from 'next/navigation'
 import { loadStripe } from '@stripe/stripe-js'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -11,8 +10,9 @@ import {
     Home, Calendar, Clock, CheckCircle, ArrowRight, ArrowLeft,
     Loader2, Sparkles, Star, DollarSign
 } from 'lucide-react'
+import { useQuery } from '@tanstack/react-query'
+import { apiFetch } from '@/lib/auth/api-client'
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY || '')
 
 const SERVICES = [
@@ -46,7 +46,6 @@ interface Estimate {
 }
 
 export default function BookingWizardPage() {
-    const { data: session } = useSession()
     const router = useRouter()
 
     const [step, setStep] = useState(1)
@@ -54,9 +53,7 @@ export default function BookingWizardPage() {
     const [error, setError] = useState('')
 
     // Step 1: Property
-    const [properties, setProperties] = useState<Property[]>([])
     const [selectedProperty, setSelectedProperty] = useState<string>('')
-    const [loadingProperties, setLoadingProperties] = useState(true)
 
     // Step 2: Service
     const [selectedServices, setSelectedServices] = useState<string[]>([])
@@ -80,38 +77,18 @@ export default function BookingWizardPage() {
     const [contradictions, setContradictions] = useState<string[]>([])
     const [validating, setValidating] = useState(false)
 
-    // Fetch properties
-    useEffect(() => {
-        const fetchProperties = async () => {
-            try {
-                const token = (session as any)?.accessToken
-                if (!token) return
-
-                const res = await fetch(`${API_URL}/api/v1/properties`, {
-                    headers: { 'Authorization': `Bearer ${token}` }
-                })
-
-                if (res.ok) {
-                    const data = await res.json()
-                    setProperties(data)
-                }
-            } catch (err) {
-                console.error('Failed to fetch properties')
-            } finally {
-                setLoadingProperties(false)
-            }
-        }
-
-        if (session) fetchProperties()
-    }, [session])
+    // Fetch properties via React Query
+    const { data: properties = [], isLoading: loadingProperties } = useQuery<Property[]>({
+        queryKey: ['properties-for-booking'],
+        queryFn: () => apiFetch('/api/v1/properties'),
+    })
 
     // Fetch agreement template when reaching confirm step
     useEffect(() => {
         if (step !== 4 || agreementText) return
         setLoadingAgreement(true)
-        fetch(`${API_URL}/api/v1/agreements/templates/service`)
-            .then(res => res.ok ? res.json() : null)
-            .then(data => { if (data?.content) setAgreementText(data.content) })
+        apiFetch('/api/v1/agreements/templates/service')
+            .then((data: any) => { if (data?.content) setAgreementText(data.content) })
             .catch(() => { })
             .finally(() => setLoadingAgreement(false))
     }, [step, agreementText])
@@ -125,22 +102,17 @@ export default function BookingWizardPage() {
             }
 
             try {
-                const res = await fetch(`${API_URL}/api/v1/jobs/estimate`, {
+                const data = await apiFetch('/api/v1/jobs/estimate', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         property_id: selectedProperty,
                         services: selectedServices,
                         add_ons: selectedAddOns,
-                    })
+                    }),
                 })
-
-                if (res.ok) {
-                    const data = await res.json()
-                    setEstimate(data)
-                }
-            } catch (err) {
-                console.error('Failed to fetch estimate')
+                setEstimate(data)
+            } catch {
+                // Estimate unavailable
             }
         }
 
@@ -168,17 +140,11 @@ export default function BookingWizardPage() {
         setError('')
 
         try {
-            const token = (session as any)?.accessToken
-
             // Step 0: Validate for contradictions
             setValidating(true)
             try {
-                const valRes = await fetch(`${API_URL}/api/v1/explain/booking/validate`, {
+                const valData = await apiFetch('/api/v1/explain/booking/validate', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${token}`,
-                    },
                     body: JSON.stringify({
                         property_id: selectedProperty,
                         services: [...selectedServices, ...selectedAddOns],
@@ -186,19 +152,16 @@ export default function BookingWizardPage() {
                         scheduled_time: selectedTime,
                     }),
                 })
-                if (valRes.ok) {
-                    const valData = await valRes.json()
-                    const issues = valData.contradictions || valData.warnings || []
-                    const blockers = issues.filter((c: any) => c.severity === 'blocker')
-                    if (blockers.length > 0) {
-                        setContradictions(blockers.map((c: any) => c.message || c.description || String(c)))
-                        setSubmitting(false)
-                        setValidating(false)
-                        return
-                    }
-                    // Non-blocking warnings stored for display
-                    setContradictions(issues.map((c: any) => c.message || c.description || String(c)))
+                const issues = valData.contradictions || valData.warnings || []
+                const blockers = issues.filter((c: any) => c.severity === 'blocker')
+                if (blockers.length > 0) {
+                    setContradictions(blockers.map((c: any) => c.message || c.description || String(c)))
+                    setSubmitting(false)
+                    setValidating(false)
+                    return
                 }
+                // Non-blocking warnings stored for display
+                setContradictions(issues.map((c: any) => c.message || c.description || String(c)))
             } catch {
                 // Validation endpoint unavailable — proceed anyway
             } finally {
@@ -206,36 +169,26 @@ export default function BookingWizardPage() {
             }
 
             // Step 1: Create the job
-            const res = await fetch(`${API_URL}/api/v1/jobs`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}`
-                },
-                body: JSON.stringify({
-                    property_id: selectedProperty,
-                    services: [...selectedServices, ...selectedAddOns],
-                    scheduled_date: selectedDate,
-                    scheduled_time: selectedTime,
-                    description: description,
+            let job: any
+            try {
+                job = await apiFetch('/api/v1/jobs', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        property_id: selectedProperty,
+                        services: [...selectedServices, ...selectedAddOns],
+                        scheduled_date: selectedDate,
+                        scheduled_time: selectedTime,
+                        description: description,
+                    }),
                 })
-            })
-
-            if (!res.ok) {
-                const data = await res.json()
-                setError(data.detail || 'Failed to create booking')
+            } catch (err: any) {
+                setError(err?.detail || 'Failed to create booking')
                 return
             }
 
-            const job = await res.json()
-
             // Step 1.5: Record agreement acceptance
-            await fetch(`${API_URL}/api/v1/agreements/`, {
+            apiFetch('/api/v1/agreements/', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}`,
-                },
                 body: JSON.stringify({
                     job_id: job.id,
                     agreement_type: 'service',
@@ -244,27 +197,23 @@ export default function BookingWizardPage() {
 
             // Step 2: Create Stripe Payment Intent
             const amountInCents = Math.round((estimate?.total || 100) * 100)
-            const paymentRes = await fetch(`${API_URL}/api/v1/payments/create-payment-intent`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}`,
-                },
-                body: JSON.stringify({
-                    amount: amountInCents,
-                    jobId: job.id,
-                    customerId: (session as any)?.user?.id || '',
-                    capture_method: 'automatic',
-                }),
-            })
-
-            if (!paymentRes.ok) {
+            let clientSecret: string | undefined
+            try {
+                const paymentData = await apiFetch('/api/v1/payments/create-payment-intent', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        amount: amountInCents,
+                        jobId: job.id,
+                        customerId: undefined,
+                        capture_method: 'automatic',
+                    }),
+                })
+                clientSecret = paymentData.clientSecret
+            } catch {
                 // Job created but payment failed — still redirect, show warning
                 router.push(`/client/bookings/${job.id}?payment=pending`)
                 return
             }
-
-            const { clientSecret } = await paymentRes.json()
 
             // Step 3: Confirm the payment with Stripe.js
             const stripe = await stripePromise

@@ -1,19 +1,16 @@
 'use client'
 
 import { useState } from 'react'
-import { useSession } from 'next-auth/react'
 import {
     Newspaper, Plus, Send, Loader2, AlertCircle, Check
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+import { apiFetch } from '@/lib/auth/api-client'
 
 const feedTypes = ['announcement', 'tip', 'promo', 'feature', 'community', 'update']
 const roleOptions = ['client', 'cleaner']
 
 export default function AdminFeedManagerPage() {
-    const { data: session } = useSession()
     const [form, setForm] = useState({
         type: 'announcement',
         title: '',
@@ -30,19 +27,13 @@ export default function AdminFeedManagerPage() {
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault()
-        const token = (session as any)?.accessToken
-        if (!token) return
 
         try {
             setLoading(true)
             setError('')
             setSuccess('')
-            const res = await fetch(`${API_URL}/api/v1/feed`, {
+            await apiFetch('/api/v1/feed', {
                 method: 'POST',
-                headers: {
-                    Authorization: `Bearer ${token}`,
-                    'Content-Type': 'application/json',
-                },
                 body: JSON.stringify({
                     ...form,
                     image_url: form.image_url || null,
@@ -50,11 +41,10 @@ export default function AdminFeedManagerPage() {
                     cta_url: form.cta_url || null,
                 }),
             })
-            if (!res.ok) throw new Error('Failed to create feed item')
             setSuccess('Feed item published successfully!')
             setForm(prev => ({ ...prev, title: '', content: '', image_url: '', cta_text: '', cta_url: '' }))
         } catch (err: any) {
-            setError(err.message || 'Failed to create feed item')
+            setError(err?.detail || err?.message || 'Failed to create feed item')
         } finally {
             setLoading(false)
         }

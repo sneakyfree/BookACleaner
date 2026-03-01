@@ -3,6 +3,7 @@ import { Inter, Outfit } from 'next/font/google'
 import './globals.css'
 import { Providers } from './providers'
 import { AIChatWidget } from '@/components/ai-chat-widget'
+import { CookieConsent } from '@/components/cookie-consent'
 
 const inter = Inter({
     subsets: ['latin'],
@@ -81,6 +82,7 @@ export default function RootLayout({
                 <Providers>
                     {children}
                     <AIChatWidget />
+                    <CookieConsent />
                 </Providers>
             </body>
         </html>

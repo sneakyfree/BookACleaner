@@ -1,7 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { useSession } from 'next-auth/react'
+import { useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import {
@@ -16,8 +15,8 @@ import {
     TrendingUp,
     Award,
 } from 'lucide-react'
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+import { useQuery } from '@tanstack/react-query'
+import { apiFetch } from '@/lib/auth/api-client'
 
 interface PlanTier {
     id: string
@@ -90,28 +89,19 @@ const PLANS: PlanTier[] = [
 ]
 
 export default function SubscriptionPage() {
-    const { data: session } = useSession()
     const [loading, setLoading] = useState<string | null>(null)
     const [error, setError] = useState<string | null>(null)
-    const [currentPlan, setCurrentPlan] = useState('free')
 
-    // Fetch current subscription from API
-    useEffect(() => {
-        async function fetchPlan() {
-            const token = (session as any)?.accessToken
-            if (!token) return
+    const { data: subData } = useQuery({
+        queryKey: ['subscription-plan'],
+        queryFn: async () => {
             try {
-                const res = await fetch(`${API_URL}/api/v1/payments/subscription`, {
-                    headers: { Authorization: `Bearer ${token}` },
-                })
-                if (res.ok) {
-                    const data = await res.json()
-                    setCurrentPlan(data.plan_id || data.plan || data.tier || 'free')
-                }
-            } catch { /* default to free */ }
-        }
-        if (session) fetchPlan()
-    }, [session])
+                return await apiFetch('/api/v1/payments/subscription')
+            } catch { return { plan: 'free' } }
+        },
+    })
+
+    const currentPlan = (subData as any)?.plan_id || (subData as any)?.plan || (subData as any)?.tier || 'free'
 
     const handleSubscribe = async (planId: string) => {
         if (planId === 'free' || planId === currentPlan) return
@@ -120,23 +110,14 @@ export default function SubscriptionPage() {
         setError(null)
 
         try {
-            const token = (session as any)?.accessToken
-            const res = await fetch(`${API_URL}/api/v1/payments/create-checkout-session?plan=${planId}`, {
+            const data = await apiFetch(`/api/v1/payments/create-checkout-session?plan=${planId}`, {
                 method: 'POST',
-                headers: { Authorization: `Bearer ${token}` },
             })
-
-            if (!res.ok) {
-                const err = await res.json().catch(() => ({ detail: 'Failed to create checkout session' }))
-                throw new Error(err.detail || 'Failed to create checkout session')
-            }
-
-            const data = await res.json()
             if (data.url) {
                 window.location.href = data.url
             }
         } catch (err) {
-            setError(err instanceof Error ? err.message : 'Something went wrong')
+            setError(err instanceof Error ? err.message : (err as any)?.detail || 'Something went wrong')
         } finally {
             setLoading(null)
         }
@@ -147,18 +128,12 @@ export default function SubscriptionPage() {
         setError(null)
 
         try {
-            const token = (session as any)?.accessToken
-            const res = await fetch(`${API_URL}/api/v1/payments/customer-portal`, {
+            const data = await apiFetch('/api/v1/payments/customer-portal', {
                 method: 'POST',
-                headers: { Authorization: `Bearer ${token}` },
             })
-
-            if (!res.ok) throw new Error('Failed to open billing portal')
-
-            const data = await res.json()
             if (data.url) window.location.href = data.url
         } catch (err) {
-            setError(err instanceof Error ? err.message : 'Something went wrong')
+            setError(err instanceof Error ? err.message : (err as any)?.detail || 'Something went wrong')
         } finally {
             setLoading(null)
         }

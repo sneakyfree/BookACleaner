@@ -51,9 +51,19 @@ class EmailService:
     """Service for sending emails via SendGrid"""
     
     def __init__(self):
-        self.client = sg_client
         self.from_email = settings.sendgrid_from_email
         self.from_name = "BookACleaner.ai"
+        # Dev-mode detection: if the API key is a mock, don't use SendGrid
+        api_key = settings.sendgrid_api_key or ""
+        self.is_dev = (
+            not api_key
+            or api_key.startswith("SG.mock")
+            or api_key == "SG.mock_dev_key"
+            or len(api_key) < 20
+        )
+        self.client = None if self.is_dev else sg_client
+        if self.is_dev:
+            logger.info("📧 Email service running in DEV MODE — emails will be logged to console")
     
     async def send_email(
         self,
@@ -63,6 +73,23 @@ class EmailService:
         plain_content: Optional[str] = None
     ) -> dict:
         """Send an email"""
+        # Dev mode: log to console instead of sending
+        if self.is_dev:
+            logger.info(f"\n{'='*60}")
+            logger.info(f"📧 DEV EMAIL — To: {to_email}")
+            logger.info(f"   Subject: {subject}")
+            logger.info(f"   From: {self.from_name} <{self.from_email}>")
+            # Extract text links from HTML for easy dev testing
+            import re
+            links = re.findall(r'href="([^"]+)"', html_content)
+            if links:
+                logger.info(f"   🔗 Links in email:")
+                for link in links:
+                    if link != "#":
+                        logger.info(f"      → {link}")
+            logger.info(f"{'='*60}\n")
+            return {"success": True, "dev_mode": True}
+
         try:
             message = Mail(
                 from_email=Email(self.from_email, self.from_name),
@@ -264,6 +291,140 @@ class EmailService:
         html = get_email_header() + content + get_email_footer()
         return await self.send_email(to_email, subject, html)
 
+    async def send_payout_notification(
+        self,
+        to_email: str,
+        name: str,
+        amount: float,
+        method: str = "bank transfer",
+    ) -> dict:
+        """Send payout processed notification"""
+        subject = f"Payout of ${amount:.2f} is on its way! 💰"
+
+        content = f"""
+        <h2 style="color: #1e293b; margin-top: 0;">Payout Processed!</h2>
+        <p style="color: #64748b;">Hi {name}, great news!</p>
+        
+        <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 12px; padding: 20px; margin: 20px 0; text-align: center;">
+            <p style="color: #15803d; font-size: 14px; margin: 0 0 8px;">Amount</p>
+            <p style="color: #166534; font-size: 36px; font-weight: bold; margin: 0;">${amount:.2f}</p>
+            <p style="color: #15803d; font-size: 14px; margin: 8px 0 0;">via {method}</p>
+        </div>
+        
+        <p style="color: #64748b; font-size: 14px;">
+            Funds typically arrive in 1-3 business days. You can track all your payouts from your earnings dashboard.
+        </p>
+        
+        <div style="text-align: center; margin: 30px 0;">
+            <a href="https://bookacleaner.ai/cleaner/earnings" 
+               style="background: #10b981; color: white; padding: 12px 30px; border-radius: 8px; text-decoration: none; font-weight: bold; display: inline-block;">
+                View Earnings
+            </a>
+        </div>
+        """
+
+        html = get_email_header() + content + get_email_footer()
+        return await self.send_email(to_email, subject, html)
+
+    async def send_job_reminder(
+        self,
+        to_email: str,
+        name: str,
+        role: str,
+        service: str,
+        date: str,
+        time: str,
+        address: str,
+        other_party_name: str,
+    ) -> dict:
+        """Send job reminder (24h before scheduled time)"""
+        subject = f"Reminder: {service} tomorrow at {time} ⏰"
+
+        if role == "cleaner":
+            content = f"""
+            <h2 style="color: #1e293b; margin-top: 0;">Job Tomorrow!</h2>
+            <p style="color: #64748b;">Hi {name}, just a friendly reminder about your upcoming job:</p>
+            
+            <div style="background: #f8fafc; border-radius: 12px; padding: 20px; margin: 20px 0;">
+                <p style="margin: 5px 0; color: #64748b;">📋 <strong>{service}</strong></p>
+                <p style="margin: 5px 0; color: #64748b;">📅 {date} at {time}</p>
+                <p style="margin: 5px 0; color: #64748b;">📍 {address}</p>
+                <p style="margin: 5px 0; color: #64748b;">👤 Client: {other_party_name}</p>
+            </div>
+            
+            <div style="text-align: center; margin: 30px 0;">
+                <a href="https://bookacleaner.ai/cleaner/jobs" 
+                   style="background: #0ea5e9; color: white; padding: 12px 30px; border-radius: 8px; text-decoration: none; font-weight: bold; display: inline-block;">
+                    View Job Details
+                </a>
+            </div>
+            """
+        else:
+            content = f"""
+            <h2 style="color: #1e293b; margin-top: 0;">Cleaning Tomorrow!</h2>
+            <p style="color: #64748b;">Hi {name}, just a reminder about your scheduled cleaning:</p>
+            
+            <div style="background: #f8fafc; border-radius: 12px; padding: 20px; margin: 20px 0;">
+                <p style="margin: 5px 0; color: #64748b;">📋 <strong>{service}</strong></p>
+                <p style="margin: 5px 0; color: #64748b;">📅 {date} at {time}</p>
+                <p style="margin: 5px 0; color: #64748b;">📍 {address}</p>
+                <p style="margin: 5px 0; color: #64748b;">🧹 Cleaner: {other_party_name}</p>
+            </div>
+            
+            <p style="color: #64748b; font-size: 14px;">
+                Please make sure the property is accessible at the scheduled time.
+            </p>
+            
+            <div style="text-align: center; margin: 30px 0;">
+                <a href="https://bookacleaner.ai/client/bookings" 
+                   style="background: #0ea5e9; color: white; padding: 12px 30px; border-radius: 8px; text-decoration: none; font-weight: bold; display: inline-block;">
+                    View Booking
+                </a>
+            </div>
+            """
+
+        html = get_email_header() + content + get_email_footer()
+        return await self.send_email(to_email, subject, html)
+
+    async def send_new_job_alert(
+        self,
+        to_email: str,
+        cleaner_name: str,
+        service: str,
+        date: str,
+        address: str,
+        price: float,
+        job_id: str,
+    ) -> dict:
+        """Alert cleaner about a new job matching their profile"""
+        subject = f"New Job Alert: {service} on {date} 🔔"
+
+        content = f"""
+        <h2 style="color: #1e293b; margin-top: 0;">New Job Available!</h2>
+        <p style="color: #64748b;">Hi {cleaner_name}, a new job matching your services is available:</p>
+        
+        <div style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 12px; padding: 20px; margin: 20px 0;">
+            <p style="margin: 5px 0; color: #1e40af;">📋 <strong>{service}</strong></p>
+            <p style="margin: 5px 0; color: #1e40af;">📅 {date}</p>
+            <p style="margin: 5px 0; color: #1e40af;">📍 {address}</p>
+            <p style="margin: 10px 0 0; color: #1e40af; font-size: 24px; font-weight: bold;">${price:.2f}</p>
+        </div>
+        
+        <div style="text-align: center; margin: 30px 0;">
+            <a href="https://bookacleaner.ai/cleaner/jobs" 
+               style="background: #0ea5e9; color: white; padding: 12px 30px; border-radius: 8px; text-decoration: none; font-weight: bold; display: inline-block;">
+                Accept Job
+            </a>
+            <p style="margin: 10px 0 0; color: #94a3b8; font-size: 12px;">
+                Job ID: {job_id}
+            </p>
+        </div>
+        """
+
+        html = get_email_header() + content + get_email_footer()
+        return await self.send_email(to_email, subject, html)
+
 
 # Create singleton instance
 email_service = EmailService()
+

@@ -4,13 +4,25 @@ Wraps the Stripe Python SDK for payment processing and Connect.
 """
 import stripe
 import logging
+import uuid
 from typing import Optional, Dict
 from app.config import get_settings
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
 
-stripe.api_key = settings.stripe_secret_key
+# Dev-mode detection
+_key = settings.stripe_secret_key or ""
+STRIPE_DEV_MODE = (
+    not _key
+    or _key.startswith("sk_test_mock")
+    or _key == "sk_test_mock_dev_key"
+    or len(_key) < 20
+)
+if STRIPE_DEV_MODE:
+    logger.info("💳 Stripe running in DEV MODE — operations will return mock data")
+else:
+    stripe.api_key = _key
 
 
 # ==================== PAYMENT INTENTS ====================
@@ -23,6 +35,18 @@ async def create_payment_intent(
     capture_method: str = "manual",
 ):
     """Create a payment intent (amount in cents)."""
+    if STRIPE_DEV_MODE:
+        mock_id = f"pi_dev_{uuid.uuid4().hex[:16]}"
+        mock_secret = f"{mock_id}_secret_{uuid.uuid4().hex[:12]}"
+        logger.info(f"💳 DEV PaymentIntent created: {mock_id} for ${amount/100:.2f}")
+        return type("MockPI", (), {
+            "id": mock_id,
+            "client_secret": mock_secret,
+            "status": "requires_payment_method",
+            "amount": amount,
+            "currency": currency,
+        })()
+
     params = {
         "amount": amount,
         "currency": currency,

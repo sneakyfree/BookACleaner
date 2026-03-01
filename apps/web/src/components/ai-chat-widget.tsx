@@ -12,6 +12,7 @@ import {
     Bot,
     Minimize2
 } from 'lucide-react'
+import { apiFetch } from '@/lib/auth/api-client'
 
 interface Message {
     role: 'user' | 'assistant'
@@ -29,8 +30,6 @@ export function AIChatWidget() {
     const [input, setInput] = useState('')
     const [isLoading, setIsLoading] = useState(false)
     const messagesEndRef = useRef<HTMLDivElement>(null)
-
-    const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
     const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -60,9 +59,8 @@ export function AIChatWidget() {
         setIsLoading(true)
 
         try {
-            const response = await fetch(`${API_URL}/api/v1/ai/chat`, {
+            const data = await apiFetch('/api/v1/ai/chat', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     messages: [...messages, userMessage].map(m => ({
                         role: m.role,
@@ -71,20 +69,10 @@ export function AIChatWidget() {
                     role: 'client'
                 }),
             })
-
-            if (response.ok) {
-                const data = await response.json()
-                setMessages(prev => [...prev, {
-                    role: 'assistant',
-                    content: data.response
-                }])
-            } else {
-                // Fallback for when API key is not configured
-                setMessages(prev => [...prev, {
-                    role: 'assistant',
-                    content: "I'm having trouble connecting right now. Please try again later or contact support@bookacleaner.ai for immediate assistance."
-                }])
-            }
+            setMessages(prev => [...prev, {
+                role: 'assistant',
+                content: data.response
+            }])
         } catch (error) {
             console.error('Chat error:', error)
             setMessages(prev => [...prev, {

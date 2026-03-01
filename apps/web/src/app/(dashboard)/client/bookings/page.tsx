@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useMemo } from 'react'
 import { useSession } from 'next-auth/react'
 import Link from 'next/link'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -17,8 +17,7 @@ import {
     AlertCircle,
     Loader2,
 } from 'lucide-react'
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+import { useJobs } from '@/hooks/use-api'
 
 type BookingStatus = 'pending' | 'confirmed' | 'in_progress' | 'completed' | 'cancelled'
 
@@ -77,73 +76,36 @@ const statusConfig = {
 }
 
 export default function BookingsPage() {
-    const { data: session } = useSession()
-    const [bookings, setBookings] = useState<DisplayBooking[]>([])
-    const [loading, setLoading] = useState(true)
-    const [error, setError] = useState<string | null>(null)
     const [reviewJobId, setReviewJobId] = useState<string | null>(null)
 
-    useEffect(() => {
-        const token = (session as any)?.accessToken
-        if (!token) {
-            setLoading(false)
-            return
-        }
+    const { data: rawJobs, isLoading: loading, error } = useJobs()
 
-        async function fetchBookings() {
-            try {
-                setError(null)
-                const res = await fetch(`${API_URL}/api/v1/jobs/`, {
-                    headers: {
-                        Authorization: `Bearer ${(session as any)?.accessToken}`,
-                    },
+    const bookings: DisplayBooking[] = useMemo(() => {
+        const data: ApiJob[] = Array.isArray(rawJobs) ? rawJobs : (rawJobs as any)?.jobs || []
+        const validStatuses: BookingStatus[] = ['pending', 'confirmed', 'in_progress', 'completed', 'cancelled']
+        return data.map((job) => ({
+            id: job.id,
+            cleaner: {
+                name: job.cleaner_name || 'Unassigned',
+                rating: job.cleaner_rating || 0,
+            },
+            property: {
+                name: job.property_name || 'Property',
+                address: job.property_address || '',
+            },
+            services: job.services || [],
+            date: job.scheduled_date
+                ? new Date(job.scheduled_date).toLocaleDateString('en-US', {
+                    weekday: 'short', month: 'short', day: 'numeric',
                 })
-
-                if (!res.ok) {
-                    throw new Error(`Failed to load bookings (${res.status})`)
-                }
-
-                const data: ApiJob[] = await res.json()
-
-                const mapped: DisplayBooking[] = data.map((job) => {
-                    const validStatuses: BookingStatus[] = ['pending', 'confirmed', 'in_progress', 'completed', 'cancelled']
-                    const status: BookingStatus = validStatuses.includes(job.status as BookingStatus)
-                        ? (job.status as BookingStatus)
-                        : 'pending'
-
-                    return {
-                        id: job.id,
-                        cleaner: {
-                            name: job.cleaner_name || 'Unassigned',
-                            rating: job.cleaner_rating || 0,
-                        },
-                        property: {
-                            name: job.property_name || 'Property',
-                            address: job.property_address || '',
-                        },
-                        services: job.services || [],
-                        date: job.scheduled_date
-                            ? new Date(job.scheduled_date).toLocaleDateString('en-US', {
-                                weekday: 'short', month: 'short', day: 'numeric',
-                            })
-                            : 'TBD',
-                        time: job.scheduled_time || 'TBD',
-                        price: job.total_price || 0,
-                        status,
-                    }
-                })
-
-                setBookings(mapped)
-            } catch (err) {
-                console.error('Failed to fetch bookings:', err)
-                setError(err instanceof Error ? err.message : 'Failed to load bookings')
-            } finally {
-                setLoading(false)
-            }
-        }
-
-        fetchBookings()
-    }, [API_URL, session])
+                : 'TBD',
+            time: job.scheduled_time || 'TBD',
+            price: job.total_price || 0,
+            status: validStatuses.includes(job.status as BookingStatus)
+                ? (job.status as BookingStatus)
+                : 'pending',
+        }))
+    }, [rawJobs])
 
     if (loading) {
         return (
@@ -158,7 +120,7 @@ export default function BookingsPage() {
             <Card>
                 <CardContent className="py-12 text-center">
                     <AlertCircle className="w-12 h-12 mx-auto text-red-500 mb-4" />
-                    <p className="text-lg font-medium text-red-600">{error}</p>
+                    <p className="text-lg font-medium text-red-600">{(error as any)?.detail || 'Failed to load bookings'}</p>
                     <Button className="mt-4" onClick={() => window.location.reload()}>
                         Try Again
                     </Button>

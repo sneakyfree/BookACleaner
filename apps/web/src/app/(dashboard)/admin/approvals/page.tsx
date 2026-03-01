@@ -1,14 +1,15 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState } from 'react'
 import { useSession } from 'next-auth/react'
 import {
     CheckSquare, Clock, Brain, ChevronRight, CheckCircle2,
     XCircle, AlertCircle, Zap, Loader2
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+import { useAdminApprovals } from '@/hooks/use-api'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { apiFetch } from '@/lib/auth/api-client'
 
 interface HITLItem {
     id: string
@@ -43,64 +44,34 @@ const priorityColors: Record<string, string> = {
 
 export default function AdminApprovalsPage() {
     const { data: session } = useSession()
-    const [items, setItems] = useState<HITLItem[]>([])
-    const [loading, setLoading] = useState(true)
-    const [error, setError] = useState('')
     const [selectedId, setSelectedId] = useState<string | null>(null)
-    const [actionLoading, setActionLoading] = useState(false)
     const [reviewNotes, setReviewNotes] = useState('')
+
+    const { data: rawData, isLoading: loading, error, refetch } = useAdminApprovals()
+    const queryClient = useQueryClient()
+
+    const items: HITLItem[] = rawData?.items || rawData || []
     const selected = items.find(i => i.id === selectedId)
 
-    const fetchQueue = useCallback(async () => {
-        const token = (session as any)?.accessToken
-        if (!token) return
-
-        try {
-            setLoading(true)
-            setError('')
-            const res = await fetch(`${API_URL}/api/v1/hitl/queue`, {
-                headers: { Authorization: `Bearer ${token}` },
-            })
-            if (!res.ok) throw new Error(`Failed to load approval queue (${res.status})`)
-            const data = await res.json()
-            setItems(data.items || [])
-        } catch (err: any) {
-            setError(err.message || 'Failed to load approval queue')
-        } finally {
-            setLoading(false)
-        }
-    }, [session])
-
-    useEffect(() => {
-        if (session) fetchQueue()
-    }, [session, fetchQueue])
-
-    const handleDecision = async (id: string, approved: boolean) => {
-        const token = (session as any)?.accessToken
-        if (!token) return
-
-        try {
-            setActionLoading(true)
+    const decisionMut = useMutation({
+        mutationFn: ({ id, approved, notes }: { id: string; approved: boolean; notes: string }) => {
             const userId = (session as any)?.user?.id || 'admin'
-            const res = await fetch(`${API_URL}/api/v1/hitl/queue/${id}?admin_id=${userId}`, {
+            return apiFetch(`/api/v1/hitl/queue/${id}?admin_id=${userId}`, {
                 method: 'POST',
-                headers: {
-                    Authorization: `Bearer ${token}`,
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ approved, notes: reviewNotes || null }),
+                body: JSON.stringify({ approved, notes: notes || null }),
             })
-            if (!res.ok) throw new Error('Failed to process decision')
-            const decision = approved ? 'approved' : 'rejected'
-            setItems(prev => prev.map(i => i.id === id ? { ...i, status: decision } : i))
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['admin', 'approvals'] })
             setSelectedId(null)
             setReviewNotes('')
-        } catch (err: any) {
-            setError(err.message || 'Failed to process decision')
-        } finally {
-            setActionLoading(false)
-        }
+        },
+    })
+
+    const handleDecision = (id: string, approved: boolean) => {
+        decisionMut.mutate({ id, approved, notes: reviewNotes })
     }
+    const actionLoading = decisionMut.isPending
 
     const pendingCount = items.filter(i => i.status === 'pending').length
     const approvedCount = items.filter(i => i.status === 'approved').length
@@ -144,8 +115,8 @@ export default function AdminApprovalsPage() {
                 {error && (
                     <div className="mb-6 p-4 bg-red-500/10 border border-red-500/30 rounded-lg flex items-center gap-3">
                         <AlertCircle className="w-5 h-5 text-red-400 shrink-0" />
-                        <p className="text-red-300 text-sm">{error}</p>
-                        <button onClick={fetchQueue} className="ml-auto text-red-400 hover:text-red-300 text-sm font-medium">Retry</button>
+                        <p className="text-red-300 text-sm">{(error as any)?.detail || 'Failed to load approval queue'}</p>
+                        <button onClick={() => refetch()} className="ml-auto text-red-400 hover:text-red-300 text-sm font-medium">Retry</button>
                     </div>
                 )}
 

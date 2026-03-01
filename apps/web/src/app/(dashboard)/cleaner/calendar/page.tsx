@@ -1,7 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { useSession } from 'next-auth/react'
+import { useState, useMemo } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import {
@@ -17,8 +16,7 @@ import {
     AlertCircle,
 } from 'lucide-react'
 import { addDays, format, startOfWeek, endOfWeek, eachDayOfInterval, isSameDay, isToday } from 'date-fns'
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+import { useJobs } from '@/hooks/use-api'
 
 interface Job {
     id: string
@@ -33,53 +31,31 @@ interface Job {
 }
 
 export default function CleanerCalendarPage() {
-    const { data: session } = useSession()
     const [currentDate, setCurrentDate] = useState(new Date())
     const [view, setView] = useState<'week' | 'month'>('week')
     const [selectedDate, setSelectedDate] = useState<Date | null>(null)
-    const [jobs, setJobs] = useState<Job[]>([])
-    const [loading, setLoading] = useState(true)
-    const [error, setError] = useState('')
+
+    const { data: rawJobs, isLoading: loading, error } = useJobs()
+
+    const jobs: Job[] = useMemo(() => {
+        const list = Array.isArray(rawJobs) ? rawJobs : []
+        return list.map((j: any) => ({
+            id: j.id,
+            title: j.title || j.services?.join(', ') || 'Cleaning',
+            client: j.client_name || j.client?.full_name || 'Client',
+            property: j.property_name || j.property?.name || 'Property',
+            address: j.address || j.property?.address || '',
+            time: j.scheduled_time || '09:00',
+            duration: j.estimated_hours || 2,
+            price: j.total_price || 0,
+            status: j.status === 'confirmed' ? 'confirmed' : 'pending',
+        }))
+    }, [rawJobs])
 
     // Get week range
     const weekStart = startOfWeek(currentDate, { weekStartsOn: 0 })
     const weekEnd = endOfWeek(currentDate, { weekStartsOn: 0 })
     const weekDays = eachDayOfInterval({ start: weekStart, end: weekEnd })
-
-    // Fetch jobs from API
-    useEffect(() => {
-        const fetchJobs = async () => {
-            const token = (session as any)?.accessToken
-            if (!token) return
-
-            try {
-                setLoading(true)
-                const res = await fetch(`${API_URL}/api/v1/jobs/`, {
-                    headers: { Authorization: `Bearer ${token}` },
-                })
-                if (!res.ok) throw new Error('Failed to load jobs')
-                const data = await res.json()
-
-                const mapped: Job[] = (Array.isArray(data) ? data : []).map((j: any) => ({
-                    id: j.id,
-                    title: j.title || j.services?.join(', ') || 'Cleaning',
-                    client: j.client_name || j.client?.full_name || 'Client',
-                    property: j.property_name || j.property?.name || 'Property',
-                    address: j.address || j.property?.address || '',
-                    time: j.scheduled_time || '09:00',
-                    duration: j.estimated_hours || 2,
-                    price: j.total_price || 0,
-                    status: j.status === 'confirmed' ? 'confirmed' : 'pending',
-                }))
-                setJobs(mapped)
-            } catch (err: any) {
-                setError(err.message || 'Failed to load calendar')
-            } finally {
-                setLoading(false)
-            }
-        }
-        if (session) fetchJobs()
-    }, [session])
 
     // Group jobs by date
     const jobsByDate: Record<string, Job[]> = {}

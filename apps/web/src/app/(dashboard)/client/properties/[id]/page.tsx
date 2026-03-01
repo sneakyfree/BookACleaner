@@ -1,8 +1,7 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { useRouter, useParams } from 'next/navigation'
-import { useSession } from 'next-auth/react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -16,8 +15,8 @@ import {
 } from 'lucide-react'
 import Link from 'next/link'
 import { toast } from 'sonner'
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+import { useQuery } from '@tanstack/react-query'
+import { apiFetch } from '@/lib/auth/api-client'
 
 interface PropertyData {
     id: string
@@ -37,10 +36,8 @@ interface PropertyData {
 export default function EditPropertyPage() {
     const router = useRouter()
     const params = useParams()
-    const { data: session } = useSession()
     const propertyId = params.id as string
 
-    const [loading, setLoading] = useState(true)
     const [saving, setSaving] = useState(false)
     const [syncing, setSyncing] = useState(false)
     const [error, setError] = useState('')
@@ -57,39 +54,26 @@ export default function EditPropertyPage() {
         airbnbCalendarUrl: '',
     })
 
-    useEffect(() => {
-        const fetchProperty = async () => {
-            const token = (session as any)?.accessToken
-            if (!token) return
-
-            try {
-                const res = await fetch(`${API_URL}/api/v1/properties/${propertyId}`, {
-                    headers: { Authorization: `Bearer ${token}` },
-                })
-                if (!res.ok) throw new Error('Failed to load property')
-                const data: PropertyData = await res.json()
-
-                setFormData({
-                    name: data.name || '',
-                    address: data.address || '',
-                    addressLine2: data.address_line_2 || '',
-                    city: data.city || '',
-                    state: data.state || '',
-                    zipCode: data.zip_code || '',
-                    squareFeet: data.square_feet ? String(data.square_feet) : '',
-                    bedrooms: data.bedrooms ? String(data.bedrooms) : '',
-                    bathrooms: data.bathrooms ? String(data.bathrooms) : '',
-                    airbnbCalendarUrl: data.airbnb_calendar_url || '',
-                })
-            } catch (err) {
-                setError('Failed to load property')
-            } finally {
-                setLoading(false)
-            }
-        }
-
-        if (session) fetchProperty()
-    }, [session, propertyId])
+    const { isLoading: loading } = useQuery({
+        queryKey: ['property-detail', propertyId],
+        queryFn: async () => {
+            const data: PropertyData = await apiFetch(`/api/v1/properties/${propertyId}`)
+            setFormData({
+                name: data.name || '',
+                address: data.address || '',
+                addressLine2: data.address_line_2 || '',
+                city: data.city || '',
+                state: data.state || '',
+                zipCode: data.zip_code || '',
+                squareFeet: data.square_feet ? String(data.square_feet) : '',
+                bedrooms: data.bedrooms ? String(data.bedrooms) : '',
+                bathrooms: data.bathrooms ? String(data.bathrooms) : '',
+                airbnbCalendarUrl: data.airbnb_calendar_url || '',
+            })
+            return data
+        },
+        enabled: !!propertyId,
+    })
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault()
@@ -97,13 +81,8 @@ export default function EditPropertyPage() {
         setError('')
 
         try {
-            const token = (session as any)?.accessToken
-            const res = await fetch(`${API_URL}/api/v1/properties/${propertyId}`, {
+            await apiFetch(`/api/v1/properties/${propertyId}`, {
                 method: 'PATCH',
-                headers: {
-                    'Content-Type': 'application/json',
-                    Authorization: `Bearer ${token}`,
-                },
                 body: JSON.stringify({
                     name: formData.name,
                     address: formData.address,
@@ -117,11 +96,6 @@ export default function EditPropertyPage() {
                     airbnb_calendar_url: formData.airbnbCalendarUrl || undefined,
                 }),
             })
-
-            if (!res.ok) {
-                const data = await res.json().catch(() => ({}))
-                throw new Error(data.detail || 'Failed to update property')
-            }
 
             toast.success('Property updated successfully!')
             router.push('/client/properties')
@@ -137,16 +111,10 @@ export default function EditPropertyPage() {
         if (!formData.airbnbCalendarUrl) return
         setSyncing(true)
         try {
-            const token = (session as any)?.accessToken
-            const res = await fetch(`${API_URL}/api/v1/properties/${propertyId}/sync-calendar`, {
+            await apiFetch(`/api/v1/properties/${propertyId}/sync-calendar`, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    Authorization: `Bearer ${token}`,
-                },
                 body: JSON.stringify({ calendar_url: formData.airbnbCalendarUrl }),
             })
-            if (!res.ok) throw new Error('Sync failed')
             toast.success('Calendar synced successfully!')
         } catch {
             toast.error('Failed to sync calendar')

@@ -1,7 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
-import { useSession } from 'next-auth/react'
+import { useState, useMemo } from 'react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import {
@@ -9,8 +8,8 @@ import {
     SlidersHorizontal, Loader2, AlertCircle
 } from 'lucide-react'
 import Link from 'next/link'
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+import { useQuery } from '@tanstack/react-query'
+import { apiFetch } from '@/lib/auth/api-client'
 
 interface MarketplaceJob {
     id: string
@@ -26,38 +25,17 @@ interface MarketplaceJob {
 }
 
 export default function MarketplacePage() {
-    const { data: session } = useSession()
-    const [jobs, setJobs] = useState<MarketplaceJob[]>([])
-    const [loading, setLoading] = useState(true)
-    const [error, setError] = useState('')
     const [search, setSearch] = useState('')
     const [minPrice, setMinPrice] = useState('')
     const [maxPrice, setMaxPrice] = useState('')
     const [showFilters, setShowFilters] = useState(false)
 
-    const fetchJobs = useCallback(async () => {
-        const token = (session as any)?.accessToken
-        if (!token) return
+    const { data: rawData, isLoading: loading, error } = useQuery({
+        queryKey: ['marketplace-jobs'],
+        queryFn: () => apiFetch('/api/v1/bids/marketplace'),
+    })
 
-        try {
-            setLoading(true)
-            setError('')
-            const res = await fetch(`${API_URL}/api/v1/bids/marketplace`, {
-                headers: { Authorization: `Bearer ${token}` },
-            })
-            if (!res.ok) throw new Error(`Failed to load marketplace (${res.status})`)
-            const data = await res.json()
-            setJobs(data.jobs || [])
-        } catch (err: any) {
-            setError(err.message || 'Failed to load marketplace jobs')
-        } finally {
-            setLoading(false)
-        }
-    }, [session])
-
-    useEffect(() => {
-        if (session) fetchJobs()
-    }, [session, fetchJobs])
+    const jobs: MarketplaceJob[] = useMemo(() => (rawData as any)?.jobs || [], [rawData])
 
     const filteredJobs = jobs.filter(job => {
         if (search && !job.title.toLowerCase().includes(search.toLowerCase()) &&
@@ -96,8 +74,8 @@ export default function MarketplacePage() {
             {error && (
                 <div className="p-4 bg-red-500/10 border border-red-500/30 rounded-lg flex items-center gap-3">
                     <AlertCircle className="w-5 h-5 text-red-400 shrink-0" />
-                    <p className="text-red-300 text-sm">{error}</p>
-                    <button onClick={fetchJobs} className="ml-auto text-red-400 hover:text-red-300 text-sm font-medium">Retry</button>
+                    <p className="text-red-300 text-sm">{(error as any)?.detail || 'Failed to load marketplace jobs'}</p>
+                    <button onClick={() => window.location.reload()} className="ml-auto text-red-400 hover:text-red-300 text-sm font-medium">Retry</button>
                 </div>
             )}
 

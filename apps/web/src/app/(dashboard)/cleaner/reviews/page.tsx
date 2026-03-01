@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useMemo } from 'react'
 import { useSession } from 'next-auth/react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -14,8 +14,9 @@ import {
     Flag,
 } from 'lucide-react'
 import { toast } from 'sonner'
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+import { useReviews, useRespondToReview } from '@/hooks/use-api'
+import { useMutation } from '@tanstack/react-query'
+import { apiFetch } from '@/lib/auth/api-client'
 
 interface ApiReview {
     id: string
@@ -35,42 +36,17 @@ interface ApiReview {
 
 export default function CleanerReviewsPage() {
     const { data: session } = useSession()
-    const [reviews, setReviews] = useState<ApiReview[]>([])
-    const [loading, setLoading] = useState(true)
-    const [error, setError] = useState<string | null>(null)
     const [respondingTo, setRespondingTo] = useState<string | null>(null)
     const [responseText, setResponseText] = useState('')
-    const [submitting, setSubmitting] = useState(false)
     const [flagging, setFlagging] = useState<string | null>(null)
 
-    useEffect(() => {
-        const token = (session as any)?.accessToken
-        if (!token) {
-            setLoading(false)
-            return
-        }
+    const { data: rawReviews, isLoading: loading, error } = useReviews()
+    const respondMut = useRespondToReview()
 
-        async function fetchReviews() {
-            try {
-                setError(null)
-                const res = await fetch(`${API_URL}/api/v1/reviews/`, {
-                    headers: {
-                        Authorization: `Bearer ${(session as any)?.accessToken}`,
-                    },
-                })
-                if (!res.ok) throw new Error(`Failed to load reviews (${res.status})`)
-                const data = await res.json()
-                setReviews(data.reviews || [])
-            } catch (err) {
-                console.error('Failed to fetch reviews:', err)
-                setError(err instanceof Error ? err.message : 'Failed to load reviews')
-            } finally {
-                setLoading(false)
-            }
-        }
-
-        fetchReviews()
-    }, [session])
+    const reviews: ApiReview[] = useMemo(() => {
+        const data = rawReviews as any
+        return data?.reviews || (Array.isArray(data) ? data : [])
+    }, [rawReviews])
 
     // ── Computed stats ──────────────────────────────────────────────
     const totalReviews = reviews.length
@@ -94,37 +70,21 @@ export default function CleanerReviewsPage() {
             toast.error('Please write a response')
             return
         }
-        setSubmitting(true)
-        try {
-            const res = await fetch(`${API_URL}/api/v1/reviews/${reviewId}/respond`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    Authorization: `Bearer ${(session as any)?.accessToken}`,
+        respondMut.mutate(
+            { id: reviewId, response: responseText },
+            {
+                onSuccess: () => {
+                    toast.success('Response posted!')
+                    setRespondingTo(null)
+                    setResponseText('')
                 },
-                body: JSON.stringify({ response: responseText }),
-            })
-            if (!res.ok) {
-                const err = await res.json()
-                throw new Error(err.detail || 'Failed to post response')
+                onError: (err: any) => {
+                    toast.error(err?.detail || 'Failed to post response')
+                },
             }
-            const updated = await res.json()
-            setReviews((prev) =>
-                prev.map((r) =>
-                    r.id === reviewId
-                        ? { ...r, response: updated.response || responseText, responded_at: new Date().toISOString() }
-                        : r
-                )
-            )
-            toast.success('Response posted!')
-            setRespondingTo(null)
-            setResponseText('')
-        } catch (err) {
-            toast.error(err instanceof Error ? err.message : 'Failed to post response')
-        } finally {
-            setSubmitting(false)
-        }
+        )
     }
+    const submitting = respondMut.isPending
 
     // ── Loading / Error ─────────────────────────────────────────────
     if (loading) {
@@ -140,7 +100,7 @@ export default function CleanerReviewsPage() {
             <Card>
                 <CardContent className="py-12 text-center">
                     <AlertCircle className="w-12 h-12 mx-auto text-red-500 mb-4" />
-                    <p className="text-lg font-medium text-red-600">{error}</p>
+                    <p className="text-lg font-medium text-red-600">{(error as any)?.detail || 'Failed to load reviews'}</p>
                     <Button className="mt-4" onClick={() => window.location.reload()}>
                         Try Again
                     </Button>
@@ -295,17 +255,11 @@ export default function CleanerReviewsPage() {
                                                 if (!confirm('Flag this review as inappropriate?')) return
                                                 setFlagging(review.id)
                                                 try {
-                                                    const token = (session as any)?.accessToken
-                                                    const res = await fetch(`${API_URL}/api/v1/reviews/${review.id}/flag`, {
+                                                    await apiFetch(`/api/v1/reviews/${review.id}/flag`, {
                                                         method: 'POST',
-                                                        headers: {
-                                                            'Content-Type': 'application/json',
-                                                            Authorization: `Bearer ${token}`,
-                                                        },
                                                         body: JSON.stringify({ reason: 'inappropriate' }),
                                                     })
-                                                    if (res.ok) toast.success('Review flagged for moderation')
-                                                    else toast.error('Failed to flag review')
+                                                    toast.success('Review flagged for moderation')
                                                 } catch { toast.error('Failed to flag review') }
                                                 setFlagging(null)
                                             }}

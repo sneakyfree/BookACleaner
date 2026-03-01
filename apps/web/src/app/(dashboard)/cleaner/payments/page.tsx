@@ -1,6 +1,5 @@
 'use client'
 
-import { useState, useEffect } from 'react'
 import { useSession } from 'next-auth/react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -16,6 +15,8 @@ import {
     CreditCard,
     Wallet,
 } from 'lucide-react'
+import { useQuery } from '@tanstack/react-query'
+import { apiFetch } from '@/lib/auth/api-client'
 
 interface PayoutHistory {
     id: string
@@ -34,80 +35,43 @@ interface EarningsSummary {
 
 export default function PaymentsPage() {
     const { data: session } = useSession()
-    const [stripeStatus, setStripeStatus] = useState<any>(null)
-    const [earnings, setEarnings] = useState<EarningsSummary | null>(null)
-    const [payouts, setPayouts] = useState<PayoutHistory[]>([])
-    const [loading, setLoading] = useState(true)
 
-    const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+    const { data: stripeStatus } = useQuery({
+        queryKey: ['stripe-status'],
+        queryFn: () => apiFetch('/api/v1/payments/account-status/self'),
+    })
 
-    useEffect(() => {
-        async function fetchPaymentData() {
+    const { data: earnings } = useQuery<EarningsSummary | null>({
+        queryKey: ['cleaner-earnings'],
+        queryFn: async () => {
             try {
-                const [statusRes, earningsRes] = await Promise.all([
-                    fetch(`${API_URL}/api/v1/payments/account-status/self`, {
-                        headers: {
-                            Authorization: `Bearer ${(session as any)?.accessToken}`,
-                        },
-                    }),
-                    fetch(`${API_URL}/api/v1/cleaners/earnings`, {
-                        headers: {
-                            Authorization: `Bearer ${(session as any)?.accessToken}`,
-                        },
-                    }),
-                ])
+                return await apiFetch('/api/v1/cleaners/earnings')
+            } catch { return null }
+        },
+    })
 
-                if (statusRes.ok) {
-                    setStripeStatus(await statusRes.json())
-                }
-                if (earningsRes.ok) {
-                    setEarnings(await earningsRes.json())
-                }
+    const { data: payoutsData, isLoading: loading } = useQuery({
+        queryKey: ['payouts'],
+        queryFn: async () => {
+            try {
+                return await apiFetch('/api/v1/payments/payouts/')
+            } catch { return [] }
+        },
+    })
 
-                // Fetch real payout history
-                try {
-                    const payoutsRes = await fetch(`${API_URL}/api/v1/payments/payouts/`, {
-                        headers: { Authorization: `Bearer ${(session as any)?.accessToken}` },
-                    })
-                    if (payoutsRes.ok) {
-                        const payoutsData = await payoutsRes.json()
-                        setPayouts(Array.isArray(payoutsData) ? payoutsData : [])
-                    } else {
-                        setPayouts([]) // Endpoint may not exist yet — graceful fallback
-                    }
-                } catch {
-                    setPayouts([])
-                }
-            } catch (error) {
-                console.error('Failed to fetch payment data:', error)
-            } finally {
-                setLoading(false)
-            }
-        }
-
-        if (session) {
-            fetchPaymentData()
-        }
-    }, [session, API_URL])
+    const payouts: PayoutHistory[] = Array.isArray(payoutsData) ? payoutsData : []
 
     const handleStartOnboarding = async () => {
-        const res = await fetch(`${API_URL}/api/v1/payments/create-connected-account`, {
+        const { accountId } = await apiFetch('/api/v1/payments/create-connected-account', {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                Authorization: `Bearer ${(session as any)?.accessToken}`,
-            },
             body: JSON.stringify({
                 email: session?.user?.email,
                 businessName: 'My Cleaning Business',
             }),
         })
 
-        const { accountId } = await res.json()
-
-        const linkRes = await fetch(`${API_URL}/api/v1/payments/create-account-link`, {
+        const { url } = await apiFetch('/api/v1/payments/create-account-link', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 accountId,
                 returnUrl: `${window.location.origin}/cleaner/payments?onboarding=complete`,
@@ -115,7 +79,6 @@ export default function PaymentsPage() {
             }),
         })
 
-        const { url } = await linkRes.json()
         return url
     }
 

@@ -1,7 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { useSession } from 'next-auth/react'
+import { useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -16,15 +15,18 @@ import {
     Globe,
     CheckCircle,
     Shield,
+    Trash2,
 } from 'lucide-react'
 import { toast } from 'sonner'
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+import { useQuery, useMutation } from '@tanstack/react-query'
+import { apiFetch } from '@/lib/auth/api-client'
 
 export default function CleanerProfilePage() {
-    const { data: session } = useSession()
     const [isLoading, setIsLoading] = useState(false)
-    const [loadingProfile, setLoadingProfile] = useState(true)
+    const [exportingData, setExportingData] = useState(false)
+    const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+    const [deleteConfirmText, setDeleteConfirmText] = useState('')
+    const [deletingAccount, setDeletingAccount] = useState(false)
 
     const [profile, setProfile] = useState({
         businessName: '',
@@ -36,45 +38,31 @@ export default function CleanerProfilePage() {
     })
 
     // Fetch profile from API
-    useEffect(() => {
-        const fetchProfile = async () => {
-            const token = (session as any)?.accessToken
-            if (!token) return
-
+    const { isLoading: loadingProfile } = useQuery({
+        queryKey: ['my-profile'],
+        queryFn: async () => {
             try {
-                const res = await fetch(`${API_URL}/api/v1/users/me/profile`, {
-                    headers: { Authorization: `Bearer ${token}` },
+                const data = await apiFetch('/api/v1/users/me/profile')
+                setProfile({
+                    businessName: data.business_name || data.businessName || '',
+                    bio: data.bio || '',
+                    phone: data.phone || '',
+                    website: data.website || '',
+                    serviceAreas: data.service_areas || data.serviceAreas || [],
+                    verificationTier: data.verification_tier || data.verificationTier || 1,
                 })
-                if (res.ok) {
-                    const data = await res.json()
-                    setProfile({
-                        businessName: data.business_name || data.businessName || '',
-                        bio: data.bio || '',
-                        phone: data.phone || '',
-                        website: data.website || '',
-                        serviceAreas: data.service_areas || data.serviceAreas || [],
-                        verificationTier: data.verification_tier || data.verificationTier || 1,
-                    })
-                }
+                return data
             } catch {
-                // Graceful fallback — profile may not exist yet
-            } finally {
-                setLoadingProfile(false)
+                return null // Graceful fallback — profile may not exist yet
             }
-        }
-        if (session) fetchProfile()
-    }, [session])
+        },
+    })
 
     async function handleSave() {
         setIsLoading(true)
         try {
-            const token = (session as any)?.accessToken
-            const res = await fetch(`${API_URL}/api/v1/users/me/profile`, {
+            await apiFetch('/api/v1/users/me/profile', {
                 method: 'PUT',
-                headers: {
-                    'Content-Type': 'application/json',
-                    Authorization: `Bearer ${token}`,
-                },
                 body: JSON.stringify({
                     business_name: profile.businessName,
                     bio: profile.bio,
@@ -83,13 +71,9 @@ export default function CleanerProfilePage() {
                     service_areas: profile.serviceAreas,
                 }),
             })
-            if (res.ok) {
-                toast.success('Profile updated successfully!')
-            } else {
-                toast.error('Failed to update profile')
-            }
+            toast.success('Profile updated successfully!')
         } catch {
-            toast.error('Failed to connect to server')
+            toast.error('Failed to update profile')
         } finally {
             setIsLoading(false)
         }
@@ -246,6 +230,117 @@ export default function CleanerProfilePage() {
                     </div>
                 </CardContent>
             </Card>
+
+            {/* Your Data & Account */}
+            <Card className="border-red-200 dark:border-red-500/20">
+                <CardHeader>
+                    <CardTitle className="text-lg text-red-600">Your Data & Account</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                    <div className="flex items-center justify-between p-3 rounded-lg bg-muted/50">
+                        <div>
+                            <p className="font-medium">Export My Data</p>
+                            <p className="text-sm text-muted-foreground">
+                                Download all your data as a JSON file (GDPR)
+                            </p>
+                        </div>
+                        <Button
+                            variant="outline"
+                            disabled={exportingData}
+                            onClick={async () => {
+                                setExportingData(true)
+                                try {
+                                    const data = await apiFetch('/api/v1/privacy/export')
+                                    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+                                    const url = URL.createObjectURL(blob)
+                                    const a = document.createElement('a')
+                                    a.href = url
+                                    a.download = `bookacleaner-data-${new Date().toISOString().slice(0, 10)}.json`
+                                    a.click()
+                                    URL.revokeObjectURL(url)
+                                    toast.success('Data exported successfully')
+                                } catch {
+                                    toast.error('Failed to export data')
+                                } finally {
+                                    setExportingData(false)
+                                }
+                            }}
+                        >
+                            {exportingData ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Shield className="w-4 h-4 mr-2" />}
+                            Export
+                        </Button>
+                    </div>
+
+                    <div className="flex items-center justify-between p-3 rounded-lg border border-red-200 dark:border-red-500/20">
+                        <div>
+                            <p className="font-medium text-red-600">Delete Account</p>
+                            <p className="text-sm text-muted-foreground">
+                                Permanently delete your account and all data
+                            </p>
+                        </div>
+                        <Button
+                            variant="outline"
+                            className="text-red-600 border-red-600 hover:bg-red-50"
+                            onClick={() => setShowDeleteConfirm(true)}
+                        >
+                            <Trash2 className="w-4 h-4 mr-2" />
+                            Delete Account
+                        </Button>
+                    </div>
+                </CardContent>
+            </Card>
+
+            {/* Delete Confirmation Modal */}
+            {showDeleteConfirm && (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+                    <Card className="w-full max-w-md">
+                        <CardHeader>
+                            <CardTitle className="text-red-600">⚠️ Delete Account</CardTitle>
+                        </CardHeader>
+                        <CardContent className="space-y-4">
+                            <p className="text-sm text-muted-foreground">
+                                This action is permanent and cannot be undone. All your data, bookings, messages, and reviews will be permanently deleted.
+                            </p>
+                            <div>
+                                <label className="text-sm font-medium mb-1 block">Type DELETE to confirm</label>
+                                <input
+                                    className="w-full px-3 py-2 border rounded-lg bg-background"
+                                    value={deleteConfirmText}
+                                    onChange={(e) => setDeleteConfirmText(e.target.value)}
+                                    placeholder="DELETE"
+                                />
+                            </div>
+                            <div className="flex gap-2 justify-end">
+                                <Button variant="ghost" onClick={() => { setShowDeleteConfirm(false); setDeleteConfirmText('') }}>
+                                    Cancel
+                                </Button>
+                                <Button
+                                    className="bg-red-600 hover:bg-red-700 text-white"
+                                    disabled={deleteConfirmText !== 'DELETE' || deletingAccount}
+                                    onClick={async () => {
+                                        setDeletingAccount(true)
+                                        try {
+                                            await apiFetch('/api/v1/privacy/delete', {
+                                                method: 'POST',
+                                                body: JSON.stringify({ confirm: true }),
+                                            })
+                                            toast.success('Account deleted')
+                                            const { signOut } = await import('next-auth/react')
+                                            signOut({ callbackUrl: '/' })
+                                        } catch {
+                                            toast.error('Failed to delete account')
+                                            setDeletingAccount(false)
+                                        }
+                                    }}
+                                >
+                                    {deletingAccount ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+                                    Permanently Delete
+                                </Button>
+                            </div>
+                        </CardContent>
+                    </Card>
+                </div>
+            )}
 
             {/* Save Button */}
             <div className="flex justify-end">

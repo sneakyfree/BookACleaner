@@ -1,13 +1,12 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
-import { useSession } from 'next-auth/react'
+import { useState } from 'react'
 import {
-    Zap, Crown, Rocket, TrendingUp, Check, Loader2, AlertCircle, Star
+    Zap, Crown, Rocket, TrendingUp, Check, Loader2, AlertCircle, Star, XCircle
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { apiFetch } from '@/lib/auth/api-client'
 
 interface SponsoredListing {
     id: string
@@ -50,66 +49,45 @@ const tiers = [
 ]
 
 export default function SponsoredListingsPage() {
-    const { data: session } = useSession()
-    const [activeListing, setActiveListing] = useState<SponsoredListing | null>(null)
-    const [loading, setLoading] = useState(true)
     const [error, setError] = useState('')
-    const [purchasing, setPurchasing] = useState(false)
+    const queryClient = useQueryClient()
 
-    const userId = (session as any)?.user?.id
+    const { data: myData, isLoading: loading } = useQuery({
+        queryKey: ['sponsored-my-listing'],
+        queryFn: () => apiFetch('/api/v1/sponsored/my-listing'),
+    })
 
-    const fetchActive = useCallback(async () => {
-        if (!userId) return
+    const activeListing = (myData as any)?.listing || null
 
-        try {
-            setLoading(true)
-            const res = await fetch(`${API_URL}/api/v1/sponsored/active`)
-            if (!res.ok) throw new Error('Failed to check sponsored status')
-            const data = await res.json()
-            const mine = (data.sponsored || []).find((s: SponsoredListing) => s.cleaner_id === userId)
-            setActiveListing(mine || null)
-        } catch (err: any) {
-            setError(err.message)
-        } finally {
-            setLoading(false)
-        }
-    }, [userId])
-
-    useEffect(() => {
-        if (session) fetchActive()
-    }, [session, fetchActive])
-
-    const handlePurchase = async (priority: number, durationDays: number) => {
-        const token = (session as any)?.accessToken
-        if (!token || !userId) return
-
-        try {
-            setPurchasing(true)
-            setError('')
-            const res = await fetch(`${API_URL}/api/v1/sponsored/create`, {
+    const purchaseMut = useMutation({
+        mutationFn: ({ priority, durationDays }: { priority: number; durationDays: number }) =>
+            apiFetch('/api/v1/sponsored/create', {
                 method: 'POST',
-                headers: {
-                    Authorization: `Bearer ${token}`,
-                    'Content-Type': 'application/json',
-                },
                 body: JSON.stringify({
-                    cleaner_id: userId,
                     duration_days: durationDays,
                     priority,
                 }),
-            })
-            if (!res.ok) {
-                const data = await res.json().catch(() => null)
-                throw new Error(data?.detail || 'Purchase failed')
-            }
-            const data = await res.json()
-            setActiveListing(data)
-        } catch (err: any) {
-            setError(err.message || 'Failed to purchase listing')
-        } finally {
-            setPurchasing(false)
-        }
+            }),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['sponsored-my-listing'] })
+        },
+        onError: (err: any) => setError(err?.detail || 'Failed to purchase listing'),
+    })
+
+    const cancelMut = useMutation({
+        mutationFn: () => apiFetch('/api/v1/sponsored/cancel', { method: 'POST' }),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['sponsored-my-listing'] })
+        },
+        onError: (err: any) => setError(err?.detail || 'Failed to cancel listing'),
+    })
+
+    const handlePurchase = (priority: number, durationDays: number) => {
+        setError('')
+        purchaseMut.mutate({ priority, durationDays })
     }
+    const purchasing = purchaseMut.isPending
+    const cancelling = cancelMut.isPending
 
     return (
         <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-6">
@@ -140,6 +118,14 @@ export default function SponsoredListingsPage() {
                                 Tier {activeListing.priority} · Expires {new Date(activeListing.expires_at).toLocaleDateString()}
                             </p>
                         </div>
+                        <button
+                            onClick={() => cancelMut.mutate()}
+                            disabled={cancelling}
+                            className="ml-4 px-3 py-1.5 rounded-lg bg-red-500/20 text-red-300 text-xs font-medium hover:bg-red-500/30 transition flex items-center gap-1.5"
+                        >
+                            {cancelling ? <Loader2 className="w-3 h-3 animate-spin" /> : <XCircle className="w-3 h-3" />}
+                            Cancel
+                        </button>
                     </div>
                 )}
 

@@ -1,11 +1,13 @@
 """
 Test configuration for BookACleaner API.
 
-Uses the real file-based SQLite database via ``db.connect()``.
+Uses PostgreSQL test database (bookacleaner_test) via docker-compose.
+Falls back to SQLite in-memory if PostgreSQL is unavailable (CI without docker).
+Run ``docker-compose up db`` before running tests.
 Each test gets unique emails to avoid collisions.
-Data is wiped after each test session.
 """
 import uuid
+import os
 import pytest
 import bcrypt
 from httpx import AsyncClient, ASGITransport

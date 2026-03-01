@@ -1,11 +1,11 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState } from 'react'
 import { useSession } from 'next-auth/react'
 import { ScrollText, Clock, Search, Loader2, AlertCircle, ChevronLeft, ChevronRight, ChevronDown, Download } from 'lucide-react'
 import { cn } from '@/lib/utils'
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+import { useAdminAuditLog } from '@/hooks/use-api'
+import { apiFetch } from '@/lib/auth/api-client'
 
 interface AuditEntry {
     id: string
@@ -29,49 +29,16 @@ const eventTypeColors: Record<string, string> = {
 
 export default function AdminAuditPage() {
     const { data: session } = useSession()
-    const [entries, setEntries] = useState<AuditEntry[]>([])
-    const [loading, setLoading] = useState(true)
-    const [error, setError] = useState('')
     const [search, setSearch] = useState('')
     const [typeFilter, setTypeFilter] = useState<string>('all')
     const [page, setPage] = useState(1)
-    const [total, setTotal] = useState(0)
     const [dateRange, setDateRange] = useState('all')
     const [expandedId, setExpandedId] = useState<string | null>(null)
 
-    const fetchAudit = useCallback(async () => {
-        const token = (session as any)?.accessToken
-        if (!token) return
+    const { data: rawData, isLoading: loading, error, refetch } = useAdminAuditLog(page, typeFilter !== 'all' ? typeFilter : undefined)
 
-        try {
-            setLoading(true)
-            setError('')
-            const params = new URLSearchParams({ page: String(page), limit: '50' })
-            if (typeFilter !== 'all') params.set('event_type', typeFilter)
-            if (search) params.set('search', search)
-            if (dateRange !== 'all') {
-                const days = parseInt(dateRange)
-                const from = new Date(Date.now() - days * 86400000).toISOString()
-                params.set('date_from', from)
-            }
-
-            const res = await fetch(`${API_URL}/api/v1/admin/audit?${params}`, {
-                headers: { Authorization: `Bearer ${token}` },
-            })
-            if (!res.ok) throw new Error(`Failed to load audit log (${res.status})`)
-            const data = await res.json()
-            setEntries(data.items || data.entries || data || [])
-            setTotal(data.total || 0)
-        } catch (err: any) {
-            setError(err.message || 'Failed to load audit log')
-        } finally {
-            setLoading(false)
-        }
-    }, [session, page, typeFilter, search, dateRange])
-
-    useEffect(() => {
-        if (session) fetchAudit()
-    }, [session, fetchAudit])
+    const entries: AuditEntry[] = rawData?.items || rawData?.entries || rawData || []
+    const total = rawData?.total || entries.length
 
     const eventTypes = ['all', ...Array.from(new Set(entries.map(a => (a.event_type || '').split('.')[0]).filter(Boolean)))]
 
@@ -108,8 +75,8 @@ export default function AdminAuditPage() {
                 {error && (
                     <div className="mb-6 p-4 bg-red-500/10 border border-red-500/30 rounded-lg flex items-center gap-3">
                         <AlertCircle className="w-5 h-5 text-red-400 shrink-0" />
-                        <p className="text-red-300 text-sm">{error}</p>
-                        <button onClick={fetchAudit} className="ml-auto text-red-400 hover:text-red-300 text-sm font-medium">Retry</button>
+                        <p className="text-red-300 text-sm">{(error as any)?.detail || 'Failed to load audit log'}</p>
+                        <button onClick={() => refetch()} className="ml-auto text-red-400 hover:text-red-300 text-sm font-medium">Retry</button>
                     </div>
                 )}
 
@@ -219,17 +186,10 @@ export default function AdminAuditPage() {
                                                             <button
                                                                 onClick={async (e) => {
                                                                     e.stopPropagation()
-                                                                    const token = (session as any)?.accessToken
-                                                                    if (!token) return
                                                                     try {
-                                                                        const res = await fetch(`${API_URL}/api/v1/explain/audit/${entry.id}`, {
-                                                                            headers: { Authorization: `Bearer ${token}` },
-                                                                        })
-                                                                        if (res.ok) {
-                                                                            const data = await res.json()
-                                                                            const el = document.getElementById(`snapshot-${entry.id}`)
-                                                                            if (el) el.textContent = JSON.stringify(data, null, 2)
-                                                                        }
+                                                                        const data = await apiFetch(`/api/v1/explain/audit/${entry.id}`)
+                                                                        const el = document.getElementById(`snapshot-${entry.id}`)
+                                                                        if (el) el.textContent = JSON.stringify(data, null, 2)
                                                                     } catch { /* snapshot unavailable */ }
                                                                 }}
                                                                 className="text-brand-400 hover:text-brand-300 text-xs flex items-center gap-1"

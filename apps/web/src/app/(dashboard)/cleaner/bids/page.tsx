@@ -1,7 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { useSession } from 'next-auth/react'
+import { useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import {
@@ -10,6 +9,8 @@ import {
 } from 'lucide-react'
 import Link from 'next/link'
 import { toast } from 'sonner'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { apiFetch } from '@/lib/auth/api-client'
 
 interface Bid {
     id: string
@@ -25,50 +26,35 @@ interface Bid {
 }
 
 export default function MyBidsPage() {
-    const { data: session } = useSession()
-    const [bids, setBids] = useState<Bid[]>([])
-    const [loading, setLoading] = useState(true)
     const [statusFilter, setStatusFilter] = useState('all')
-    const [error, setError] = useState<string | null>(null)
     const [withdrawTarget, setWithdrawTarget] = useState<Bid | null>(null)
+    const queryClient = useQueryClient()
 
-    const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
-
-    useEffect(() => {
-        if ((session as any)?.accessToken) fetchBids()
-    }, [statusFilter, session])
-
-    const fetchBids = async () => {
-        try {
-            setError(null)
-            const token = (session as any)?.accessToken
+    const { data: rawBids, isLoading: loading } = useQuery({
+        queryKey: ['my-bids', statusFilter],
+        queryFn: () => {
             const params = statusFilter !== 'all' ? `?status=${statusFilter}` : ''
-            const res = await fetch(`${API_URL}/api/v1/bids/my-bids${params}`, {
-                headers: { Authorization: `Bearer ${token}` }
-            })
-            if (!res.ok) throw new Error(`Failed to load bids (${res.status})`)
-            const data = await res.json()
-            setBids(data.bids || data || [])
-        } catch (err) {
-            setError(err instanceof Error ? err.message : 'Failed to load bids')
-        } finally {
-            setLoading(false)
-        }
-    }
+            return apiFetch(`/api/v1/bids/my-bids${params}`)
+        },
+    })
 
-    const handleWithdraw = async (bidId: string) => {
-        try {
-            const token = (session as any)?.accessToken
-            await fetch(`${API_URL}/api/v1/bids/bids/${bidId}`, {
-                method: 'DELETE',
-                headers: { Authorization: `Bearer ${token}` }
-            })
+    const bids: Bid[] = (rawBids as any)?.bids || (Array.isArray(rawBids) ? rawBids : [])
+
+    const withdrawMut = useMutation({
+        mutationFn: (bidId: string) =>
+            apiFetch(`/api/v1/bids/bids/${bidId}`, { method: 'DELETE' }),
+        onSuccess: () => {
             toast.success('Bid withdrawn successfully')
             setWithdrawTarget(null)
-            fetchBids()
-        } catch {
+            queryClient.invalidateQueries({ queryKey: ['my-bids'] })
+        },
+        onError: () => {
             toast.error('Failed to withdraw bid')
-        }
+        },
+    })
+
+    const handleWithdraw = (bidId: string) => {
+        withdrawMut.mutate(bidId)
     }
 
     const getStatusConfig = (status: string) => {

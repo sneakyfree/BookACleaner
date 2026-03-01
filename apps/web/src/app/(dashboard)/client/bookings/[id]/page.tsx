@@ -1,7 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { useSession } from 'next-auth/react'
+import { useState } from 'react'
 import { useParams } from 'next/navigation'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -11,8 +10,8 @@ import {
 } from 'lucide-react'
 import Link from 'next/link'
 import { toast } from 'sonner'
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { apiFetch } from '@/lib/auth/api-client'
 
 type JobStatus = 'pending' | 'confirmed' | 'in_progress' | 'completed' | 'cancelled' | 'disputed'
 
@@ -46,12 +45,9 @@ const STATUS_CONFIG: Record<JobStatus, { color: string; bg: string; label: strin
 }
 
 export default function JobDetailPage() {
-    const { data: session } = useSession()
     const params = useParams()
     const jobId = params?.id as string
-    const [job, setJob] = useState<JobDetail | null>(null)
-    const [loading, setLoading] = useState(true)
-    const [error, setError] = useState<string | null>(null)
+    const queryClient = useQueryClient()
     const [actionLoading, setActionLoading] = useState(false)
     const [showReviewForm, setShowReviewForm] = useState(false)
     const [reviewRating, setReviewRating] = useState(5)
@@ -63,43 +59,19 @@ export default function JobDetailPage() {
     const [aiLoading, setAiLoading] = useState(false)
     const [refundLoading, setRefundLoading] = useState(false)
 
-    useEffect(() => {
-        const token = (session as any)?.accessToken
-        if (!token) {
-            setLoading(false)
-            return
-        }
-        fetchJob()
-    }, [jobId, session])
+    const { data: job, isLoading: loading, error } = useQuery<JobDetail>({
+        queryKey: ['job-detail', jobId],
+        queryFn: () => apiFetch(`/api/v1/jobs/${jobId}`),
+        enabled: !!jobId,
+    })
 
-    const fetchJob = async () => {
-        try {
-            setError(null)
-            const token = (session as any)?.accessToken
-            const res = await fetch(`${API_URL}/api/v1/jobs/${jobId}`, {
-                headers: { Authorization: `Bearer ${token}` }
-            })
-            if (!res.ok) {
-                throw new Error(`Failed to load job (${res.status})`)
-            }
-            setJob(await res.json())
-        } catch (err) {
-            console.error('Failed to fetch job:', err)
-            setError(err instanceof Error ? err.message : 'Failed to load job details')
-        } finally {
-            setLoading(false)
-        }
-    }
+    const refetchJob = () => queryClient.invalidateQueries({ queryKey: ['job-detail', jobId] })
 
     const handleAction = async (action: string) => {
         setActionLoading(true)
         try {
-            const token = (session as any)?.accessToken
-            await fetch(`${API_URL}/api/v1/jobs/${jobId}/${action}`, {
-                method: 'POST',
-                headers: { Authorization: `Bearer ${token}` }
-            })
-            fetchJob()
+            await apiFetch(`/api/v1/jobs/${jobId}/${action}`, { method: 'POST' })
+            refetchJob()
         } catch (err) {
             console.error(`Action ${action} failed:`, err)
         } finally {
@@ -110,18 +82,13 @@ export default function JobDetailPage() {
     const handleSubmitReview = async () => {
         setActionLoading(true)
         try {
-            const token = (session as any)?.accessToken
-            await fetch(`${API_URL}/api/v1/reviews`, {
+            await apiFetch('/api/v1/reviews', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    Authorization: `Bearer ${token}`
-                },
                 body: JSON.stringify({
                     job_id: jobId,
                     overall_rating: reviewRating,
                     text: reviewText,
-                })
+                }),
             })
             setShowReviewForm(false)
         } catch (err) {
@@ -135,21 +102,15 @@ export default function JobDetailPage() {
         if (!refundReason) return
         setRefundLoading(true)
         try {
-            const token = (session as any)?.accessToken
-            const res = await fetch(`${API_URL}/api/v1/payments/refund/${job?.id}`, {
+            await apiFetch(`/api/v1/payments/refund/${job?.id}`, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    Authorization: `Bearer ${token}`,
-                },
                 body: JSON.stringify({ reason: refundReason }),
             })
-            if (!res.ok) throw new Error('Refund request failed')
             toast.success('Refund request submitted successfully')
             setShowRefundModal(false)
             setRefundReason('')
-            fetchJob()
-        } catch (err) {
+            refetchJob()
+        } catch {
             toast.error('Failed to submit refund request')
         } finally {
             setRefundLoading(false)
@@ -169,7 +130,7 @@ export default function JobDetailPage() {
             <Card>
                 <CardContent className="py-12 text-center">
                     <AlertCircle className="w-12 h-12 mx-auto mb-4 text-red-500" />
-                    <p className="text-lg font-medium">{error || 'Job not found'}</p>
+                    <p className="text-lg font-medium">{(error as any)?.message || 'Job not found'}</p>
                     <Link href="/client/bookings">
                         <Button className="mt-4">Back to Bookings</Button>
                     </Link>
@@ -190,6 +151,16 @@ export default function JobDetailPage() {
                 <span className={`px-3 py-1 rounded-full text-sm font-medium ${statusConfig.bg} ${statusConfig.color}`}>
                     {statusConfig.label}
                 </span>
+                {job.payment_status && (
+                    <span className={`px-3 py-1 rounded-full text-xs font-medium ${job.payment_status === 'escrowed' ? 'bg-blue-100 dark:bg-blue-500/20 text-blue-600' :
+                        job.payment_status === 'released' ? 'bg-green-100 dark:bg-green-500/20 text-green-600' :
+                            job.payment_status === 'refunded' ? 'bg-amber-100 dark:bg-amber-500/20 text-amber-600' :
+                                'bg-slate-100 dark:bg-slate-500/20 text-slate-600'
+                        }`}>
+                        <DollarSign className="w-3 h-3 inline mr-1" />
+                        {job.payment_status.charAt(0).toUpperCase() + job.payment_status.slice(1)}
+                    </span>
+                )}
             </div>
 
             {/* Job Header */}
@@ -206,8 +177,8 @@ export default function JobDetailPage() {
                                     <div key={stage} className="flex items-center flex-1 last:flex-none">
                                         <div className="flex flex-col items-center">
                                             <div className={`w-8 h-8 rounded-full flex items-center justify-center border-2 transition-all duration-500 ${idx <= currentIdx
-                                                    ? 'bg-brand-500 border-brand-500 text-white'
-                                                    : 'border-slate-300 dark:border-slate-600 text-muted-foreground'
+                                                ? 'bg-brand-500 border-brand-500 text-white'
+                                                : 'border-slate-300 dark:border-slate-600 text-muted-foreground'
                                                 } ${idx === currentIdx ? 'ring-4 ring-brand-500/20 animate-pulse' : ''}`}>
                                                 {idx < currentIdx ? <CheckCircle className="w-4 h-4" /> : <span className="text-xs font-bold">{idx + 1}</span>}
                                             </div>
@@ -357,6 +328,64 @@ export default function JobDetailPage() {
                 </Card>
             )}
 
+            {/* Refund Request */}
+            {job.status === 'completed' && job.payment_status !== 'refunded' && (
+                <Card>
+                    <CardContent className="p-4">
+                        {!showRefundModal ? (
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    <p className="font-medium">Not satisfied?</p>
+                                    <p className="text-sm text-muted-foreground">You can request a refund within 48 hours</p>
+                                </div>
+                                <Button variant="outline" size="sm" className="text-amber-600 border-amber-300"
+                                    onClick={() => setShowRefundModal(true)}>
+                                    <RotateCcw className="w-3.5 h-3.5 mr-1" /> Request Refund
+                                </Button>
+                            </div>
+                        ) : (
+                            <div className="space-y-3">
+                                <p className="font-medium text-amber-600">Request Refund</p>
+                                <textarea
+                                    className="w-full px-3 py-2 border rounded-lg bg-background text-sm resize-none"
+                                    rows={3}
+                                    placeholder="Please describe the reason for your refund request..."
+                                    value={refundReason}
+                                    onChange={(e) => setRefundReason(e.target.value)}
+                                />
+                                <div className="flex gap-2 justify-end">
+                                    <Button variant="ghost" size="sm" onClick={() => { setShowRefundModal(false); setRefundReason('') }}>
+                                        Cancel
+                                    </Button>
+                                    <Button size="sm" disabled={!refundReason.trim() || refundLoading}
+                                        className="bg-amber-600 hover:bg-amber-700 text-white"
+                                        onClick={async () => {
+                                            setRefundLoading(true)
+                                            try {
+                                                await apiFetch(`/api/v1/jobs/${jobId}/request-refund`, {
+                                                    method: 'POST',
+                                                    body: JSON.stringify({ reason: refundReason }),
+                                                })
+                                                toast.success('Refund request submitted')
+                                                setShowRefundModal(false)
+                                                setRefundReason('')
+                                                refetchJob()
+                                            } catch {
+                                                toast.error('Failed to submit refund request')
+                                            } finally {
+                                                setRefundLoading(false)
+                                            }
+                                        }}>
+                                        {refundLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" /> : null}
+                                        Submit Request
+                                    </Button>
+                                </div>
+                            </div>
+                        )}
+                    </CardContent>
+                </Card>
+            )}
+
             {/* AI Job Summary */}
             {job.status === 'completed' && (
                 <Card>
@@ -366,18 +395,11 @@ export default function JobDetailPage() {
                             if (!aiSummary && !aiLoading) {
                                 setAiLoading(true)
                                 try {
-                                    const token = (session as any)?.accessToken
-                                    const res = await fetch(`${API_URL}/api/v1/ai/job-summary`, {
+                                    const data = await apiFetch('/api/v1/ai/job-summary', {
                                         method: 'POST',
-                                        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
                                         body: JSON.stringify({ job_id: job.id, title: job.title, services: job.services, total_price: job.total_price }),
                                     })
-                                    if (res.ok) {
-                                        const data = await res.json()
-                                        setAiSummary(data.summary || data.message || 'Summary generated successfully.')
-                                    } else {
-                                        setAiSummary('Unable to generate summary at this time.')
-                                    }
+                                    setAiSummary(data.summary || data.message || 'Summary generated successfully.')
                                 } catch { setAiSummary('Unable to generate summary at this time.') }
                                 setAiLoading(false)
                             }

@@ -3,17 +3,35 @@ Sponsored Listings API — G1
 Cleaners can boost their visibility via paid sponsored placements.
 Persists all data to the database via SponsoredListing model.
 """
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Header, status
 from pydantic import BaseModel
 from datetime import datetime, timedelta
+from typing import Optional
 import logging
 
 from app.database import get_db
 from app.config import get_settings
 
+
 router = APIRouter()
 settings = get_settings()
 logger = logging.getLogger(__name__)
+
+
+async def _get_user_id(authorization: str = Header(None)) -> str:
+    """Extract user ID from JWT token."""
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    from jose import jwt, JWTError
+    try:
+        token = authorization.replace("Bearer ", "")
+        payload = jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
+        user_id = payload.get("sub")
+        if not user_id:
+            raise HTTPException(status_code=401, detail="Invalid token")
+        return user_id
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Invalid token")
 
 
 class CreateSponsoredRequest(BaseModel):
@@ -32,21 +50,25 @@ class SponsoredListingResponse(BaseModel):
 
 
 @router.post("/create", response_model=SponsoredListingResponse)
-async def create_sponsored_listing(data: CreateSponsoredRequest, db=Depends(get_db)):
+async def create_sponsored_listing(
+    data: CreateSponsoredRequest,
+    user_id: str = Depends(_get_user_id),
+    db=Depends(get_db),
+):
     """Create a sponsored listing boost for a cleaner profile."""
 
-    # Verify cleaner exists
-    cleaner = await db.cleaner.find_unique(where={"id": data.cleaner_id})
+    # Verify cleaner exists and belongs to user
+    cleaner = await db.cleaner.find_first(where={"user_id": user_id})
     if not cleaner:
         raise HTTPException(status_code=404, detail="Cleaner profile not found")
 
+    cleaner_id = cleaner["id"]
     now = datetime.utcnow()
     expires = now + timedelta(days=data.duration_days)
 
-    # In production, would create Stripe checkout then activate on payment
-    # For now, activate directly and persist to DB
+    # Create listing as active (in production, would gate on Stripe checkout)
     listing = await db.sponsored_listing.create(data={
-        "cleaner_id": data.cleaner_id,
+        "cleaner_id": cleaner_id,
         "status": "active",
         "priority": data.priority,
         "duration_days": data.duration_days,
@@ -54,7 +76,7 @@ async def create_sponsored_listing(data: CreateSponsoredRequest, db=Depends(get_
         "expires_at": expires,
     })
 
-    logger.info(f"Sponsored listing created for cleaner {data.cleaner_id}")
+    logger.info(f"Sponsored listing created for cleaner {cleaner_id}")
     
     return SponsoredListingResponse(
         id=listing["id"],
@@ -66,13 +88,78 @@ async def create_sponsored_listing(data: CreateSponsoredRequest, db=Depends(get_
     )
 
 
+@router.get("/my-listing")
+async def get_my_listing(
+    user_id: str = Depends(_get_user_id),
+    db=Depends(get_db),
+):
+    """Return the calling user's active sponsored listing."""
+    cleaner = await db.cleaner.find_first(where={"user_id": user_id})
+    if not cleaner:
+        return {"listing": None}
+
+    now = datetime.utcnow()
+    listings = await db.sponsored_listing.find_many(
+        where={"cleaner_id": cleaner["id"], "status": "active"}
+    )
+    active = None
+    for l in listings:
+        exp = l.get("expires_at")
+        if exp:
+            try:
+                exp_dt = datetime.fromisoformat(str(exp)) if isinstance(exp, str) else exp
+                if exp_dt > now:
+                    active = l
+                    break
+            except (ValueError, TypeError):
+                pass
+
+    if not active:
+        return {"listing": None}
+
+    return {
+        "listing": {
+            "id": active["id"],
+            "cleaner_id": active["cleaner_id"],
+            "priority": active["priority"],
+            "status": active["status"],
+            "starts_at": str(active.get("starts_at", "")),
+            "expires_at": str(active.get("expires_at", "")),
+        }
+    }
+
+
+@router.post("/cancel")
+async def cancel_sponsored_listing(
+    user_id: str = Depends(_get_user_id),
+    db=Depends(get_db),
+):
+    """Cancel the calling user's active sponsored listing."""
+    cleaner = await db.cleaner.find_first(where={"user_id": user_id})
+    if not cleaner:
+        raise HTTPException(status_code=404, detail="Cleaner profile not found")
+
+    listings = await db.sponsored_listing.find_many(
+        where={"cleaner_id": cleaner["id"], "status": "active"}
+    )
+    if not listings:
+        raise HTTPException(status_code=404, detail="No active sponsored listing found")
+
+    for l in listings:
+        await db.sponsored_listing.update(
+            where={"id": l["id"]},
+            data={"status": "cancelled"},
+        )
+
+    logger.info(f"Sponsored listing cancelled for cleaner {cleaner['id']}")
+    return {"message": "Sponsored listing cancelled successfully"}
+
+
 @router.get("/active")
 async def get_active_sponsored(db=Depends(get_db)):
     """Return currently active sponsored cleaner listings."""
-    # Query all sponsored listings from DB
     all_listings = await db.sponsored_listing.find_many(where={"status": "active"})
     
-    # Filter to only non-expired listings
     now = datetime.utcnow()
     active = []
     for listing in all_listings:
@@ -85,7 +172,6 @@ async def get_active_sponsored(db=Depends(get_db)):
             except (ValueError, TypeError):
                 pass
     
-    # Sort by priority descending (featured first)
     active.sort(key=lambda x: x.get("priority", 1), reverse=True)
     
     return {

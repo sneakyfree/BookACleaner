@@ -1,13 +1,13 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { useSession } from 'next-auth/react'
+import { useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import {
     AlertTriangle, CheckCircle, Clock, Eye,
     DollarSign, User, Filter, ChevronDown, Loader2
 } from 'lucide-react'
+import { useAdminDisputes, useResolveDispute } from '@/hooks/use-api'
 
 interface Dispute {
     id: string
@@ -23,56 +23,26 @@ interface Dispute {
 }
 
 export default function AdminDisputesPage() {
-    const { data: session } = useSession()
-    const [disputes, setDisputes] = useState<Dispute[]>([])
-    const [loading, setLoading] = useState(true)
     const [statusFilter, setStatusFilter] = useState('all')
     const [selectedDispute, setSelectedDispute] = useState<Dispute | null>(null)
     const [resolutionNotes, setResolutionNotes] = useState('')
-    const [resolving, setResolving] = useState(false)
-    const [error, setError] = useState<string | null>(null)
 
-    const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+    const { data: rawData, isLoading: loading, error } = useAdminDisputes(1, statusFilter !== 'all' ? statusFilter : undefined)
+    const resolveMut = useResolveDispute()
 
-    useEffect(() => {
-        if ((session as any)?.accessToken) fetchDisputes()
-    }, [statusFilter, session])
+    const disputes: Dispute[] = rawData?.disputes || rawData || []
+    const resolving = resolveMut.isPending
 
-    const fetchDisputes = async () => {
-        try {
-            setError(null)
-            const token = (session as any)?.accessToken
-            const params = statusFilter !== 'all' ? `?status=${statusFilter}` : ''
-            const res = await fetch(`${API_URL}/api/v1/disputes${params}`, {
-                headers: { Authorization: `Bearer ${token}` }
-            })
-            if (!res.ok) throw new Error(`Failed to load disputes (${res.status})`)
-            const data = await res.json()
-            setDisputes(data.disputes || data || [])
-        } catch (err) {
-            setError(err instanceof Error ? err.message : 'Failed to load disputes')
-        } finally {
-            setLoading(false)
-        }
-    }
-
-    const handleResolve = async (disputeId: string, action: string) => {
-        setResolving(true)
-        try {
-            const token = (session as any)?.accessToken
-            await fetch(`${API_URL}/api/v1/disputes/${disputeId}/resolve`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-                body: JSON.stringify({ resolution_notes: resolutionNotes, action })
-            })
-            setSelectedDispute(null)
-            setResolutionNotes('')
-            fetchDisputes()
-        } catch {
-            setError('Failed to resolve dispute')
-        } finally {
-            setResolving(false)
-        }
+    const handleResolve = (disputeId: string, action: string) => {
+        resolveMut.mutate(
+            { id: disputeId, data: { resolution_notes: resolutionNotes, action } },
+            {
+                onSuccess: () => {
+                    setSelectedDispute(null)
+                    setResolutionNotes('')
+                },
+            }
+        )
     }
 
     const getStatusBadge = (status: string) => {
