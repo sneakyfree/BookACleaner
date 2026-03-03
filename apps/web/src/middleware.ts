@@ -5,17 +5,20 @@ export default withAuth(
     function middleware(req) {
         const token = req.nextauth.token
         const path = req.nextUrl.pathname
+        // Normalize role to lowercase for case-insensitive comparison
+        // Backend stores lowercase ('client'), NextAuth may use uppercase ('CLIENT')
+        const role = (token?.role as string || '').toLowerCase()
 
         // Role-based routing
-        if (path.startsWith('/cleaner') && token?.role !== 'CLEANER') {
+        if (path.startsWith('/cleaner') && role !== 'cleaner') {
             return NextResponse.redirect(new URL('/dashboard', req.url))
         }
 
-        if (path.startsWith('/client') && token?.role !== 'CLIENT') {
+        if (path.startsWith('/client') && role !== 'client') {
             return NextResponse.redirect(new URL('/dashboard', req.url))
         }
 
-        if (path.startsWith('/admin') && token?.role !== 'ADMIN') {
+        if (path.startsWith('/admin') && role !== 'admin') {
             return NextResponse.redirect(new URL('/dashboard', req.url))
         }
 

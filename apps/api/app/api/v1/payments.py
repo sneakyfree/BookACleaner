@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Request, HTTPException, Depends, Header
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional
 import stripe
 import os
@@ -7,6 +7,7 @@ import logging
 
 from app.config import get_settings
 from app.database import get_db
+from app.api.deps import get_current_user, get_admin_user
 
 router = APIRouter()
 settings = get_settings()
@@ -19,8 +20,8 @@ PLATFORM_FEE_PERCENT = 15  # 15% platform fee
 
 
 class CreatePaymentIntentRequest(BaseModel):
-    amount: int  # in cents
-    jobId: str
+    amount: int = Field(gt=0, le=5000000, description="Amount in cents")  # max $50,000
+    jobId: str = Field(min_length=1)
     customerId: Optional[str] = None
     capture_method: str = "manual"  # manual = escrow hold
 
@@ -36,28 +37,11 @@ class OnboardingLinkRequest(BaseModel):
     refreshUrl: str
 
 
-# ==================== AUTH HELPER ====================
-
-async def get_current_user(authorization: str = Header(None), db=Depends(get_db)):
-    if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Not authenticated")
-    from jose import jwt, JWTError
-    token = authorization.replace("Bearer ", "")
-    try:
-        payload = jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
-        user_id = payload.get("sub")
-        if not user_id:
-            raise HTTPException(status_code=401, detail="Invalid token")
-    except JWTError:
-        raise HTTPException(status_code=401, detail="Invalid token")
-    user = await db.user.find_unique(where={"id": user_id})
-    if not user:
-        raise HTTPException(status_code=401, detail="User not found")
-    return user
+# Auth imported from app.api.deps (canonical source)
 
 
 @router.post("/create-payment-intent")
-async def create_payment_intent(data: CreatePaymentIntentRequest, db=Depends(get_db)):
+async def create_payment_intent(data: CreatePaymentIntentRequest, user=Depends(get_current_user), db=Depends(get_db)):
     """Create a payment intent for a job booking (escrow hold by default)."""
     try:
         intent = stripe.PaymentIntent.create(
@@ -91,7 +75,7 @@ async def create_payment_intent(data: CreatePaymentIntentRequest, db=Depends(get
 
 
 @router.post("/capture-payment/{payment_intent_id}")
-async def capture_payment(payment_intent_id: str, db=Depends(get_db)):
+async def capture_payment(payment_intent_id: str, user=Depends(get_admin_user), db=Depends(get_db)):
     """Capture a held payment (after job is completed)."""
     try:
         intent = stripe.PaymentIntent.capture(payment_intent_id)
@@ -112,7 +96,7 @@ async def capture_payment(payment_intent_id: str, db=Depends(get_db)):
 
 
 @router.post("/refund/{payment_intent_id}")
-async def refund_payment(payment_intent_id: str, amount: Optional[int] = None, db=Depends(get_db)):
+async def refund_payment(payment_intent_id: str, amount: Optional[int] = None, user=Depends(get_admin_user), db=Depends(get_db)):
     """Refund a payment (full or partial)."""
     try:
         refund = stripe.Refund.create(
@@ -201,7 +185,7 @@ async def release_payment(job_id: str, user=Depends(get_current_user), db=Depend
 
 
 @router.post("/create-connected-account")
-async def create_connected_account(data: CreateConnectedAccountRequest):
+async def create_connected_account(data: CreateConnectedAccountRequest, user=Depends(get_current_user)):
     """Create a Stripe Connect account for a cleaner."""
     try:
         account = stripe.Account.create(
@@ -220,7 +204,7 @@ async def create_connected_account(data: CreateConnectedAccountRequest):
 
 
 @router.post("/create-account-link")
-async def create_account_link(data: OnboardingLinkRequest):
+async def create_account_link(data: OnboardingLinkRequest, user=Depends(get_current_user)):
     """Create an onboarding link for Stripe Connect."""
     try:
         link = stripe.AccountLink.create(
@@ -235,7 +219,7 @@ async def create_account_link(data: OnboardingLinkRequest):
 
 
 @router.get("/account-status/{account_id}")
-async def get_account_status(account_id: str):
+async def get_account_status(account_id: str, user=Depends(get_current_user)):
     """Get Stripe Connect account status."""
     try:
         account = stripe.Account.retrieve(account_id)
@@ -249,7 +233,7 @@ async def get_account_status(account_id: str):
 
 
 @router.post("/transfer")
-async def create_transfer(amount: int, destination_account_id: str, job_id: str):
+async def create_transfer(amount: int, destination_account_id: str, job_id: str, user=Depends(get_admin_user)):
     """Transfer funds to cleaner after job completion."""
     try:
         transfer = stripe.Transfer.create(

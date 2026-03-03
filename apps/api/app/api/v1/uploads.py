@@ -3,7 +3,7 @@ from pydantic import BaseModel
 from typing import Optional
 import io
 
-from app.services.storage import file_upload_service, MAX_FILE_SIZES
+from app.services.storage import file_upload_service, MAX_FILE_SIZES, ALLOWED_TYPES
 from app.api.deps import get_current_user
 
 router = APIRouter()
@@ -90,6 +90,15 @@ async def get_presigned_upload_url(
         raise HTTPException(
             status_code=400,
             detail=f"Invalid category. Must be one of: {list(MAX_FILE_SIZES.keys())}"
+        )
+
+    # Validate content type against allowed types
+    is_image_category = data.category in ['profile_photo', 'portfolio', 'job_photo']
+    allowed = ALLOWED_TYPES['image'] if is_image_category else ALLOWED_TYPES['document']
+    if data.content_type not in allowed:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Content type '{data.content_type}' not allowed for {data.category}. Allowed: {allowed}"
         )
     
     result = await file_upload_service.get_presigned_upload_url(

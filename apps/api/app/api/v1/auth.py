@@ -1,9 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Header
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field, field_validator
 import bcrypt
 from datetime import datetime, timedelta
 from jose import jwt, JWTError
 import secrets
+import re
 import logging
 
 from app.database import get_db
@@ -27,8 +28,19 @@ def verify_password(password: str, hashed: str) -> bool:
 
 class RegisterRequest(BaseModel):
     email: EmailStr
-    password: str
+    password: str = Field(min_length=8, max_length=128)
     role: str  # 'client' or 'cleaner'
+
+    @field_validator('password')
+    @classmethod
+    def validate_password_strength(cls, v: str) -> str:
+        if not re.search(r'[A-Z]', v):
+            raise ValueError('Password must contain at least one uppercase letter')
+        if not re.search(r'[a-z]', v):
+            raise ValueError('Password must contain at least one lowercase letter')
+        if not re.search(r'[0-9]', v):
+            raise ValueError('Password must contain at least one digit')
+        return v
 
 
 class LoginRequest(BaseModel):
@@ -49,7 +61,18 @@ class ForgotPasswordRequest(BaseModel):
 
 class ResetPasswordRequest(BaseModel):
     token: str
-    password: str
+    password: str = Field(min_length=8, max_length=128)
+
+    @field_validator('password')
+    @classmethod
+    def validate_password_strength(cls, v: str) -> str:
+        if not re.search(r'[A-Z]', v):
+            raise ValueError('Password must contain at least one uppercase letter')
+        if not re.search(r'[a-z]', v):
+            raise ValueError('Password must contain at least one lowercase letter')
+        if not re.search(r'[0-9]', v):
+            raise ValueError('Password must contain at least one digit')
+        return v
 
 
 class VerifyEmailRequest(BaseModel):
@@ -196,7 +219,8 @@ class RefreshTokenRequest(BaseModel):
 @router.post("/refresh")
 async def refresh_token(data: RefreshTokenRequest, db = Depends(get_db)):
     """Refresh an access token. Accepts a (possibly expired) access token and
-    returns a new one if the underlying user is still valid."""
+    returns a new one if the underlying user is still valid.
+    Max token age for refresh: 7 days."""
     try:
         # Decode token, allowing expired tokens so refresh works even if slightly past expiry
         payload = jwt.decode(
@@ -218,12 +242,31 @@ async def refresh_token(data: RefreshTokenRequest, db = Depends(get_db)):
             detail="Invalid token payload",
         )
 
-    # Verify user still exists
+    # Enforce max token age (7 days) — prevent infinite refresh of ancient tokens
+    issued_at = payload.get("exp")
+    if issued_at:
+        token_expiry = datetime.utcfromtimestamp(issued_at)
+        max_refresh_window = timedelta(days=settings.refresh_token_expire_days)
+        if datetime.utcnow() - token_expiry > max_refresh_window:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Token too old to refresh. Please log in again.",
+            )
+
+    # Verify user still exists and is active
     user = await db.user.find_unique(where={"id": user_id})
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="User not found",
+        )
+
+    # Check if user is banned/suspended
+    user_status = user.get("status", "active")
+    if user_status in ("banned", "suspended"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Account is {user_status}. Contact support.",
         )
 
     # Issue fresh access token
@@ -442,7 +485,20 @@ class OAuthGoogleRequest(BaseModel):
 
 @router.post("/oauth/google", response_model=TokenResponse)
 async def oauth_google(data: OAuthGoogleRequest, db = Depends(get_db)):
-    """Handle Google OAuth callback from NextAuth"""
+    """Handle Google OAuth callback from NextAuth.
+    
+    SECURITY NOTE: This endpoint trusts NextAuth to have verified the Google
+    ID token. In production, the NextAuth server-side callback verifies the
+    Google JWT, and only then calls this endpoint. Direct calls to this 
+    endpoint should be restricted to the NextAuth server via CORS and a 
+    shared secret.
+    """
+    
+    if not data.email:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Email is required"
+        )
     
     # Check if user exists
     user = await db.user.find_unique(where={"email": data.email})
@@ -459,6 +515,14 @@ async def oauth_google(data: OAuthGoogleRequest, db = Depends(get_db)):
                 "is_verified": True,  # OAuth users are verified
                 "email_verified_at": datetime.utcnow(),
             }
+        )
+    
+    # Check if user is banned/suspended
+    user_status = user.get("status", "active")
+    if user_status in ("banned", "suspended"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Account is {user_status}. Contact support."
         )
     
     # Create access token

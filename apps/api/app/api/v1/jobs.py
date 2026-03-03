@@ -3,7 +3,7 @@ Jobs API for BookACleaner.ai
 Handles job creation, listing, and status management
 """
 from fastapi import APIRouter, Depends, HTTPException, Query, Header
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import List, Optional
 from datetime import datetime
 import uuid
@@ -11,6 +11,7 @@ import logging
 
 from app.database import get_db
 from app.config import get_settings
+from app.api.deps import get_current_user
 
 router = APIRouter()
 settings = get_settings()
@@ -21,13 +22,13 @@ logger = logging.getLogger(__name__)
 
 class CreateJobRequest(BaseModel):
     cleaner_id: Optional[str] = None
-    property_id: str
-    services: List[str]
-    scheduled_date: str
-    scheduled_time: str
-    description: Optional[str] = None
+    property_id: str = Field(min_length=1)
+    services: List[str] = Field(min_length=1)
+    scheduled_date: str = Field(min_length=1)
+    scheduled_time: str = Field(min_length=1)
+    description: Optional[str] = Field(default=None, max_length=2000)
     job_type: str = "direct"
-    estimated_hours: Optional[float] = None
+    estimated_hours: Optional[float] = Field(default=None, ge=0.5, le=24)
 
 
 class UpdateJobStatusRequest(BaseModel):
@@ -70,29 +71,40 @@ def calculate_price(services: List[str], sqft: int = 1500) -> float:
     return round(total, 2)
 
 
-# ==================== AUTH HELPER ====================
+# ==================== AUTH ====================
+# Auth imported from app.api.deps (canonical source)
 
-async def get_current_user(authorization: str = Header(None), db = Depends(get_db)):
-    """Get current user from Bearer token"""
-    if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Not authenticated")
+
+# ==================== OWNERSHIP HELPERS ====================
+
+async def _verify_job_access(job, user, db, require_role=None):
+    """Verify user has access to this job. Returns (job, user_role_on_job)."""
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
     
-    from jose import jwt, JWTError
-    token = authorization.replace("Bearer ", "")
+    user_role = user.get("role")
     
-    try:
-        payload = jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
-        user_id = payload.get("sub")
-        if not user_id:
-            raise HTTPException(status_code=401, detail="Invalid token")
-    except JWTError:
-        raise HTTPException(status_code=401, detail="Invalid token")
+    # Admins can access all jobs
+    if user_role == "admin":
+        return job, "admin"
     
-    user = await db.user.find_unique(where={"id": user_id})
-    if not user:
-        raise HTTPException(status_code=401, detail="User not found")
+    # Check if user is the client for this job
+    if user_role == "client":
+        client = await db.client.find_first(where={"user_id": user["id"]})
+        if client and client["id"] == job.get("client_id"):
+            if require_role and require_role != "client":
+                raise HTTPException(status_code=403, detail=f"Only {require_role}s can perform this action")
+            return job, "client"
     
-    return user
+    # Check if user is the cleaner for this job
+    if user_role == "cleaner":
+        cleaner = await db.cleaner.find_first(where={"user_id": user["id"]})
+        if cleaner and cleaner["id"] == job.get("cleaner_id"):
+            if require_role and require_role != "cleaner":
+                raise HTTPException(status_code=403, detail=f"Only {require_role}s can perform this action")
+            return job, "cleaner"
+    
+    raise HTTPException(status_code=403, detail="You do not have access to this job")
 
 
 # ==================== ENDPOINTS ====================
@@ -126,9 +138,13 @@ async def list_jobs(
     
     jobs = await db.job.find_many(where=where)
     
+    # Apply pagination
+    offset = (page - 1) * limit
+    paginated_jobs = jobs[offset:offset + limit]
+    
     # Enrich with property, cleaner, and client data
     enriched = []
-    for job in jobs:
+    for job in paginated_jobs:
         data = dict(job)
         
         # Get property
@@ -361,6 +377,9 @@ async def update_job_status(
     if data.status not in valid_statuses:
         raise HTTPException(status_code=400, detail=f"Invalid status. Must be one of: {valid_statuses}")
     
+    job = await db.job.find_unique(where={"id": job_id})
+    await _verify_job_access(job, user, db)
+    
     update_data = {"status": data.status}
     
     # Set timestamps
@@ -431,10 +450,19 @@ async def decline_job(
 ):
     """Cleaner declines a job"""
     
-    job = await db.job.update(where={"id": job_id}, data={"status": "pending", "cleaner_id": None})
+    if user["role"] != "cleaner":
+        raise HTTPException(status_code=403, detail="Only cleaners can decline jobs")
     
+    # Verify this cleaner is assigned to this job
+    job = await db.job.find_unique(where={"id": job_id})
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
+    
+    cleaner = await db.cleaner.find_first(where={"user_id": user["id"]})
+    if not cleaner or cleaner["id"] != job.get("cleaner_id"):
+        raise HTTPException(status_code=403, detail="You are not assigned to this job")
+    
+    job = await db.job.update(where={"id": job_id}, data={"status": "pending", "cleaner_id": None})
     
     return {"id": job_id, "status": "pending"}
 
@@ -447,13 +475,19 @@ async def start_job(
 ):
     """Cleaner starts working on a job"""
     
+    if user["role"] != "cleaner":
+        raise HTTPException(status_code=403, detail="Only cleaners can start jobs")
+    
+    job = await db.job.find_unique(where={"id": job_id})
+    await _verify_job_access(job, user, db, require_role="cleaner")
+    
+    if job.get("status") != "confirmed":
+        raise HTTPException(status_code=400, detail="Job must be confirmed before starting")
+    
     job = await db.job.update(
         where={"id": job_id},
         data={"status": "in_progress", "started_at": datetime.utcnow()}
     )
-    
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
     
     # Notify client that cleaning has started
     try:
@@ -478,13 +512,19 @@ async def complete_job(
 ):
     """Mark job as completed"""
     
+    if user["role"] != "cleaner":
+        raise HTTPException(status_code=403, detail="Only cleaners can mark jobs as complete")
+    
+    job = await db.job.find_unique(where={"id": job_id})
+    await _verify_job_access(job, user, db, require_role="cleaner")
+    
+    if job.get("status") != "in_progress":
+        raise HTTPException(status_code=400, detail="Job must be in progress before completing")
+    
     job = await db.job.update(
         where={"id": job_id},
         data={"status": "completed", "completed_at": datetime.utcnow()}
     )
-    
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
     
     # Notify client: job done + request review
     try:
@@ -530,9 +570,12 @@ async def cancel_job(
 ):
     """Cancel a job"""
     
-    job = await db.job.update(where={"id": job_id}, data={"status": "cancelled"})
+    job = await db.job.find_unique(where={"id": job_id})
+    await _verify_job_access(job, user, db)
     
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
+    if job.get("status") in ["completed", "cancelled"]:
+        raise HTTPException(status_code=400, detail=f"Cannot cancel a {job.get('status')} job")
+    
+    job = await db.job.update(where={"id": job_id}, data={"status": "cancelled"})
     
     return {"id": job_id, "status": "cancelled"}
