@@ -163,6 +163,70 @@ async def check_email_health() -> DependencyHealth:
     )
 
 
+async def check_twilio_health() -> DependencyHealth:
+    """Check Twilio API connectivity"""
+    twilio_sid = os.getenv("TWILIO_ACCOUNT_SID", "")
+    if not twilio_sid or twilio_sid.startswith("AC_mock") or len(twilio_sid) < 20:
+        return DependencyHealth(
+            name="twilio",
+            status="healthy",
+            message="Not configured (dev mode)",
+        )
+
+    try:
+        from twilio.rest import Client
+        import time
+
+        start = time.perf_counter()
+        client = Client(twilio_sid, os.getenv("TWILIO_AUTH_TOKEN", ""))
+        # Lightweight check: fetch account info
+        client.api.accounts(twilio_sid).fetch()
+        latency = (time.perf_counter() - start) * 1000
+
+        return DependencyHealth(
+            name="twilio",
+            status="healthy",
+            latency_ms=round(latency, 2),
+        )
+    except ImportError:
+        return DependencyHealth(name="twilio", status="healthy", message="SDK not installed")
+    except Exception as e:
+        logger.warning(f"Twilio health check failed: {e}")
+        return DependencyHealth(name="twilio", status="degraded", message=str(e)[:100])
+
+
+async def check_openai_health() -> DependencyHealth:
+    """Check OpenAI API connectivity"""
+    api_key = os.getenv("OPENAI_API_KEY", "")
+    if not api_key or api_key.startswith("sk-mock"):
+        return DependencyHealth(
+            name="openai",
+            status="healthy",
+            message="Not configured (mock mode)",
+        )
+
+    try:
+        from openai import AsyncOpenAI
+        import time
+
+        start = time.perf_counter()
+        client = AsyncOpenAI(api_key=api_key)
+        # Lightweight check: list models (minimal API call)
+        await client.models.list()
+        latency = (time.perf_counter() - start) * 1000
+
+        return DependencyHealth(
+            name="openai",
+            status="healthy",
+            latency_ms=round(latency, 2),
+        )
+    except ImportError:
+        return DependencyHealth(name="openai", status="healthy", message="SDK not installed")
+    except Exception as e:
+        logger.warning(f"OpenAI health check failed: {e}")
+        return DependencyHealth(name="openai", status="degraded", message=str(e)[:100])
+
+
 @router.get("/health", response_model=HealthResponse)
 async def deep_health_check():
     """
@@ -179,6 +243,8 @@ async def deep_health_check():
         check_redis_health(),
         check_stripe_health(),
         check_email_health(),
+        check_twilio_health(),
+        check_openai_health(),
         return_exceptions=True,
     )
     
@@ -232,12 +298,23 @@ async def readiness_probe():
     """
     Kubernetes readiness probe.
     Returns 200 if the application is ready to receive traffic.
+    Checks all critical dependencies.
     """
-    # Check critical dependencies
-    db_health = await check_database_health()
+    # Check critical dependencies concurrently
+    db_health, stripe_health = await asyncio.gather(
+        check_database_health(),
+        check_stripe_health(),
+        return_exceptions=True,
+    )
     
-    if db_health.status == "unhealthy":
-        return {"status": "not_ready", "reason": "database unavailable"}
+    issues = []
+    if isinstance(db_health, Exception) or (hasattr(db_health, 'status') and db_health.status == "unhealthy"):
+        issues.append("database unavailable")
+    if isinstance(stripe_health, Exception) or (hasattr(stripe_health, 'status') and stripe_health.status == "unhealthy"):
+        issues.append("stripe unavailable")
+    
+    if issues:
+        return {"status": "not_ready", "reasons": issues}
     
     return {"status": "ready"}
 

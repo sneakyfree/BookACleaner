@@ -1,6 +1,7 @@
 """
 Structured Logging Middleware
-Provides JSON logging with request tracing and performance metrics
+Provides JSON logging with request tracing, performance metrics,
+correlation IDs, and user context for production observability.
 """
 
 from fastapi import Request
@@ -10,9 +11,14 @@ import uuid
 import time
 import logging
 import json
+import os
 from typing import Optional
 
 logger = logging.getLogger(__name__)
+
+_SERVICE = "bookacleaner-api"
+_ENV = os.getenv("ENVIRONMENT", "development")
+_VERSION = os.getenv("APP_VERSION", "0.1.0")
 
 
 class RequestLoggingMiddleware(BaseHTTPMiddleware):
@@ -27,11 +33,26 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
         self.slow_request_threshold_ms = slow_request_threshold_ms
     
     async def dispatch(self, request: Request, call_next):
-        # Generate unique request ID
+        # Correlation ID: propagate from upstream or generate new
+        correlation_id = request.headers.get("x-correlation-id") or str(uuid.uuid4())
         request_id = str(uuid.uuid4())[:8]
         
-        # Store in request state for access in handlers
+        # Store in request state for access in handlers and async jobs
         request.state.request_id = request_id
+        request.state.correlation_id = correlation_id
+        
+        # Extract user_id from Authorization header (best-effort, no validation)
+        user_id = None
+        auth_header = request.headers.get("authorization", "")
+        if auth_header.startswith("Bearer "):
+            try:
+                import base64
+                token = auth_header.split(" ")[1]
+                payload_b64 = token.split(".")[1] + "=="
+                payload = json.loads(base64.urlsafe_b64decode(payload_b64))
+                user_id = payload.get("sub")
+            except Exception:
+                pass  # Best-effort extraction, don't block request
         
         # Record start time
         start_time = time.perf_counter()
@@ -41,10 +62,15 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
         if not client_ip and request.client:
             client_ip = request.client.host
         
-        # Log request
+        # Log request start
         log_data = {
             "event": "request_started",
+            "service": _SERVICE,
+            "env": _ENV,
+            "version": _VERSION,
             "request_id": request_id,
+            "correlation_id": correlation_id,
+            "user_id": user_id,
             "method": request.method,
             "path": request.url.path,
             "query": str(request.query_params) if request.query_params else None,
@@ -67,19 +93,33 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
             # Calculate duration
             duration_ms = (time.perf_counter() - start_time) * 1000
             
+            status_code = response.status_code if response else 500
+            
+            # Record metrics
+            try:
+                from app.core.metrics import record_request
+                record_request(request.url.path, status_code, duration_ms / 1000)
+            except Exception:
+                pass  # Don't break request if metrics fail
+            
             # Log response
             log_data = {
                 "event": "request_completed",
+                "service": _SERVICE,
+                "env": _ENV,
                 "request_id": request_id,
+                "correlation_id": correlation_id,
+                "user_id": user_id,
                 "method": request.method,
                 "path": request.url.path,
-                "status_code": response.status_code if response else 500,
+                "status_code": status_code,
                 "duration_ms": round(duration_ms, 2),
                 "timestamp": datetime.utcnow().isoformat(),
             }
             
             if error:
-                log_data["error"] = error
+                log_data["error_type"] = type(error).__name__ if not isinstance(error, str) else "Exception"
+                log_data["error_message"] = str(error)[:200]  # Sanitized truncation
             
             # Log slow requests as warnings
             if duration_ms > self.slow_request_threshold_ms:
@@ -88,9 +128,10 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
             else:
                 logger.info(json.dumps(log_data))
         
-        # Add request ID to response headers
+        # Add tracing headers to response
         if response:
             response.headers["X-Request-ID"] = request_id
+            response.headers["X-Correlation-ID"] = correlation_id
         
         return response
 

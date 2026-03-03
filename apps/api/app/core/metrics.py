@@ -22,7 +22,14 @@ _metrics: Dict[str, Any] = {
     "jobs_cancelled_total": 0,
     "payments_processed_total": 0,
     "payments_amount_total": 0.0,
+    "payments_failed_total": 0,
     "messages_sent_total": 0,
+    "sms_sent_total": 0,
+    "sms_failed_total": 0,
+    "ai_chat_total": 0,
+    "ai_chat_failed_total": 0,
+    "webhook_received_total": 0,
+    "webhook_failed_total": 0,
     "errors_total": 0,
     "startup_time": datetime.now().isoformat(),
 }
@@ -85,6 +92,37 @@ def set_active_cleaners(count: int):
     _metrics["active_cleaners"] = count
 
 
+def record_sms_sent(success: bool = True):
+    """Record an SMS send attempt"""
+    if success:
+        _metrics["sms_sent_total"] += 1
+    else:
+        _metrics["sms_failed_total"] += 1
+
+
+def record_ai_chat(success: bool = True):
+    """Record an AI chat attempt"""
+    _metrics["ai_chat_total"] += 1
+    if not success:
+        _metrics["ai_chat_failed_total"] += 1
+
+
+def record_payment_result(success: bool, amount: float = 0.0):
+    """Record a payment result"""
+    if success:
+        _metrics["payments_processed_total"] += 1
+        _metrics["payments_amount_total"] += amount
+    else:
+        _metrics["payments_failed_total"] += 1
+
+
+def record_webhook(success: bool = True):
+    """Record a webhook event"""
+    _metrics["webhook_received_total"] += 1
+    if not success:
+        _metrics["webhook_failed_total"] += 1
+
+
 @router.get("")
 async def get_metrics():
     """Get application metrics in Prometheus format"""
@@ -126,6 +164,26 @@ async def get_metrics():
     lines.append("# HELP bookacleaner_errors_total Total server errors")
     lines.append("# TYPE bookacleaner_errors_total counter")
     lines.append(f"bookacleaner_errors_total {_metrics['errors_total']}")
+    lines.append("")
+    lines.append("# HELP bookacleaner_sms_sent_total Total SMS sent successfully")
+    lines.append("# TYPE bookacleaner_sms_sent_total counter")
+    lines.append(f"bookacleaner_sms_sent_total {_metrics['sms_sent_total']}")
+    lines.append("")
+    lines.append("# HELP bookacleaner_sms_failed_total Total SMS send failures")
+    lines.append("# TYPE bookacleaner_sms_failed_total counter")
+    lines.append(f"bookacleaner_sms_failed_total {_metrics['sms_failed_total']}")
+    lines.append("")
+    lines.append("# HELP bookacleaner_ai_chat_failed_total Total AI chat failures")
+    lines.append("# TYPE bookacleaner_ai_chat_failed_total counter")
+    lines.append(f"bookacleaner_ai_chat_failed_total {_metrics['ai_chat_failed_total']}")
+    lines.append("")
+    lines.append("# HELP bookacleaner_payments_failed_total Total payment failures")
+    lines.append("# TYPE bookacleaner_payments_failed_total counter")
+    lines.append(f"bookacleaner_payments_failed_total {_metrics['payments_failed_total']}")
+    lines.append("")
+    lines.append("# HELP bookacleaner_webhook_failed_total Total webhook processing failures")
+    lines.append("# TYPE bookacleaner_webhook_failed_total counter")
+    lines.append(f"bookacleaner_webhook_failed_total {_metrics['webhook_failed_total']}")
     
     return Response(content="\n".join(lines), media_type="text/plain")
 
