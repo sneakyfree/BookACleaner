@@ -14,6 +14,9 @@ router = APIRouter()
 settings = get_settings()
 logger = logging.getLogger(__name__)
 
+# In-memory webhook idempotency set (use Redis in multi-instance deployments)
+_processed_webhook_events: set = set()
+
 # Configure Stripe
 stripe.api_key = settings.stripe_secret_key
 
@@ -336,6 +339,15 @@ async def handle_webhook(request: Request):
         raise HTTPException(status_code=400, detail="Invalid payload")
     except stripe.error.SignatureVerificationError:
         raise HTTPException(status_code=400, detail="Invalid signature")
+
+    # Idempotency: skip already-processed events
+    if event.id in _processed_webhook_events:
+        logger.info(f"Stripe webhook duplicate skipped: {event.id}")
+        return {"received": True, "duplicate": True}
+    _processed_webhook_events.add(event.id)
+    # Cap set size to prevent memory leak (keep last 10k events)
+    if len(_processed_webhook_events) > 10000:
+        _processed_webhook_events.clear()
 
     db = await get_db()
     logger.info(f"Stripe webhook received: {event.type}")

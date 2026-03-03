@@ -2,7 +2,7 @@
 Admin API for BookACleaner.ai
 Platform management and statistics
 """
-from fastapi import APIRouter, Depends, HTTPException, Header, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from typing import Optional, List
 from datetime import datetime, timedelta
@@ -10,38 +10,11 @@ import logging
 
 from app.database import get_db
 from app.config import get_settings
+from app.api.deps import get_admin_user
 
 router = APIRouter()
 settings = get_settings()
 logger = logging.getLogger(__name__)
-
-
-# ==================== AUTH HELPER ====================
-
-async def get_admin_user(authorization: str = Header(None), db = Depends(get_db)):
-    """Get current admin user from Bearer token"""
-    if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Not authenticated")
-    
-    from jose import jwt, JWTError
-    token = authorization.replace("Bearer ", "")
-    
-    try:
-        payload = jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
-        user_id = payload.get("sub")
-        if not user_id:
-            raise HTTPException(status_code=401, detail="Invalid token")
-    except JWTError:
-        raise HTTPException(status_code=401, detail="Invalid token")
-    
-    user = await db.user.find_unique(where={"id": user_id})
-    if not user:
-        raise HTTPException(status_code=401, detail="User not found")
-    
-    if user.get("role") != "admin":
-        raise HTTPException(status_code=403, detail="Admin access required")
-    
-    return user
 
 
 # ==================== ENDPOINTS ====================

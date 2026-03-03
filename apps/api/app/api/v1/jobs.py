@@ -411,27 +411,27 @@ async def accept_job(
     if not cleaner:
         raise HTTPException(status_code=400, detail="Cleaner profile not found")
     
-    # RACE CONDITION FIX: check current status before accepting
-    job = await db.job.find_unique(where={"id": job_id})
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
-    
-    if job.get("status") != "pending":
-        raise HTTPException(
-            status_code=409,
-            detail=f"Job is already {job.get('status')} and cannot be accepted"
-        )
-    
-    job = await db.job.update(
-        where={"id": job_id},
+    # ATOMIC: only update if status is still 'pending' — prevents race condition
+    job = await db.job.update_many(
+        where={"id": job_id, "status": "pending"},
         data={
             "status": "confirmed",
             "cleaner_id": cleaner["id"]
         }
     )
     
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
+    # update_many returns count; if 0, the job was already taken or doesn't exist
+    if isinstance(job, int) and job == 0:
+        existing = await db.job.find_unique(where={"id": job_id})
+        if not existing:
+            raise HTTPException(status_code=404, detail="Job not found")
+        raise HTTPException(
+            status_code=409,
+            detail=f"Job is already {existing.get('status')} and cannot be accepted"
+        )
+    
+    # Fetch the updated job for notification
+    job = await db.job.find_unique(where={"id": job_id})
     
     # Notify client that their job was accepted
     try:
