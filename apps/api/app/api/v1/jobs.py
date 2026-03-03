@@ -411,6 +411,17 @@ async def accept_job(
     if not cleaner:
         raise HTTPException(status_code=400, detail="Cleaner profile not found")
     
+    # RACE CONDITION FIX: check current status before accepting
+    job = await db.job.find_unique(where={"id": job_id})
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    
+    if job.get("status") != "pending":
+        raise HTTPException(
+            status_code=409,
+            detail=f"Job is already {job.get('status')} and cannot be accepted"
+        )
+    
     job = await db.job.update(
         where={"id": job_id},
         data={

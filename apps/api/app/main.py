@@ -12,6 +12,7 @@ from app.core.startup_validation import run_startup_validation
 from app.core.health import router as health_router
 from app.core.metrics import router as metrics_router
 from app.middleware import RateLimitMiddleware, RequestLoggingMiddleware
+from app.middleware.security import SecurityHeadersMiddleware, GlobalExceptionMiddleware
 
 # Configure logging
 logging.basicConfig(
@@ -113,6 +114,12 @@ if os.getenv("ENABLE_RATE_LIMIT", "false").lower() == "true" or os.getenv("ENVIR
 
 # Add request logging middleware
 app.add_middleware(RequestLoggingMiddleware)
+
+# Add security headers to all responses
+app.add_middleware(SecurityHeadersMiddleware)
+
+# Add global exception handler (catch unhandled errors, no stack trace leaks)
+app.add_middleware(GlobalExceptionMiddleware)
 
 # Include API routes
 app.include_router(api_router, prefix="/api/v1")
