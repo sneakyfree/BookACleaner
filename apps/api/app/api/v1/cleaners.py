@@ -12,6 +12,7 @@ from app.database import get_db
 from app.config import get_settings
 from app.cache import get_cache, CacheClient
 import hashlib
+from app.api.deps import get_current_user
 
 router = APIRouter()
 settings = get_settings()
@@ -40,29 +41,6 @@ class UpdateCleanerProfileRequest(BaseModel):
 
 
 # ==================== AUTH HELPER ====================
-
-async def get_current_user(authorization: str = Header(None), db = Depends(get_db)):
-    """Get current user from Bearer token"""
-    if not authorization or not authorization.startswith("Bearer "):
-        return None  # Allow unauthenticated access for search
-    
-    from jose import jwt, JWTError
-    token = authorization.replace("Bearer ", "")
-    
-    try:
-        payload = jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
-        user_id = payload.get("sub")
-        if not user_id:
-            return None
-    except JWTError:
-        return None
-    
-    user = await db.user.find_unique(where={"id": user_id})
-    return user
-
-
-# ==================== ENDPOINTS ====================
-
 @router.get("/")
 async def search_cleaners(
     location: Optional[str] = Query(None),
@@ -484,7 +462,6 @@ async def get_available_slots(
     available_slots = [s for s in all_slots if s not in booked_times]
     
     return {"date": date, "slots": available_slots, "timezone": "America/Los_Angeles"}
-
 
 
 @router.get("/{cleaner_id}/reviews")

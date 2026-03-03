@@ -10,6 +10,7 @@ import logging
 
 from app.database import get_db
 from app.config import get_settings
+from app.api.deps import get_current_user
 
 router = APIRouter()
 settings = get_settings()
@@ -101,32 +102,6 @@ By accepting this waiver, you acknowledge:
 
 
 # ==================== AUTH HELPER ====================
-
-async def get_current_user(authorization: str = Header(None), db=Depends(get_db)):
-    """Get current user from Bearer token"""
-    if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Not authenticated")
-
-    from jose import jwt, JWTError
-    token = authorization.replace("Bearer ", "")
-
-    try:
-        payload = jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
-        user_id = payload.get("sub")
-        if not user_id:
-            raise HTTPException(status_code=401, detail="Invalid token")
-    except JWTError:
-        raise HTTPException(status_code=401, detail="Invalid token")
-
-    user = await db.user.find_unique(where={"id": user_id})
-    if not user:
-        raise HTTPException(status_code=401, detail="User not found")
-
-    return user
-
-
-# ==================== ENDPOINTS ====================
-
 @router.get("/templates/{agreement_type}")
 async def get_agreement_template(agreement_type: str):
     """Get agreement template text by type"""

@@ -11,6 +11,7 @@ import logging
 
 from app.database import get_db
 from app.config import get_settings
+from app.core.feature_flags import flags
 
 
 router = APIRouter()
@@ -56,6 +57,8 @@ async def create_sponsored_listing(
     db=Depends(get_db),
 ):
     """Create a sponsored listing boost for a cleaner profile."""
+    if not flags.sponsored_listings_enabled:
+        raise HTTPException(status_code=503, detail="Sponsored listings are temporarily disabled")
 
     # Verify cleaner exists and belongs to user
     cleaner = await db.cleaner.find_first(where={"user_id": user_id})

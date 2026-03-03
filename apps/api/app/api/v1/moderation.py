@@ -11,6 +11,7 @@ import logging
 
 from app.database import get_db
 from app.config import get_settings
+from app.api.deps import get_current_user
 
 router = APIRouter()
 settings = get_settings()
@@ -22,26 +23,6 @@ class FlagContentRequest(BaseModel):
     content_id: str
     reason: str  # spam, inappropriate, harassment, fraud, other
     details: Optional[str] = None
-
-
-async def get_current_user(authorization: str = Header(None), db=Depends(get_db)):
-    if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Not authenticated")
-    from jose import jwt, JWTError
-    token = authorization.replace("Bearer ", "")
-    try:
-        payload = jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
-        user_id = payload.get("sub")
-        if not user_id:
-            raise HTTPException(status_code=401, detail="Invalid token")
-    except JWTError:
-        raise HTTPException(status_code=401, detail="Invalid token")
-    user = await db.user.find_unique(where={"id": user_id})
-    if not user:
-        raise HTTPException(status_code=401, detail="User not found")
-    return user
-
-
 async def get_admin_user(user=Depends(get_current_user)):
     if user.get("role") != "admin":
         raise HTTPException(status_code=403, detail="Admin access required")

@@ -54,6 +54,11 @@ celery_app.conf.beat_schedule = {
 @celery_app.task(name="app.worker.send_email_task", bind=True, max_retries=3)
 def send_email_task(self, to: str, subject: str, html: str):
     """Send email asynchronously via SendGrid"""
+    from app.core.feature_flags import flags
+    if not flags.email_enabled:
+        logger.info(f"Email disabled by feature flag — skipping send to {to}")
+        return
+
     try:
         import asyncio
         from app.services.email import EmailService
@@ -73,6 +78,11 @@ def send_email_task(self, to: str, subject: str, html: str):
 @celery_app.task(name="app.worker.send_sms_task", bind=True, max_retries=3)
 def send_sms_task(self, to: str, body: str):
     """Send SMS asynchronously via Twilio"""
+    from app.core.feature_flags import flags
+    if not flags.sms_enabled:
+        logger.info(f"SMS disabled by feature flag — skipping send to {to}")
+        return
+
     try:
         import asyncio
         from app.services.sms import SMSService

@@ -54,6 +54,12 @@ class SMSService:
     
     async def send_sms(self, to: str, message: str) -> dict:
         """Send an SMS message"""
+        # Feature flag kill-switch
+        from app.core.feature_flags import flags
+        if not flags.sms_enabled:
+            logger.info(f"SMS disabled by feature flag — skipping send to {to}")
+            return {"success": True, "disabled": True}
+
         if self.is_dev:
             logger.info(f"\n{'='*60}")
             logger.info(f"📱 DEV SMS — To: {to}")

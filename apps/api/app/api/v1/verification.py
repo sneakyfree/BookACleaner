@@ -12,6 +12,7 @@ import logging
 from app.database import get_db
 from app.config import get_settings
 from app.services.sms import sms_service
+from app.api.deps import get_current_user
 
 router = APIRouter()
 settings = get_settings()
@@ -118,35 +119,6 @@ def get_next_tier_requirements(current_tier: int, verifications: dict, is_email_
 
 
 # ==================== HELPER: GET USER FROM TOKEN ====================
-
-async def get_current_user(authorization: str = Header(None), db = Depends(get_db)):
-    """Get current user from Bearer token"""
-    if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Not authenticated"
-        )
-    
-    from jose import jwt, JWTError
-    token = authorization.replace("Bearer ", "")
-    
-    try:
-        payload = jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
-        user_id = payload.get("sub")
-        if not user_id:
-            raise HTTPException(status_code=401, detail="Invalid token")
-    except JWTError:
-        raise HTTPException(status_code=401, detail="Invalid token")
-    
-    user = await db.user.find_unique(where={"id": user_id})
-    if not user:
-        raise HTTPException(status_code=401, detail="User not found")
-    
-    return user
-
-
-# ==================== ENDPOINTS ====================
-
 @router.get("/status", response_model=VerificationStatusResponse)
 async def get_verification_status(
     user = Depends(get_current_user),

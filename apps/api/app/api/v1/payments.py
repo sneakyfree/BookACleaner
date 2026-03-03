@@ -8,6 +8,7 @@ import logging
 from app.config import get_settings
 from app.database import get_db
 from app.api.deps import get_current_user, get_admin_user
+from app.core.feature_flags import flags
 
 router = APIRouter()
 settings = get_settings()
@@ -43,6 +44,9 @@ class OnboardingLinkRequest(BaseModel):
 @router.post("/create-payment-intent")
 async def create_payment_intent(data: CreatePaymentIntentRequest, user=Depends(get_current_user), db=Depends(get_db)):
     """Create a payment intent for a job booking (escrow hold by default)."""
+    if not flags.stripe_payments_enabled:
+        raise HTTPException(status_code=503, detail="Payment processing is temporarily disabled")
+
     try:
         intent = stripe.PaymentIntent.create(
             amount=data.amount,
@@ -318,6 +322,9 @@ async def create_customer_portal(user=Depends(get_current_user), db=Depends(get_
 @router.post("/webhook")
 async def handle_webhook(request: Request):
     """Handle Stripe webhooks — fully wired."""
+    if not flags.stripe_webhooks_enabled:
+        return {"received": True, "disabled": True}
+
     payload = await request.body()
     sig_header = request.headers.get("stripe-signature")
 

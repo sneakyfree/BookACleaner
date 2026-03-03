@@ -3,6 +3,7 @@ from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 
 from app.services.ai import ai_service
+from app.core.feature_flags import flags
 
 router = APIRouter()
 
@@ -53,6 +54,9 @@ async def chat(data: ChatRequest):
     }
     ```
     """
+    if not flags.ai_chat_enabled:
+        raise HTTPException(status_code=503, detail="AI chat is temporarily disabled")
+
     messages = [{"role": m.role, "content": m.content} for m in data.messages]
     
     result = await ai_service.chat(
@@ -80,6 +84,9 @@ async def parse_document(data: ParseDocumentRequest):
     
     Returns extracted fields from the document.
     """
+    if not flags.ai_document_parse_enabled:
+        raise HTTPException(status_code=503, detail="AI document parsing is temporarily disabled")
+
     valid_types = ['business_license', 'insurance', 'certification', 'id']
     if data.document_type not in valid_types:
         raise HTTPException(
@@ -109,6 +116,9 @@ async def verify_document(data: ParseDocumentRequest):
     - concerns: List of potential issues found
     - recommendations: Suggested next steps
     """
+    if not flags.ai_document_parse_enabled:
+        raise HTTPException(status_code=503, detail="AI document verification is temporarily disabled")
+
     result = await ai_service.verify_document_authenticity(
         image_url=data.image_url,
         document_type=data.document_type
