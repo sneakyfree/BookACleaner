@@ -5,7 +5,7 @@ Handles job creation, listing, and status management
 from fastapi import APIRouter, Depends, HTTPException, Query, Header
 from pydantic import BaseModel, Field
 from typing import List, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 import uuid
 import logging
 
@@ -384,9 +384,9 @@ async def update_job_status(
     
     # Set timestamps
     if data.status == "in_progress":
-        update_data["started_at"] = datetime.utcnow()
+        update_data["started_at"] = datetime.now(timezone.utc)
     elif data.status == "completed":
-        update_data["completed_at"] = datetime.utcnow()
+        update_data["completed_at"] = datetime.now(timezone.utc)
     
     job = await db.job.update(where={"id": job_id}, data=update_data)
     
@@ -497,7 +497,7 @@ async def start_job(
     
     job = await db.job.update(
         where={"id": job_id},
-        data={"status": "in_progress", "started_at": datetime.utcnow()}
+        data={"status": "in_progress", "started_at": datetime.now(timezone.utc)}
     )
     
     # Notify client that cleaning has started
@@ -534,7 +534,7 @@ async def complete_job(
     
     job = await db.job.update(
         where={"id": job_id},
-        data={"status": "completed", "completed_at": datetime.utcnow()}
+        data={"status": "completed", "completed_at": datetime.now(timezone.utc)}
     )
     
     # Notify client: job done + request review

@@ -6,7 +6,7 @@ Comprehensive health monitoring with dependency checks
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from typing import Dict, Optional, Literal
-from datetime import datetime
+from datetime import datetime, timezone
 import asyncio
 import logging
 import os
@@ -35,7 +35,7 @@ class HealthResponse(BaseModel):
 
 
 # Track startup time for uptime calculation
-_startup_time = datetime.utcnow()
+_startup_time = datetime.now(timezone.utc)
 
 
 async def check_database_health() -> DependencyHealth:
@@ -272,13 +272,13 @@ async def deep_health_check():
         overall_status = "healthy"
     
     # Calculate uptime
-    uptime = (datetime.utcnow() - _startup_time).total_seconds()
+    uptime = (datetime.now(timezone.utc) - _startup_time).total_seconds()
     
     return HealthResponse(
         status=overall_status,
         version=os.getenv("APP_VERSION", "0.1.0"),
         environment=os.getenv("ENVIRONMENT", "development"),
-        timestamp=datetime.utcnow().isoformat(),
+        timestamp=datetime.now(timezone.utc).isoformat(),
         uptime_seconds=round(uptime, 2),
         dependencies=dependencies,
     )

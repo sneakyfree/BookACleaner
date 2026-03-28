@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Request, HTTPException, Depends, Header
 from pydantic import BaseModel, Field
 from typing import Optional
+from datetime import datetime, timezone
 import stripe
 import os
 import logging
@@ -92,7 +93,7 @@ async def capture_payment(payment_intent_id: str, user=Depends(get_admin_user), 
         if job_id:
             await db.job.update(
                 where={"id": job_id},
-                data={"payment_status": "captured", "paid_at": __import__('datetime').datetime.utcnow()}
+                data={"payment_status": "captured", "paid_at": datetime.now(timezone.utc)}
             )
             logger.info(f"Captured payment for job {job_id}")
 
@@ -162,13 +163,13 @@ async def release_payment(job_id: str, user=Depends(get_current_user), db=Depend
             transfer_result = {"transferId": transfer.id, "amount": cleaner_amount}
 
             # Update job status
-            from datetime import datetime
+            from datetime import datetime, timezone
             await db.job.update(
                 where={"id": job_id},
                 data={
                     "payment_status": "transferred",
-                    "paid_at": datetime.utcnow(),
-                    "paid_out_at": datetime.utcnow(),
+                    "paid_at": datetime.now(timezone.utc),
+                    "paid_out_at": datetime.now(timezone.utc),
                 }
             )
             logger.info(f"Released payment for job {job_id}: ${cleaner_amount/100:.2f} to cleaner")
@@ -421,7 +422,7 @@ async def handle_webhook(request: Request):
         plan = sub.metadata.get("plan", "pro")
         if user_id:
             from app.models import generate_uuid
-            from datetime import datetime
+            from datetime import datetime, timezone
             await db.execute(
                 """INSERT INTO subscriptions (id, user_id, stripe_subscription_id, stripe_customer_id, plan, status, current_period_start, current_period_end, created_at, updated_at)
                    VALUES (:id, :uid, :sid, :cid, :plan, :status, :ps, :pe, :now, :now)""",
@@ -429,7 +430,7 @@ async def handle_webhook(request: Request):
                  "plan": plan, "status": "active",
                  "ps": datetime.fromtimestamp(sub.current_period_start),
                  "pe": datetime.fromtimestamp(sub.current_period_end),
-                 "now": datetime.utcnow()}
+                 "now": datetime.now(timezone.utc)}
             )
             logger.info(f"Subscription created for user {user_id}: {plan}")
 
@@ -437,7 +438,7 @@ async def handle_webhook(request: Request):
         sub = event.data.object
         await db.execute(
             "UPDATE subscriptions SET status = 'canceled', updated_at = :now WHERE stripe_subscription_id = :sid",
-            {"now": __import__('datetime').datetime.utcnow(), "sid": sub.id}
+            {"now": datetime.now(timezone.utc), "sid": sub.id}
         )
         logger.info(f"Subscription canceled: {sub.id}")
 
@@ -492,7 +493,7 @@ async def handle_webhook(request: Request):
             if sub_id:
                 sub = stripe.Subscription.retrieve(sub_id)
                 from app.models import generate_uuid
-                from datetime import datetime
+                from datetime import datetime, timezone
                 await db.execute(
                     """INSERT INTO subscriptions (id, user_id, stripe_subscription_id, stripe_customer_id, plan, status, current_period_start, current_period_end, created_at, updated_at)
                        VALUES (:id, :uid, :sid, :cid, :plan, :status, :ps, :pe, :now, :now)
@@ -501,7 +502,7 @@ async def handle_webhook(request: Request):
                      "plan": plan, "status": "active",
                      "ps": datetime.fromtimestamp(sub.current_period_start),
                      "pe": datetime.fromtimestamp(sub.current_period_end),
-                     "now": datetime.utcnow()}
+                     "now": datetime.now(timezone.utc)}
                 )
             logger.info(f"Checkout completed (subscription) for user {user_id}: plan={plan}")
         elif session_obj.mode == "payment" and user_id:
@@ -513,10 +514,10 @@ async def handle_webhook(request: Request):
         invoice = event.data.object
         sub_id = invoice.subscription
         if sub_id:
-            from datetime import datetime
+            from datetime import datetime, timezone
             await db.execute(
                 "UPDATE subscriptions SET status = 'past_due', updated_at = :now WHERE stripe_subscription_id = :sid",
-                {"now": datetime.utcnow(), "sid": sub_id}
+                {"now": datetime.now(timezone.utc), "sid": sub_id}
             )
             # Try to notify the user
             result = await db.execute(

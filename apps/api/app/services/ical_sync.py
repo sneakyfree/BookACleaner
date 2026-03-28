@@ -4,7 +4,7 @@ Syncs Airbnb/VRBO calendars to automatically create turnover jobs
 """
 import httpx
 from icalendar import Calendar
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List, Optional, Dict
 import logging
 import asyncio
@@ -131,7 +131,7 @@ class ICalSyncService:
         turnovers = self.find_turnovers(events)
         
         # Filter to future turnovers only
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         future_turnovers = [t for t in turnovers if t['checkout_date'] > now]
         
         # Get property details

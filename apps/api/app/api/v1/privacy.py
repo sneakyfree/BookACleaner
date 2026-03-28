@@ -5,7 +5,7 @@ Handles user data export (right of access) and deletion (right to be forgotten).
 from fastapi import APIRouter, Depends, HTTPException, Header
 from pydantic import BaseModel
 from typing import Optional
-from datetime import datetime
+from datetime import datetime, timezone
 import json
 import logging
 
@@ -28,7 +28,7 @@ async def export_user_data(
 
     # Collect all user data across tables
     export = {
-        "exported_at": datetime.utcnow().isoformat(),
+        "exported_at": datetime.now(timezone.utc).isoformat(),
         "user": {
             k: v for k, v in user.items()
             if k not in ("password_hash", "refresh_token", "refresh_token_expires_at")
@@ -105,7 +105,7 @@ async def delete_user_data(
 
     deleted = {
         "user_id": user_id,
-        "deleted_at": datetime.utcnow().isoformat(),
+        "deleted_at": datetime.now(timezone.utc).isoformat(),
         "entities_deleted": [],
     }
 

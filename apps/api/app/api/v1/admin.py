@@ -5,7 +5,7 @@ Platform management and statistics
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from typing import Optional, List
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import logging
 
 from app.database import get_db
@@ -46,7 +46,7 @@ async def get_platform_stats(
     pending_verifications = sum(1 for v in all_verifications if v.get("status") == "pending")
     
     # Weekly new users (last 7 days)
-    week_ago = datetime.utcnow() - timedelta(days=7)
+    week_ago = datetime.now(timezone.utc) - timedelta(days=7)
     new_users_this_week = sum(1 for u in all_users if u.get("created_at") and datetime.fromisoformat(str(u["created_at"]).replace("Z", "+00:00").replace("+00:00", "")) > week_ago)
     
     # Celery task schedule
@@ -267,7 +267,7 @@ async def approve_verification(
         where={"id": verification_id},
         data={
             "status": "verified",
-            "verified_at": datetime.utcnow(),
+            "verified_at": datetime.now(timezone.utc),
         }
     )
     

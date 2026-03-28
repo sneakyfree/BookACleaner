@@ -5,7 +5,7 @@ Allows cleaners to bid on marketplace jobs
 from fastapi import APIRouter, HTTPException, Depends, Header, Query
 from pydantic import BaseModel
 from typing import Optional, List
-from datetime import datetime
+from datetime import datetime, timezone
 import logging
 
 from app.database import get_db
@@ -172,7 +172,7 @@ async def accept_bid(
     # Accept the bid
     await db.bid.update(where={"id": bid_id}, data={
         "status": "accepted",
-        "accepted_at": datetime.utcnow().isoformat(),
+        "accepted_at": datetime.now(timezone.utc).isoformat(),
     })
     
     # Assign cleaner to job and update price
@@ -188,7 +188,7 @@ async def accept_bid(
         if other["id"] != bid_id and other.get("status") == "pending":
             await db.bid.update(where={"id": other["id"]}, data={
                 "status": "declined",
-                "declined_at": datetime.utcnow().isoformat(),
+                "declined_at": datetime.now(timezone.utc).isoformat(),
             })
     
     return {
@@ -212,7 +212,7 @@ async def decline_bid(
     
     await db.bid.update(where={"id": bid_id}, data={
         "status": "declined",
-        "declined_at": datetime.utcnow().isoformat(),
+        "declined_at": datetime.now(timezone.utc).isoformat(),
     })
     
     return {
@@ -240,7 +240,7 @@ async def withdraw_bid(
     
     await db.bid.update(where={"id": bid_id}, data={
         "status": "withdrawn",
-        "withdrawn_at": datetime.utcnow().isoformat(),
+        "withdrawn_at": datetime.now(timezone.utc).isoformat(),
     })
     
     return {

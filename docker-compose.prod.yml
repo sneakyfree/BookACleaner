@@ -12,7 +12,7 @@ services:
     restart: always
     environment:
       POSTGRES_USER: ${DB_USER:-bookacleaner}
-      POSTGRES_PASSWORD: ${DB_PASS:-changeme}
+      POSTGRES_PASSWORD: ${DB_PASS:?ERROR: DB_PASS must be set for production}
       POSTGRES_DB: ${DB_NAME:-bookacleaner}
     ports:
       - "${DB_PORT:-5432}:5432"
@@ -32,9 +32,9 @@ services:
       - "${REDIS_PORT:-6379}:6379"
     volumes:
       - redis_data_prod:/data
-    command: redis-server --appendonly yes --requirepass ${REDIS_PASS:-changeme}
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASS:?ERROR: REDIS_PASS must be set for production}
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "${REDIS_PASS:-changeme}", "ping"]
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASS:?ERROR: REDIS_PASS must be set for production}", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -48,10 +48,10 @@ services:
     ports:
       - "${API_PORT:-8000}:8000"
     environment:
-      - DATABASE_URL=postgresql+asyncpg://${DB_USER:-bookacleaner}:${DB_PASS:-changeme}@db:5432/${DB_NAME:-bookacleaner}
-      - REDIS_URL=redis://:${REDIS_PASS:-changeme}@redis:6379
-      - CELERY_BROKER_URL=redis://:${REDIS_PASS:-changeme}@redis:6379/1
-      - CELERY_RESULT_BACKEND=redis://:${REDIS_PASS:-changeme}@redis:6379/2
+      - DATABASE_URL=postgresql+asyncpg://${DB_USER:-bookacleaner}:${DB_PASS:?ERROR: DB_PASS must be set}@db:5432/${DB_NAME:-bookacleaner}
+      - REDIS_URL=redis://:${REDIS_PASS:?ERROR: REDIS_PASS must be set for production}@redis:6379
+      - CELERY_BROKER_URL=redis://:${REDIS_PASS:?ERROR: REDIS_PASS must be set for production}@redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://:${REDIS_PASS:?ERROR: REDIS_PASS must be set for production}@redis:6379/2
       - ENVIRONMENT=production
       - SECRET_KEY=${SECRET_KEY}
       - STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY}
@@ -79,10 +79,10 @@ services:
     restart: always
     command: celery -A app.worker worker --loglevel=info --concurrency=4
     environment:
-      - DATABASE_URL=postgresql+asyncpg://${DB_USER:-bookacleaner}:${DB_PASS:-changeme}@db:5432/${DB_NAME:-bookacleaner}
-      - REDIS_URL=redis://:${REDIS_PASS:-changeme}@redis:6379
-      - CELERY_BROKER_URL=redis://:${REDIS_PASS:-changeme}@redis:6379/1
-      - CELERY_RESULT_BACKEND=redis://:${REDIS_PASS:-changeme}@redis:6379/2
+      - DATABASE_URL=postgresql+asyncpg://${DB_USER:-bookacleaner}:${DB_PASS:?ERROR: DB_PASS must be set}@db:5432/${DB_NAME:-bookacleaner}
+      - REDIS_URL=redis://:${REDIS_PASS:?ERROR: REDIS_PASS must be set for production}@redis:6379
+      - CELERY_BROKER_URL=redis://:${REDIS_PASS:?ERROR: REDIS_PASS must be set for production}@redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://:${REDIS_PASS:?ERROR: REDIS_PASS must be set for production}@redis:6379/2
       - SENTRY_DSN=${SENTRY_DSN}
     depends_on:
       db:
@@ -98,8 +98,8 @@ services:
     restart: always
     command: celery -A app.worker beat --loglevel=info
     environment:
-      - CELERY_BROKER_URL=redis://:${REDIS_PASS:-changeme}@redis:6379/1
-      - CELERY_RESULT_BACKEND=redis://:${REDIS_PASS:-changeme}@redis:6379/2
+      - CELERY_BROKER_URL=redis://:${REDIS_PASS:?ERROR: REDIS_PASS must be set for production}@redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://:${REDIS_PASS:?ERROR: REDIS_PASS must be set for production}@redis:6379/2
     depends_on:
       redis:
         condition: service_healthy

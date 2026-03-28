@@ -6,7 +6,7 @@ correlation IDs, and user context for production observability.
 
 from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware
-from datetime import datetime
+from datetime import datetime, timezone
 import uuid
 import time
 import logging
@@ -76,7 +76,7 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
             "query": str(request.query_params) if request.query_params else None,
             "client_ip": client_ip,
             "user_agent": request.headers.get("user-agent", "")[:100],
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         }
         
         logger.info(json.dumps(log_data))
@@ -114,7 +114,7 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
                 "path": request.url.path,
                 "status_code": status_code,
                 "duration_ms": round(duration_ms, 2),
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
             }
             
             if error:

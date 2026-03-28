@@ -5,7 +5,7 @@ Handles conversations and messages between clients and cleaners
 from fastapi import APIRouter, Depends, HTTPException, Header, Query
 from pydantic import BaseModel
 from typing import List, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 import logging
 
 from app.database import get_db
@@ -142,7 +142,7 @@ async def create_conversation(
     # Create conversation
     conv = await db.conversation.create(data={
         "job_id": data.job_id,
-        "last_message_at": datetime.utcnow(),
+        "last_message_at": datetime.now(timezone.utc),
     })
     
     # If initial message provided, create it
@@ -181,7 +181,7 @@ async def send_message(
             # Create new conversation
             conv = await db.conversation.create(data={
                 "job_id": data.job_id,
-                "last_message_at": datetime.utcnow(),
+                "last_message_at": datetime.now(timezone.utc),
             })
             conversation_id = conv["id"]
         else:
@@ -199,7 +199,7 @@ async def send_message(
     # Update conversation last_message_at
     await db.conversation.update(
         where={"id": conversation_id},
-        data={"last_message_at": datetime.utcnow()}
+        data={"last_message_at": datetime.now(timezone.utc)}
     )
     
     return {
@@ -226,7 +226,7 @@ async def mark_as_read(
         if msg.get("sender_id") != user["id"] and not msg.get("read_at"):
             await db.message.update(
                 where={"id": msg["id"]},
-                data={"read_at": datetime.utcnow()}
+                data={"read_at": datetime.now(timezone.utc)}
             )
             updated_count += 1
     

@@ -3,7 +3,7 @@ Google Calendar Integration for BookACleaner.ai
 Syncs jobs to cleaner's Google Calendar
 """
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, List
 import logging
 
@@ -231,7 +231,7 @@ Price: ${job.get('total_price', 0):.2f}
         """List upcoming calendar events"""
         try:
             service = self._get_service(credentials_dict)
-            now = datetime.utcnow().isoformat() + 'Z'
+            now = datetime.now(timezone.utc).isoformat() + 'Z'
             
             events_result = service.events().list(
                 calendarId='primary',

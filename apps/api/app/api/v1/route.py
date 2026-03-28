@@ -6,7 +6,7 @@ Closes gap F-CAL-3 from implementation plan.
 from fastapi import APIRouter, HTTPException, Depends, Header
 from pydantic import BaseModel
 from typing import Optional, List
-from datetime import datetime
+from datetime import datetime, timezone
 import logging
 
 from app.database import get_db
@@ -37,7 +37,7 @@ async def optimize_route(
         raise HTTPException(status_code=404, detail="Cleaner profile not found")
 
     # Get today's jobs
-    target_date = data.date or datetime.utcnow().strftime("%Y-%m-%d")
+    target_date = data.date or datetime.now(timezone.utc).strftime("%Y-%m-%d")
     jobs = await db.job.find_many(where={
         "cleaner_id": cleaner["id"],
         "status": "confirmed",

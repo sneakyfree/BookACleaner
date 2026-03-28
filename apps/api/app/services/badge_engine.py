@@ -4,7 +4,7 @@ Evaluates and awards badges to users based on their activity.
 Closes Gap C-REV-4 from implementation plan.
 """
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, List, Optional
 from app.database import get_db
 from app.config import get_settings
@@ -44,7 +44,7 @@ class BadgeEngine:
                        VALUES (:id, :name, :desc, :icon, :ctype, :cval, :now)""",
                     {"id": badge_id, "name": badge_def["name"], "desc": badge_def["description"],
                      "icon": badge_def["icon_url"], "ctype": badge_def["criteria_type"],
-                     "cval": badge_def["criteria_value"], "now": datetime.utcnow()}
+                     "cval": badge_def["criteria_value"], "now": datetime.now(timezone.utc)}
                 )
                 created += 1
         return created
@@ -86,7 +86,7 @@ class BadgeEngine:
                     """INSERT INTO user_badges (id, user_id, badge_id, awarded_at, awarded_reason)
                        VALUES (:id, :uid, :bid, :now, :reason)""",
                     {"id": generate_uuid(), "uid": user_id, "bid": badge["id"],
-                     "now": datetime.utcnow(), "reason": f"Earned: {badge['name']}"}
+                     "now": datetime.now(timezone.utc), "reason": f"Earned: {badge['name']}"}
                 )
                 awarded.append({"badge_id": badge["id"], "name": badge["name"]})
                 logger.info(f"Awarded badge '{badge['name']}' to user {user_id}")

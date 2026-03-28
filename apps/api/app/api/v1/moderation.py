@@ -6,7 +6,7 @@ Closes gaps F-ADM-3 from implementation plan.
 from fastapi import APIRouter, HTTPException, Depends, Header, Query
 from pydantic import BaseModel
 from typing import Optional
-from datetime import datetime
+from datetime import datetime, timezone
 import logging
 
 from app.database import get_db
@@ -39,7 +39,7 @@ async def flag_content(data: FlagContentRequest, user=Depends(get_current_user),
            VALUES (:id, :ctype, :cid, :uid, :reason, :details, 'pending', :now)""",
         {"id": flag_id, "ctype": data.content_type, "cid": data.content_id,
          "uid": user["id"], "reason": data.reason, "details": data.details,
-         "now": datetime.utcnow()}
+         "now": datetime.now(timezone.utc)}
     )
     logger.info(f"Content flagged: {data.content_type}/{data.content_id} by {user['id']}")
     return {"id": flag_id, "status": "pending", "message": "Content flagged for review"}
@@ -82,7 +82,7 @@ async def review_flagged_content(
     db=Depends(get_db)
 ):
     """Review flagged content — dismiss or remove (admin only)."""
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     new_status = "dismissed" if action == "dismiss" else "removed"
     await db.execute(
         "UPDATE flagged_content SET status = :status, reviewed_by = :admin, reviewed_at = :now WHERE id = :id",

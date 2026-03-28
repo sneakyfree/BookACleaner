@@ -5,7 +5,7 @@ Persists all data to the database via SponsoredListing model.
 """
 from fastapi import APIRouter, Depends, HTTPException, Header, status
 from pydantic import BaseModel
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 import logging
 
@@ -66,7 +66,7 @@ async def create_sponsored_listing(
         raise HTTPException(status_code=404, detail="Cleaner profile not found")
 
     cleaner_id = cleaner["id"]
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     expires = now + timedelta(days=data.duration_days)
 
     # Create listing as active (in production, would gate on Stripe checkout)
@@ -101,7 +101,7 @@ async def get_my_listing(
     if not cleaner:
         return {"listing": None}
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     listings = await db.sponsored_listing.find_many(
         where={"cleaner_id": cleaner["id"], "status": "active"}
     )
@@ -163,7 +163,7 @@ async def get_active_sponsored(db=Depends(get_db)):
     """Return currently active sponsored cleaner listings."""
     all_listings = await db.sponsored_listing.find_many(where={"status": "active"})
     
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     active = []
     for listing in all_listings:
         expires_at = listing.get("expires_at")

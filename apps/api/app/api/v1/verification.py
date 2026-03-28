@@ -4,7 +4,7 @@ Implements 5-tier verification system for cleaners and clients
 """
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Header
 from pydantic import BaseModel
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, List
 import secrets
 import logging
@@ -177,7 +177,7 @@ async def send_phone_verification(
     
     # Generate 6-digit code
     code = "".join([str(secrets.randbelow(10)) for _ in range(6)])
-    expires_at = datetime.utcnow() + timedelta(minutes=10)
+    expires_at = datetime.now(timezone.utc) + timedelta(minutes=10)
     
     # Store in database
     await db.phone_verification.create(
@@ -226,7 +226,7 @@ async def verify_phone(
     if isinstance(expires_at, str):
         expires_at = datetime.fromisoformat(expires_at)
     
-    if expires_at and expires_at < datetime.utcnow():
+    if expires_at and expires_at < datetime.now(timezone.utc):
         raise HTTPException(status_code=400, detail="Code expired")
     
     # Check code
@@ -238,14 +238,14 @@ async def verify_phone(
         where={"id": user["id"]},
         data={
             "phone": latest["phone"],
-            "phone_verified_at": datetime.utcnow()
+            "phone_verified_at": datetime.now(timezone.utc)
         }
     )
     
     # Mark verification as used
     await db.phone_verification.update(
         where={"id": latest["id"]},
-        data={"verified_at": datetime.utcnow()}
+        data={"verified_at": datetime.now(timezone.utc)}
     )
     
     # Create verification record
@@ -254,7 +254,7 @@ async def verify_phone(
             "user_id": user["id"],
             "type": "phone",
             "status": "verified",
-            "verified_at": datetime.utcnow()
+            "verified_at": datetime.now(timezone.utc)
         }
     )
     
@@ -276,7 +276,7 @@ async def upload_verification_document(
     
     # In production, upload to S3
     # For now, create verification record as pending
-    document_url = f"uploads/{user['id']}/{verification_type}_{datetime.utcnow().timestamp()}"
+    document_url = f"uploads/{user['id']}/{verification_type}_{datetime.now(timezone.utc).timestamp()}"
     
     verification = await db.verification.create(
         data={

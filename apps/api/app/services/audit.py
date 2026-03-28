@@ -6,7 +6,7 @@ Implements DNA Strand's Compliance Spine audit trail requirements
 
 from pydantic import BaseModel, Field
 from typing import Optional, Dict, Any, List
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 import uuid
 import hashlib
@@ -59,7 +59,7 @@ class AuditSnapshot(BaseModel):
     requested_by: Optional[str] = None
     
     # Timestamps
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     
     # Integrity
     checksum: Optional[str] = None

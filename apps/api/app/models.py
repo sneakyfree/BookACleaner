@@ -3,7 +3,7 @@ SQLAlchemy Models for BookACleaner.ai
 Persistent database schema matching the DNA Strand Master Plan
 """
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, List
 from sqlalchemy import (
     Column, String, Text, Integer, Float, Boolean, DateTime, 
@@ -122,8 +122,8 @@ class User(Base):
     phone_verified_at = Column(DateTime, nullable=True)
     refresh_token = Column(String(255), nullable=True)
     refresh_token_expires_at = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     
     # Relationships
     cleaner_profile = relationship("CleanerProfile", back_populates="user", uselist=False)
@@ -157,8 +157,8 @@ class CleanerProfile(Base):
     service_areas = Column(JSON, default=list)
     
     profile_photo = Column(String(500), nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     
     # Relationships
     user = relationship("User", back_populates="cleaner_profile")
@@ -186,8 +186,8 @@ class ClientProfile(Base):
     on_time_payment_rate = Column(Float, default=100.0)
     
     profile_photo = Column(String(500), nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     
     # Relationships
     user = relationship("User", back_populates="client_profile")
@@ -223,8 +223,8 @@ class Property(Base):
     # Airbnb sync
     airbnb_calendar_url = Column(String(500), nullable=True)
     
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     
     # Relationships
     client = relationship("ClientProfile", back_populates="properties")
@@ -268,8 +268,8 @@ class Job(Base):
     started_at = Column(DateTime, nullable=True)
     completed_at = Column(DateTime, nullable=True)
     
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     
     # Relationships
     client = relationship("ClientProfile", back_populates="jobs")
@@ -300,8 +300,8 @@ class Review(Base):
     is_public = Column(Boolean, default=True)
     moderated_at = Column(DateTime, nullable=True)
     
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     
     # Relationships
     job = relationship("Job", back_populates="reviews")
@@ -313,9 +313,9 @@ class Conversation(Base):
     id = Column(String(36), primary_key=True, default=generate_uuid)
     job_id = Column(String(36), ForeignKey("jobs.id"), nullable=True)
     
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    last_message_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    last_message_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     
     # Relationships
     messages = relationship("Message", back_populates="conversation")
@@ -346,7 +346,7 @@ class Message(Base):
     attachments = Column(JSON, default=list)
     channel = Column(String(20), default="app")
     
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     delivered_at = Column(DateTime, nullable=True)
     read_at = Column(DateTime, nullable=True)
     
@@ -371,8 +371,8 @@ class Verification(Base):
     expires_at = Column(DateTime, nullable=True)
     rejection_reason = Column(Text, nullable=True)
     
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     
     # Relationships
     user = relationship("User", back_populates="verifications")
@@ -395,8 +395,8 @@ class Certification(Base):
     verified = Column(Boolean, default=False)
     verified_at = Column(DateTime, nullable=True)
     
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     
     # Relationships
     cleaner = relationship("CleanerProfile", back_populates="certifications")
@@ -410,7 +410,7 @@ class PasswordReset(Base):
     token = Column(String(100), nullable=False, unique=True)
     expires_at = Column(DateTime, nullable=False)
     used_at = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     
     # Relationships
     user = relationship("User", back_populates="password_resets")
@@ -424,7 +424,7 @@ class EmailVerification(Base):
     token = Column(String(100), nullable=False, unique=True)
     expires_at = Column(DateTime, nullable=False)
     verified_at = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
 class PhoneVerification(Base):
@@ -436,7 +436,7 @@ class PhoneVerification(Base):
     code = Column(String(6), nullable=False)
     expires_at = Column(DateTime, nullable=False)
     verified_at = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
 class Notification(Base):
@@ -453,7 +453,7 @@ class Notification(Base):
     read = Column(Boolean, default=False)
     read_at = Column(DateTime, nullable=True)
     
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     
     # Relationships
     user = relationship("User", back_populates="notifications")
@@ -475,8 +475,8 @@ class Bid(Base):
     declined_at = Column(DateTime, nullable=True)
     withdrawn_at = Column(DateTime, nullable=True)
     
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
 
 class Badge(Base):
@@ -489,7 +489,7 @@ class Badge(Base):
     criteria_type = Column(String(50), nullable=False)  # review_count, avg_rating, job_count, tier, etc.
     criteria_value = Column(Float, nullable=True)
     
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
 class UserBadge(Base):
@@ -498,7 +498,7 @@ class UserBadge(Base):
     id = Column(String(36), primary_key=True, default=generate_uuid)
     user_id = Column(String(36), ForeignKey("users.id"), nullable=False)
     badge_id = Column(String(36), ForeignKey("badges.id"), nullable=False)
-    awarded_at = Column(DateTime, default=datetime.utcnow)
+    awarded_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     awarded_reason = Column(String(255), nullable=True)
 
 
@@ -514,9 +514,9 @@ class Dispute(Base):
     resolution_notes = Column(Text, nullable=True)
     resolved_by = Column(String(36), ForeignKey("users.id"), nullable=True)
     
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     resolved_at = Column(DateTime, nullable=True)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
 
 class Subscription(Base):
@@ -533,8 +533,8 @@ class Subscription(Base):
     current_period_start = Column(DateTime, nullable=True)
     current_period_end = Column(DateTime, nullable=True)
     
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
 
 class FlaggedContent(Base):
@@ -552,7 +552,7 @@ class FlaggedContent(Base):
     reviewed_by = Column(String(36), ForeignKey("users.id"), nullable=True)
     reviewed_at = Column(DateTime, nullable=True)
     
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
 class FeedItem(Base):
@@ -569,7 +569,7 @@ class FeedItem(Base):
     priority = Column(Integer, default=0)
     likes = Column(Integer, default=0)
     views = Column(Integer, default=0)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
 class ApprovalQueueItem(Base):
@@ -589,8 +589,8 @@ class ApprovalQueueItem(Base):
     reviewed_by = Column(String(36), nullable=True)
     reviewed_at = Column(DateTime, nullable=True)
     review_notes = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
 
 class SponsoredListing(Base):
@@ -602,10 +602,10 @@ class SponsoredListing(Base):
     status = Column(String(20), default="active")  # active, expired, cancelled
     priority = Column(Integer, default=1)  # 1=standard, 2=premium, 3=featured
     duration_days = Column(Integer, default=30)
-    starts_at = Column(DateTime, default=datetime.utcnow)
+    starts_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     expires_at = Column(DateTime, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     # Relationships
     cleaner = relationship("CleanerProfile")
@@ -622,10 +622,10 @@ class ServiceAgreement(Base):
     agreement_type = Column(String(50), default="service")  # service, cancellation, liability
     version = Column(String(10), default="1.0")
     accepted = Column(Boolean, default=True)
-    accepted_at = Column(DateTime, default=datetime.utcnow)
+    accepted_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     ip_address = Column(String(45), nullable=True)
     user_agent = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     # Relationships
     job = relationship("Job")
@@ -645,8 +645,8 @@ class Availability(Base):
     start_time = Column(String(5), nullable=False)  # "08:00"
     end_time = Column(String(5), nullable=False)    # "17:00"
     is_available = Column(Boolean, default=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     cleaner = relationship("CleanerProfile", back_populates="availability")
 
@@ -660,7 +660,7 @@ class PortfolioPhoto(Base):
     url = Column(String(500), nullable=False)
     caption = Column(String(255), nullable=True)
     display_order = Column(Integer, default=0)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     cleaner = relationship("CleanerProfile", back_populates="portfolio_photos")
 
@@ -675,8 +675,8 @@ class PropertyPlaybook(Base):
     quirks = Column(JSON, default=list)              # ["Doorbell doesn't work", ...]
     cleaner_notes = Column(JSON, default=list)       # ["Leave keys under mat", ...]
     checklist = Column(JSON, default=list)           # [{"task": "...", "required": true}, ...]
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     property = relationship("Property", back_populates="playbook")
 
@@ -694,7 +694,7 @@ class ServiceCategory(Base):
     required_certs = Column(JSON, default=list)  # ["iicrc", "epa"]
     display_order = Column(Integer, default=0)
     is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     services = relationship("Service", back_populates="category", cascade="all, delete-orphan")
 
@@ -713,7 +713,7 @@ class Service(Base):
     price_per_hour = Column(Numeric(10, 2), nullable=True)
     estimated_minutes = Column(Integer, nullable=True)
     is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     category = relationship("ServiceCategory", back_populates="services")
     cleaner_services = relationship("CleanerService", back_populates="service")
@@ -729,7 +729,7 @@ class CleanerService(Base):
     service_id = Column(String(36), ForeignKey("services.id"), nullable=False)
     custom_price = Column(Numeric(10, 2), nullable=True)  # override default price
     is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     cleaner = relationship("CleanerProfile", back_populates="cleaner_services")
     service = relationship("Service", back_populates="cleaner_services")
@@ -743,4 +743,4 @@ class FeedLike(Base):
     id = Column(String(36), primary_key=True, default=generate_uuid)
     item_id = Column(String(36), ForeignKey("feed_items.id"), nullable=False)
     user_id = Column(String(36), ForeignKey("users.id"), nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))

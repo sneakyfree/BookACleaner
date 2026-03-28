@@ -5,7 +5,7 @@ Integration with Checkr for cleaner background verification
 import os
 import httpx
 from typing import Optional, Dict
-from datetime import datetime
+from datetime import datetime, timezone
 import logging
 
 from app.config import get_settings
@@ -203,14 +203,14 @@ class MockBackgroundCheckService:
     async def create_candidate(self, **kwargs) -> Dict:
         return {
             "success": True,
-            "candidate_id": f"mock-candidate-{datetime.utcnow().timestamp()}",
+            "candidate_id": f"mock-candidate-{datetime.now(timezone.utc).timestamp()}",
             "data": {"id": "mock-candidate", **kwargs}
         }
     
     async def initiate_background_check(self, candidate_id: str, **kwargs) -> Dict:
         return {
             "success": True,
-            "invitation_id": f"mock-invitation-{datetime.utcnow().timestamp()}",
+            "invitation_id": f"mock-invitation-{datetime.now(timezone.utc).timestamp()}",
             "invitation_url": "https://checkr.com/mock-invitation",
             "data": {"status": "pending"}
         }
@@ -221,7 +221,7 @@ class MockBackgroundCheckService:
             "report_id": report_id,
             "status": "complete",
             "result": "clear",
-            "completed_at": datetime.utcnow().isoformat()
+            "completed_at": datetime.now(timezone.utc).isoformat()
         }
     
     async def handle_webhook(self, payload: Dict) -> Dict:

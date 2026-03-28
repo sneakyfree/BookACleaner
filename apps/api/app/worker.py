@@ -4,6 +4,7 @@ Start with: celery -A app.worker worker --loglevel=info
 Beat:        celery -A app.worker beat --loglevel=info
 """
 import logging
+from datetime import datetime, timezone
 from celery import Celery
 from celery.schedules import crontab
 from app.config import get_settings
@@ -304,7 +305,7 @@ def release_payment_task(self, job_id: str):
                 where={"id": job_id},
                 data={
                     "payment_status": "released",
-                    "paid_out_at": __import__("datetime").datetime.utcnow(),
+                    "paid_out_at": datetime.now(timezone.utc),
                 }
             )
 

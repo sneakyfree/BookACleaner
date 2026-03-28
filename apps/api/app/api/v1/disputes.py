@@ -5,7 +5,7 @@ Handles dispute creation, resolution, and management.
 from fastapi import APIRouter, HTTPException, Depends, Header, Query
 from pydantic import BaseModel
 from typing import Optional, List
-from datetime import datetime
+from datetime import datetime, timezone
 import logging
 
 from app.database import get_db
@@ -111,7 +111,7 @@ async def resolve_dispute(
         "status": "resolved",
         "resolution_notes": data.resolution_notes,
         "resolved_by": user["id"],
-        "resolved_at": datetime.utcnow().isoformat(),
+        "resolved_at": datetime.now(timezone.utc).isoformat(),
     })
 
     # Handle resolution action

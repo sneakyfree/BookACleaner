@@ -6,7 +6,7 @@ Implements request rate limiting to prevent abuse
 from fastapi import Request, HTTPException, status
 from starlette.middleware.base import BaseHTTPMiddleware
 from collections import defaultdict
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, Tuple
 import asyncio
 import logging
@@ -67,7 +67,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     
     async def _cleanup_old_entries(self, client_key: str) -> None:
         """Remove entries older than 1 hour"""
-        cutoff = datetime.utcnow() - timedelta(hours=1)
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=1)
         self._request_counts[client_key] = [
             (ts, count) for ts, count in self._request_counts[client_key]
             if ts > cutoff
@@ -86,7 +86,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         async with self._lock:
             await self._cleanup_old_entries(client_key)
             
-            now = datetime.utcnow()
+            now = datetime.now(timezone.utc)
             minute_ago = now - timedelta(minutes=1)
             hour_ago = now - timedelta(hours=1)
             

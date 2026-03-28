@@ -5,7 +5,7 @@ Provides user profile management endpoints.
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from typing import Optional
-from datetime import datetime
+from datetime import datetime, timezone
 import logging
 
 from app.database import get_db
@@ -64,7 +64,7 @@ async def update_my_profile(
     if not update_data:
         raise HTTPException(status_code=400, detail="No fields to update")
 
-    update_data["updated_at"] = datetime.utcnow().isoformat()
+    update_data["updated_at"] = datetime.now(timezone.utc).isoformat()
     updated = await db.user.update(where={"id": user["id"]}, data=update_data)
 
     if not updated:

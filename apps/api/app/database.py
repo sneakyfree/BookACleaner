@@ -6,7 +6,7 @@ Requires PostgreSQL — start with: docker-compose up db
 import logging
 import os
 from typing import Optional, Any, Dict, List
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import uuid
 from contextlib import asynccontextmanager
 
@@ -150,7 +150,7 @@ class Database:
             full_name="John Client",
             phone="+1234567890",
             is_verified=True,
-            email_verified_at=datetime.utcnow()
+            email_verified_at=datetime.now(timezone.utc)
         )
         session.add(client_user)
         
@@ -164,7 +164,7 @@ class Database:
                 full_name="Maria Santos",
                 phone="+1987654321",
                 is_verified=True,
-                email_verified_at=datetime.utcnow()
+                email_verified_at=datetime.now(timezone.utc)
             ),
             User(
                 id="user-cleaner-2",
@@ -174,7 +174,7 @@ class Database:
                 full_name="Sarah Johnson",
                 phone="+1555123456",
                 is_verified=True,
-                email_verified_at=datetime.utcnow()
+                email_verified_at=datetime.now(timezone.utc)
             ),
             User(
                 id="user-cleaner-3",
@@ -184,7 +184,7 @@ class Database:
                 full_name="James Wilson",
                 phone="+1555987654",
                 is_verified=True,
-                email_verified_at=datetime.utcnow()
+                email_verified_at=datetime.now(timezone.utc)
             ),
         ]
         for u in cleaner_users:
@@ -198,7 +198,7 @@ class Database:
             role="admin",
             full_name="Admin User",
             is_verified=True,
-            email_verified_at=datetime.utcnow()
+            email_verified_at=datetime.now(timezone.utc)
         )
         session.add(admin_user)
         
@@ -303,7 +303,7 @@ class Database:
                 title="Deep Clean - Main Residence",
                 description="Full deep clean including carpets and windows",
                 services=["deep", "carpet", "windows"],
-                scheduled_date=datetime.utcnow() + timedelta(days=3),
+                scheduled_date=datetime.now(timezone.utc) + timedelta(days=3),
                 scheduled_time="10:00",
                 estimated_hours=4.0,
                 base_price=200.00,
@@ -318,7 +318,7 @@ class Database:
                 title="Airbnb Turnover",
                 description="Standard turnover between guests",
                 services=["airbnb"],
-                scheduled_date=datetime.utcnow() + timedelta(days=1),
+                scheduled_date=datetime.now(timezone.utc) + timedelta(days=1),
                 scheduled_time="11:00",
                 estimated_hours=2.0,
                 base_price=130.00,

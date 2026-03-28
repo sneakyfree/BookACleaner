@@ -6,7 +6,7 @@ import boto3
 from botocore.exceptions import ClientError
 from botocore.config import Config
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, BinaryIO
 import mimetypes
 import logging
@@ -55,7 +55,7 @@ class FileUploadService:
         """Generate a unique S3 key for the file"""
         ext = filename.split('.')[-1] if '.' in filename else 'jpg'
         unique_id = uuid.uuid4().hex[:12]
-        date_path = datetime.utcnow().strftime('%Y/%m')
+        date_path = datetime.now(timezone.utc).strftime('%Y/%m')
         return f"{category}/{user_id}/{date_path}/{unique_id}.{ext}"
     
     def _get_content_type(self, filename: str) -> str:

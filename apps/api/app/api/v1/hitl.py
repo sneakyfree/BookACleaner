@@ -7,7 +7,7 @@ Persists all data to the database via ApprovalQueueItem model.
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from pydantic import BaseModel, Field
 from typing import Optional, List, Literal
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 import logging
 import uuid
@@ -141,7 +141,7 @@ async def decide_approval(
         data={
             "status": new_status,
             "reviewed_by": admin_id,
-            "reviewed_at": datetime.utcnow(),
+            "reviewed_at": datetime.now(timezone.utc),
             "review_notes": decision.notes,
         }
     )

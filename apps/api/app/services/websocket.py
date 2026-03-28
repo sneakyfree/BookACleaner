@@ -4,7 +4,7 @@ Handles real-time messaging, job updates, and notifications
 """
 import asyncio
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Set, Optional, Any, List
 from fastapi import WebSocket, WebSocketDisconnect
 import logging
@@ -51,7 +51,7 @@ class ConnectionManager:
         await self.send_personal_message({
             "type": "connection",
             "status": "connected",
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat()
         }, websocket)
     
     async def disconnect(self, websocket: WebSocket):
@@ -183,6 +183,6 @@ def create_message(msg_type: str, data: Any, **kwargs) -> dict:
     return {
         "type": msg_type,
         "data": data,
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
         **kwargs
     }

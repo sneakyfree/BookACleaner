@@ -5,7 +5,7 @@ Handles review creation, retrieval, and responses
 from fastapi import APIRouter, Depends, HTTPException, Header, Query
 from pydantic import BaseModel
 from typing import List, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 import logging
 
 from app.database import get_db
@@ -295,7 +295,7 @@ async def respond_to_review(
         where={"id": review_id},
         data={
             "response": data.response,
-            "responded_at": datetime.utcnow(),
+            "responded_at": datetime.now(timezone.utc),
         }
     )
     
@@ -342,7 +342,7 @@ async def reveal_review(
         from datetime import timedelta
         if isinstance(created, str):
             created = datetime.fromisoformat(created)
-        if datetime.utcnow() - created > timedelta(hours=48):
+        if datetime.now(timezone.utc) - created > timedelta(hours=48):
             await db.review.update(
                 where={"id": review_id},
                 data={"revealed": True}

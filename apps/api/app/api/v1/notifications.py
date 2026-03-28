@@ -5,7 +5,7 @@ Handles in-app notifications, email, and SMS notifications
 from fastapi import APIRouter, HTTPException, Depends, Header, Query
 from pydantic import BaseModel
 from typing import Optional, List
-from datetime import datetime
+from datetime import datetime, timezone
 import logging
 
 from app.database import get_db
@@ -106,7 +106,7 @@ async def mark_notification_read(
     
     notification = await db.notification.update(
         where={"id": notification_id},
-        data={"read": True, "read_at": datetime.utcnow()}
+        data={"read": True, "read_at": datetime.now(timezone.utc)}
     )
     
     if not notification:
@@ -127,7 +127,7 @@ async def mark_all_read(
     for n in notifications:
         await db.notification.update(
             where={"id": n["id"]},
-            data={"read": True, "read_at": datetime.utcnow()}
+            data={"read": True, "read_at": datetime.now(timezone.utc)}
         )
     
     return {"marked_read": len(notifications)}
@@ -168,7 +168,7 @@ async def register_device(
         {
             "id": generate_uuid(), "uid": user["id"],
             "token": data.fcm_token, "dtype": data.device_type,
-            "now": datetime.utcnow()
+            "now": datetime.now(timezone.utc)
         }
     )
 

@@ -5,7 +5,7 @@ Click-to-accept agreement system for job bookings
 from fastapi import APIRouter, Depends, HTTPException, Header, Request, Query
 from pydantic import BaseModel
 from typing import List, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 import logging
 
 from app.database import get_db
@@ -168,7 +168,7 @@ async def accept_agreement(
         "agreement_type": data.agreement_type,
         "version": template.get("version", "1.0"),
         "accepted": True,
-        "accepted_at": datetime.utcnow(),
+        "accepted_at": datetime.now(timezone.utc),
         "ip_address": request.client.host if request.client else None,
         "user_agent": request.headers.get("user-agent"),
     })

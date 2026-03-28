@@ -3,7 +3,7 @@ WebSocket Handler for BookACleaner.ai
 Real-time messaging using Socket.IO
 """
 import socketio
-from datetime import datetime
+from datetime import datetime, timezone
 import logging
 from typing import Dict, Optional
 
@@ -165,7 +165,7 @@ async def send_message(sid, data):
         # Update conversation last_message_at
         await db.conversation.update(
             where={"id": conversation_id},
-            data={"last_message_at": datetime.utcnow()}
+            data={"last_message_at": datetime.now(timezone.utc)}
         )
         
         # Get sender info
@@ -178,7 +178,7 @@ async def send_message(sid, data):
             "sender_id": user_id,
             "sender_name": user.get("full_name") if user else None,
             "content": content,
-            "created_at": datetime.utcnow().isoformat(),
+            "created_at": datetime.now(timezone.utc).isoformat(),
         }, room=f"conversation:{conversation_id}")
         
         logger.info(f"Message sent: {message['id']}")
@@ -226,7 +226,7 @@ async def mark_read(sid, data):
         if message_id:
             await db.message.update(
                 where={"id": message_id},
-                data={"read_at": datetime.utcnow()}
+                data={"read_at": datetime.now(timezone.utc)}
             )
         
         # Emit read receipt to conversation

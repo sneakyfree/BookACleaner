@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Header
 from pydantic import BaseModel, EmailStr, Field, field_validator
 import bcrypt
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from jose import jwt, JWTError
 import secrets
 import re
@@ -82,7 +82,7 @@ class VerifyEmailRequest(BaseModel):
 def create_access_token(data: dict, expires_delta: timedelta = None) -> str:
     """Create JWT access token"""
     to_encode = data.copy()
-    expire = datetime.utcnow() + (expires_delta or timedelta(minutes=settings.access_token_expire_minutes))
+    expire = datetime.now(timezone.utc) + (expires_delta or timedelta(minutes=settings.access_token_expire_minutes))
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, settings.jwt_secret, algorithm=settings.jwt_algorithm)
 
@@ -142,7 +142,7 @@ async def register(data: RegisterRequest, db = Depends(get_db)):
     
     # Create email verification token
     verification_token = secrets.token_urlsafe(32)
-    expires_at = datetime.utcnow() + timedelta(hours=24)
+    expires_at = datetime.now(timezone.utc) + timedelta(hours=24)
     
     await db.email_verification.create(
         data={
@@ -245,9 +245,9 @@ async def refresh_token(data: RefreshTokenRequest, db = Depends(get_db)):
     # Enforce max token age (7 days) — prevent infinite refresh of ancient tokens
     issued_at = payload.get("exp")
     if issued_at:
-        token_expiry = datetime.utcfromtimestamp(issued_at)
+        token_expiry = datetime.fromtimestamp(issued_at, tz=timezone.utc)
         max_refresh_window = timedelta(days=settings.refresh_token_expire_days)
-        if datetime.utcnow() - token_expiry > max_refresh_window:
+        if datetime.now(timezone.utc) - token_expiry > max_refresh_window:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Token too old to refresh. Please log in again.",
@@ -306,7 +306,7 @@ async def verify_email(data: VerifyEmailRequest, db = Depends(get_db)):
     if isinstance(expires_at, str):
         expires_at = datetime.fromisoformat(expires_at)
     
-    if expires_at and expires_at < datetime.utcnow():
+    if expires_at and expires_at < datetime.now(timezone.utc):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Verification token has expired"
@@ -317,14 +317,14 @@ async def verify_email(data: VerifyEmailRequest, db = Depends(get_db)):
         where={"id": verification["user_id"]},
         data={
             "is_verified": True,
-            "email_verified_at": datetime.utcnow()
+            "email_verified_at": datetime.now(timezone.utc)
         }
     )
     
     # Mark verification as used
     await db.email_verification.update(
         where={"id": verification["id"]},
-        data={"verified_at": datetime.utcnow()}
+        data={"verified_at": datetime.now(timezone.utc)}
     )
     
     return {"message": "Email verified successfully"}
@@ -345,7 +345,7 @@ async def resend_verification(email: EmailStr, db = Depends(get_db)):
     
     # Create new verification token
     verification_token = secrets.token_urlsafe(32)
-    expires_at = datetime.utcnow() + timedelta(hours=24)
+    expires_at = datetime.now(timezone.utc) + timedelta(hours=24)
     
     await db.email_verification.create(
         data={
@@ -378,7 +378,7 @@ async def forgot_password(data: ForgotPasswordRequest, db = Depends(get_db)):
     if user:
         # Generate reset token
         token = secrets.token_urlsafe(32)
-        expires = datetime.utcnow() + timedelta(hours=1)
+        expires = datetime.now(timezone.utc) + timedelta(hours=1)
         
         # Store token
         await db.password_reset.create(
@@ -425,7 +425,7 @@ async def reset_password(data: ResetPasswordRequest, db = Depends(get_db)):
     if isinstance(expires_at, str):
         expires_at = datetime.fromisoformat(expires_at)
     
-    if expires_at and expires_at < datetime.utcnow():
+    if expires_at and expires_at < datetime.now(timezone.utc):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Reset token has expired"
@@ -443,7 +443,7 @@ async def reset_password(data: ResetPasswordRequest, db = Depends(get_db)):
     # Mark token as used
     await db.password_reset.update(
         where={"id": reset["id"]},
-        data={"used_at": datetime.utcnow()}
+        data={"used_at": datetime.now(timezone.utc)}
     )
     
     return {"message": "Password reset successfully"}
@@ -526,7 +526,7 @@ async def oauth_google(
                 "full_name": data.name or data.email.split("@")[0],
                 "avatar_url": data.image,
                 "is_verified": True,  # OAuth users are verified
-                "email_verified_at": datetime.utcnow(),
+                "email_verified_at": datetime.now(timezone.utc),
             }
         )
     

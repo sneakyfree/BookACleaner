@@ -6,7 +6,7 @@ Implements DNA Strand's 4-Layer Explainability framework
 
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any, Literal
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 import logging
 
@@ -57,7 +57,7 @@ class Explanation(BaseModel):
     technical_factors: Optional[List[ExplanationFactor]] = None
     
     audit_snapshot_id: Optional[str] = None
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     
     # For pricing explanations
     price_components: Optional[List[PriceComponent]] = None
