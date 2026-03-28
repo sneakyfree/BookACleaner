@@ -484,15 +484,28 @@ class OAuthGoogleRequest(BaseModel):
 
 
 @router.post("/oauth/google", response_model=TokenResponse)
-async def oauth_google(data: OAuthGoogleRequest, db = Depends(get_db)):
+async def oauth_google(
+    data: OAuthGoogleRequest,
+    x_internal_api_key: str = Header(None, alias="X-Internal-API-Key"),
+    db = Depends(get_db),
+):
     """Handle Google OAuth callback from NextAuth.
     
-    SECURITY NOTE: This endpoint trusts NextAuth to have verified the Google
-    ID token. In production, the NextAuth server-side callback verifies the
-    Google JWT, and only then calls this endpoint. Direct calls to this 
-    endpoint should be restricted to the NextAuth server via CORS and a 
-    shared secret.
+    SECURITY: Requires X-Internal-API-Key header matching the server's
+    INTERNAL_API_KEY. This ensures only NextAuth (server-side) can call
+    this endpoint, preventing arbitrary account creation/login.
     """
+    import hmac
+    
+    # Verify internal API key — blocks direct attacker access
+    if not x_internal_api_key or not hmac.compare_digest(
+        x_internal_api_key, settings.internal_api_key
+    ):
+        logger.warning(f"OAuth /google called without valid internal API key (email: {data.email})")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Forbidden: invalid internal API key"
+        )
     
     if not data.email:
         raise HTTPException(

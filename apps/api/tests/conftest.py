@@ -10,6 +10,9 @@ import uuid
 import os
 import pytest
 import bcrypt
+
+# Disable rate limiting during tests
+os.environ["TESTING"] = "true"
 from httpx import AsyncClient, ASGITransport
 
 from app.models import Base, User

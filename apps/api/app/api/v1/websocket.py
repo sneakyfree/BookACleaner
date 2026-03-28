@@ -12,10 +12,31 @@ from app.config import get_settings
 settings = get_settings()
 logger = logging.getLogger(__name__)
 
+# Build WebSocket CORS allowed origins — match the REST CORS config
+import os, json
+_ws_origins = [
+    "http://localhost:3000",
+    "http://localhost:3001",
+    "http://localhost:3002",
+]
+if os.getenv("FRONTEND_URL"):
+    _ws_origins.append(os.getenv("FRONTEND_URL"))
+if os.getenv("CORS_ORIGINS"):
+    try:
+        _ws_origins.extend(json.loads(os.getenv("CORS_ORIGINS")))
+    except json.JSONDecodeError:
+        pass
+if os.getenv("ENVIRONMENT") == "production":
+    _ws_origins.extend([
+        "https://bookacleaner.ai",
+        "https://www.bookacleaner.ai",
+        "https://app.bookacleaner.ai",
+    ])
+
 # Create Socket.IO server
 sio = socketio.AsyncServer(
     async_mode='asgi',
-    cors_allowed_origins='*',
+    cors_allowed_origins=_ws_origins,
     logger=True,
     engineio_logger=False,
 )

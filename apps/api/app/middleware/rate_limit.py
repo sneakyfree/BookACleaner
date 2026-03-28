@@ -126,8 +126,13 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             return True, max(remaining, 0), 0
     
     async def dispatch(self, request: Request, call_next):
-        # Skip rate limiting for health checks
+        # Skip rate limiting for health checks and docs
         if request.url.path in ["/health", "/", "/docs", "/redoc", "/openapi.json"]:
+            return await call_next(request)
+        
+        # Skip rate limiting during test runs
+        import os
+        if os.getenv("TESTING", "").lower() == "true":
             return await call_next(request)
         
         client_key = self._get_client_key(request)

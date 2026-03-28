@@ -103,14 +103,14 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type", "Accept", "X-Requested-With"],
 )
 
-# Add rate limiting middleware (production only or if explicitly enabled)
-if os.getenv("ENABLE_RATE_LIMIT", "false").lower() == "true" or os.getenv("ENVIRONMENT") == "production":
-    app.add_middleware(
-        RateLimitMiddleware,
-        requests_per_minute=60,
-        requests_per_hour=1000,
-    )
-    logger.info("Rate limiting enabled")
+# Add rate limiting middleware — ALWAYS enabled
+# Auth endpoints have stricter per-endpoint limits defined in RateLimitMiddleware
+app.add_middleware(
+    RateLimitMiddleware,
+    requests_per_minute=60,
+    requests_per_hour=1000,
+)
+logger.info("Rate limiting enabled")
 
 # Add request logging middleware
 app.add_middleware(RequestLoggingMiddleware)

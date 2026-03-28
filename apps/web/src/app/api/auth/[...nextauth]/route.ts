@@ -68,7 +68,10 @@ const handler = NextAuth({
                 try {
                     const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/auth/oauth/google`, {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-Internal-API-Key': process.env.INTERNAL_API_KEY || '',
+                        },
                         body: JSON.stringify({
                             email: token.email,
                             name: token.name,

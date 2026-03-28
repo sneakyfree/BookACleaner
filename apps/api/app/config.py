@@ -31,6 +31,11 @@ class Settings(BaseSettings):
                 raise ValueError(
                     "FATAL: NEXTAUTH_SECRET must be set in production."
                 )
+            if self.internal_api_key == "dev-internal-api-key-change-in-production":
+                raise ValueError(
+                    "FATAL: INTERNAL_API_KEY must be set to a secure value in production. "
+                    "This key secures server-to-server calls (NextAuth → backend)."
+                )
         return self
 
     # Database - PostgreSQL via docker-compose; override with DATABASE_URL env var
@@ -52,6 +57,10 @@ class Settings(BaseSettings):
     # NextAuth
     nextauth_url: str = "http://localhost:3000"
     nextauth_secret: str = "dev-nextauth-secret-change-in-production"
+
+    # Internal API key for server-to-server calls (NextAuth → backend)
+    # In production, set INTERNAL_API_KEY to a strong random secret
+    internal_api_key: str = "dev-internal-api-key-change-in-production"
 
     # Stripe — empty defaults trigger dev-mode in stripe.py
     stripe_secret_key: str = ""
