@@ -90,7 +90,7 @@ def send_sms_task(self, to: str, body: str):
         
         service = SMSService()
         asyncio.get_event_loop().run_until_complete(
-            service.send(to=to, message=body)
+            service.send_sms(to=to, message=body)
         )
         logger.info(f"SMS sent to {to}")
     except Exception as exc:

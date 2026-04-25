@@ -13,6 +13,7 @@ from app.database import get_db
 from app.config import get_settings
 from app.services.sms import sms_service
 from app.api.deps import get_current_user
+from app.core.feature_flags import flags
 
 router = APIRouter()
 settings = get_settings()
@@ -189,13 +190,16 @@ async def send_phone_verification(
         }
     )
     
-    # Send SMS (if Twilio is configured)
-    try:
-        await sms_service.send_verification_code(data.phone, code)
-    except Exception as e:
-        logger.warning(f"Failed to send SMS (Twilio may not be configured): {e}")
-        # In dev mode, log the code
-        logger.info(f"DEV MODE - Verification code for {data.phone}: {code}")
+    # Send SMS (if Twilio is configured and SMS enabled)
+    if flags.sms_enabled:
+        try:
+            await sms_service.send_verification_code(data.phone, code)
+        except Exception as e:
+            logger.warning(f"Failed to send SMS (Twilio may not be configured): {e}")
+            # In dev mode, log the code
+            logger.info(f"DEV MODE - Verification code for {data.phone}: {code}")
+    else:
+        logger.info(f"SMS disabled — Verification code for {data.phone}: {code}")
     
     return {"message": "Verification code sent", "expires_in": 600}
 

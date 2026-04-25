@@ -10,6 +10,7 @@ from app.config import get_settings
 from app.database import get_db
 from app.api.deps import get_current_user, get_admin_user
 from app.core.feature_flags import flags
+from app.services.sms import sms_service
 
 router = APIRouter()
 settings = get_settings()
@@ -255,6 +256,44 @@ async def create_transfer(amount: int, destination_account_id: str, job_id: str,
         raise HTTPException(status_code=400, detail=str(e))
 
 
+# ==================== PLAN DISPLAY NAMES ====================
+PLAN_DISPLAY = {
+    "pay_as_you_go": {"name": "Pay As You Go", "price": "$89"},
+    "weekly_clean": {"name": "Weekly Clean", "price": "$69/wk"},
+    "host_pro": {"name": "Host Pro", "price": "$149/mo"},
+}
+
+
+@router.get("/subscription")
+async def get_current_subscription(user=Depends(get_current_user), db=Depends(get_db)):
+    """Get the current user's active subscription or plan."""
+    try:
+        result = await db.execute(
+            """SELECT id, plan, status, stripe_subscription_id, stripe_customer_id,
+                      current_period_start, current_period_end, created_at
+               FROM subscriptions
+               WHERE user_id = :uid AND status IN ('active', 'one_time')
+               ORDER BY created_at DESC LIMIT 1""",
+            {"uid": user["id"]}
+        )
+        if result and len(result) > 0:
+            sub = result[0]
+            display = PLAN_DISPLAY.get(sub.get("plan"), {})
+            return {
+                "plan_id": sub.get("plan"),
+                "plan_name": display.get("name", sub.get("plan", "Unknown")),
+                "plan_price": display.get("price", ""),
+                "status": sub.get("status"),
+                "stripe_subscription_id": sub.get("stripe_subscription_id"),
+                "current_period_start": sub.get("current_period_start"),
+                "current_period_end": sub.get("current_period_end"),
+            }
+        return {"plan_id": "free", "plan_name": "Starter", "status": "active"}
+    except Exception as e:
+        logger.warning(f"Error fetching subscription for user {user['id']}: {e}")
+        return {"plan_id": "free", "plan_name": "Starter", "status": "active"}
+
+
 @router.post("/create-checkout-session")
 async def create_checkout_session(
     plan: str,
@@ -486,6 +525,7 @@ async def handle_webhook(request: Request):
         session_obj = event.data.object
         user_id = session_obj.metadata.get("userId")
         plan = session_obj.metadata.get("plan", "unknown")
+        plan_display = PLAN_DISPLAY.get(plan, {"name": plan, "price": ""})
 
         if session_obj.mode == "subscription" and user_id:
             # Retrieve the subscription to get period info
@@ -504,8 +544,26 @@ async def handle_webhook(request: Request):
                      "pe": datetime.fromtimestamp(sub.current_period_end),
                      "now": datetime.now(timezone.utc)}
                 )
+
+            # Send SMS + in-app notification for subscription purchase
+            await _notify_checkout_success(db, user_id, plan_display["name"], plan_display["price"], "subscription")
             logger.info(f"Checkout completed (subscription) for user {user_id}: plan={plan}")
+
         elif session_obj.mode == "payment" and user_id:
+            # Store one-time purchase record
+            from app.models import generate_uuid
+            from datetime import datetime
+            await db.execute(
+                """INSERT INTO subscriptions (id, user_id, stripe_subscription_id, stripe_customer_id, plan, status, created_at, updated_at)
+                   VALUES (:id, :uid, :sid, :cid, :plan, :status, :now, :now)""",
+                {"id": generate_uuid(), "uid": user_id,
+                 "sid": session_obj.payment_intent or "one_time",
+                 "cid": session_obj.customer or "",
+                 "plan": plan, "status": "one_time",
+                 "now": datetime.utcnow()}
+            )
+            # Send SMS + in-app notification
+            await _notify_checkout_success(db, user_id, plan_display["name"], f"${session_obj.amount_total / 100:.2f}", "one-time")
             logger.info(f"Checkout completed (one-time payment) for user {user_id}: plan={plan}, amount=${session_obj.amount_total / 100:.2f}")
         else:
             logger.info(f"Checkout session completed: mode={session_obj.mode}")
@@ -536,4 +594,34 @@ async def handle_webhook(request: Request):
             logger.warning(f"Invoice payment failed for subscription {sub_id}")
 
     return {"received": True}
+
+
+async def _notify_checkout_success(db, user_id: str, plan_name: str, price: str, mode: str):
+    """Send SMS + in-app notification after successful checkout."""
+    try:
+        user = await db.user.find_unique(where={"id": user_id})
+        if not user:
+            return
+
+        # In-app notification
+        from app.models import generate_uuid
+        await db.notification.create(data={
+            "id": generate_uuid(),
+            "user_id": user_id,
+            "type": "checkout_success",
+            "title": "Purchase Confirmed! 🎉",
+            "message": f"Your {plan_name} plan ({price}) is now active. Thank you for choosing BookACleaner!",
+            "data": {"plan": plan_name, "mode": mode},
+        })
+
+        # SMS confirmation (if phone on file and SMS enabled)
+        if flags.sms_enabled and user.get("phone"):
+            await sms_service.send_sms(
+                user["phone"],
+                f"BookACleaner: Your {plan_name} plan ({price}) is confirmed! "
+                f"Thank you for your purchase. 🎉"
+            )
+            logger.info(f"Checkout SMS sent to {user['phone']} for user {user_id}")
+    except Exception as e:
+        logger.warning(f"Failed to send checkout notification for user {user_id}: {e}")
 

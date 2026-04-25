@@ -551,3 +551,117 @@ async def oauth_google(
             "is_verified": user.get("is_verified", True),
         }
     )
+
+
+# ==================== PHONE OTP LOGIN ====================
+
+class OTPSendRequest(BaseModel):
+    phone: str = Field(min_length=10, max_length=20)
+
+
+class OTPVerifyRequest(BaseModel):
+    phone: str = Field(min_length=10, max_length=20)
+    code: str = Field(min_length=6, max_length=6)
+
+
+@router.post("/otp/send")
+async def otp_send(data: OTPSendRequest, db=Depends(get_db)):
+    """Send a 6-digit OTP code to a phone number for passwordless login."""
+    from app.core.feature_flags import flags
+
+    # Generate 6-digit code
+    code = "".join([str(secrets.randbelow(10)) for _ in range(6)])
+    expires_at = datetime.utcnow() + timedelta(minutes=10)
+
+    # Store OTP in database (reuse phone_verification table)
+    await db.phone_verification.create(
+        data={
+            "user_id": "__otp__",  # Sentinel — not tied to a specific user yet
+            "phone": data.phone,
+            "code": code,
+            "expires_at": expires_at,
+        }
+    )
+
+    # Send via Twilio
+    if flags.sms_enabled:
+        try:
+            from app.services.sms import sms_service
+            await sms_service.send_otp(data.phone, code)
+        except Exception as e:
+            logger.warning(f"Failed to send OTP SMS to {data.phone}: {e}")
+            logger.info(f"DEV MODE — OTP for {data.phone}: {code}")
+    else:
+        logger.info(f"SMS disabled — OTP for {data.phone}: {code}")
+
+    return {"message": "OTP sent", "expires_in": 600}
+
+
+@router.post("/otp/verify", response_model=TokenResponse)
+async def otp_verify(data: OTPVerifyRequest, db=Depends(get_db)):
+    """Verify OTP code and return a JWT. Creates user if they don't exist."""
+
+    # Find latest OTP for this phone number
+    verifications = await db.phone_verification.find_many(where={"phone": data.phone})
+
+    if not verifications:
+        raise HTTPException(status_code=400, detail="No OTP request found for this phone number")
+
+    latest = verifications[-1]
+
+    # Check expiry
+    expires_at = latest.get("expires_at")
+    if isinstance(expires_at, str):
+        expires_at = datetime.fromisoformat(expires_at)
+    if expires_at and expires_at < datetime.utcnow():
+        raise HTTPException(status_code=400, detail="OTP expired")
+
+    # Check code
+    if latest["code"] != data.code:
+        raise HTTPException(status_code=400, detail="Invalid OTP code")
+
+    # Mark OTP as used
+    await db.phone_verification.update(
+        where={"id": latest["id"]},
+        data={"verified_at": datetime.utcnow()}
+    )
+
+    # Find or create user by phone
+    user = await db.user.find_first(where={"phone": data.phone})
+
+    if not user:
+        # Auto-create client account for phone-based signup
+        user = await db.user.create(
+            data={
+                "email": f"{data.phone.replace('+', '')}@phone.bookacleaner.ai",
+                "password_hash": None,
+                "role": "client",
+                "full_name": "New User",
+                "phone": data.phone,
+                "phone_verified_at": datetime.utcnow(),
+                "is_verified": True,
+            }
+        )
+        logger.info(f"Created new user via OTP: {user['id']} ({data.phone})")
+    else:
+        # Ensure phone is marked verified
+        if not user.get("phone_verified_at"):
+            await db.user.update(
+                where={"id": user["id"]},
+                data={"phone_verified_at": datetime.utcnow()}
+            )
+
+    # Issue JWT
+    access_token = create_access_token({"sub": user["id"], "role": user["role"]})
+
+    return TokenResponse(
+        access_token=access_token,
+        expires_in=settings.access_token_expire_minutes * 60,
+        user={
+            "id": user["id"],
+            "email": user.get("email", ""),
+            "role": user["role"],
+            "is_verified": True,
+        }
+    )
+
