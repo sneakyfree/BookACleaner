@@ -5,7 +5,6 @@ Persistent database schema matching the DNA Strand Master Plan
 import uuid
 from datetime import datetime
 from typing import Optional, List
-from sqlalchemy.dialects.postgresql import ENUM as PGEnum
 from sqlalchemy import (
     Column, String, Text, Integer, Float, Boolean, DateTime, 
     ForeignKey, Enum, JSON, create_engine
@@ -74,18 +73,16 @@ class User(Base):
     
     id = Column(String(36), primary_key=True, default=generate_uuid)
     email = Column(String(255), unique=True, nullable=False, index=True)
-    password_hash = Column("passwordHash", String(255), nullable=True)
-    # Use PostgreSQL enum type directly
-    role = Column(
-        PGEnum('CLIENT', 'CLEANER', 'ADMIN', name='UserRole', create_type=False),
-        nullable=False,
-        server_default='CLIENT'
-    )
+    password_hash = Column(String(255), nullable=True)
+    role = Column(String(20), default="client")
+    full_name = Column(String(255), nullable=True)
     phone = Column(String(20), nullable=True)
-    email_verified_at = Column("emailVerified", DateTime, nullable=True)
-    phone_verified_at = Column("phoneVerified", DateTime, nullable=True)
-    created_at = Column("createdAt", DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column("updatedAt", DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    avatar_url = Column(String(500), nullable=True)
+    is_verified = Column(Boolean, default=False)
+    email_verified_at = Column(DateTime, nullable=True)
+    phone_verified_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     # Relationships
     cleaner_profile = relationship("CleanerProfile", back_populates="user", uselist=False)
@@ -119,8 +116,8 @@ class CleanerProfile(Base):
     service_areas = Column(JSON, default=list)
     
     profile_photo = Column(String(500), nullable=True)
-    created_at = Column("createdAt", DateTime, default=datetime.utcnow)
-    updated_at = Column("updatedAt", DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     # Relationships
     user = relationship("User", back_populates="cleaner_profile")
@@ -145,8 +142,8 @@ class ClientProfile(Base):
     on_time_payment_rate = Column(Float, default=100.0)
     
     profile_photo = Column(String(500), nullable=True)
-    created_at = Column("createdAt", DateTime, default=datetime.utcnow)
-    updated_at = Column("updatedAt", DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     # Relationships
     user = relationship("User", back_populates="client_profile")
@@ -182,8 +179,8 @@ class Property(Base):
     # Airbnb sync
     airbnb_calendar_url = Column(String(500), nullable=True)
     
-    created_at = Column("createdAt", DateTime, default=datetime.utcnow)
-    updated_at = Column("updatedAt", DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     # Relationships
     client = relationship("ClientProfile", back_populates="properties")
@@ -226,8 +223,8 @@ class Job(Base):
     started_at = Column(DateTime, nullable=True)
     completed_at = Column(DateTime, nullable=True)
     
-    created_at = Column("createdAt", DateTime, default=datetime.utcnow)
-    updated_at = Column("updatedAt", DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     # Relationships
     client = relationship("ClientProfile", back_populates="jobs")
@@ -257,8 +254,8 @@ class Review(Base):
     is_public = Column(Boolean, default=True)
     moderated_at = Column(DateTime, nullable=True)
     
-    created_at = Column("createdAt", DateTime, default=datetime.utcnow)
-    updated_at = Column("updatedAt", DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     # Relationships
     job = relationship("Job", back_populates="reviews")
@@ -270,8 +267,8 @@ class Conversation(Base):
     id = Column(String(36), primary_key=True, default=generate_uuid)
     job_id = Column(String(36), ForeignKey("jobs.id"), nullable=True)
     
-    created_at = Column("createdAt", DateTime, default=datetime.utcnow)
-    updated_at = Column("updatedAt", DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     last_message_at = Column(DateTime, default=datetime.utcnow)
     
     # Relationships
@@ -303,7 +300,7 @@ class Message(Base):
     attachments = Column(JSON, default=list)
     channel = Column(String(20), default="app")
     
-    created_at = Column("createdAt", DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.utcnow)
     delivered_at = Column(DateTime, nullable=True)
     read_at = Column(DateTime, nullable=True)
     
@@ -328,8 +325,8 @@ class Verification(Base):
     expires_at = Column(DateTime, nullable=True)
     rejection_reason = Column(Text, nullable=True)
     
-    created_at = Column("createdAt", DateTime, default=datetime.utcnow)
-    updated_at = Column("updatedAt", DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     # Relationships
     user = relationship("User", back_populates="verifications")
@@ -352,8 +349,8 @@ class Certification(Base):
     verified = Column(Boolean, default=False)
     verified_at = Column(DateTime, nullable=True)
     
-    created_at = Column("createdAt", DateTime, default=datetime.utcnow)
-    updated_at = Column("updatedAt", DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     # Relationships
     cleaner = relationship("CleanerProfile", back_populates="certifications")
@@ -367,7 +364,7 @@ class PasswordReset(Base):
     token = Column(String(100), nullable=False, unique=True)
     expires_at = Column(DateTime, nullable=False)
     used_at = Column(DateTime, nullable=True)
-    created_at = Column("createdAt", DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.utcnow)
     
     # Relationships
     user = relationship("User", back_populates="password_resets")
@@ -381,7 +378,7 @@ class EmailVerification(Base):
     token = Column(String(100), nullable=False, unique=True)
     expires_at = Column(DateTime, nullable=False)
     verified_at = Column(DateTime, nullable=True)
-    created_at = Column("createdAt", DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.utcnow)
 
 
 class PhoneVerification(Base):
@@ -393,7 +390,7 @@ class PhoneVerification(Base):
     code = Column(String(6), nullable=False)
     expires_at = Column(DateTime, nullable=False)
     verified_at = Column(DateTime, nullable=True)
-    created_at = Column("createdAt", DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.utcnow)
 
 
 class Notification(Base):
@@ -410,7 +407,7 @@ class Notification(Base):
     read = Column(Boolean, default=False)
     read_at = Column(DateTime, nullable=True)
     
-    created_at = Column("createdAt", DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.utcnow)
     
     # Relationships
     user = relationship("User", back_populates="notifications")

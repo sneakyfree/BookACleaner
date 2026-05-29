@@ -1,0 +1,94 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: bookacleaner-db-prod
+    environment:
+      POSTGRES_USER: bookacleaner
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-bookacleaner_secure_2025}
+      POSTGRES_DB: bookacleaner
+    ports:
+      - "5433:5432"
+    volumes:
+      - bookacleaner_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bookacleaner"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - bookacleaner-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: bookacleaner-redis-prod
+    ports:
+      - "6380:6379"
+    volumes:
+      - bookacleaner_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - bookacleaner-network
+
+  api:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+    container_name: bookacleaner-api-prod
+    ports:
+      - "8006:8000"
+    environment:
+      - DATABASE_URL=postgresql://bookacleaner:${POSTGRES_PASSWORD:-bookacleaner_secure_2025}@db:5432/bookacleaner
+      - REDIS_URL=redis://redis:6379
+      - JWT_SECRET=${JWT_SECRET:-bookacleaner_jwt_secret_2025}
+      - NEXTAUTH_SECRET=${NEXTAUTH_SECRET:-bookacleaner_nextauth_secret_2025}
+      - NODE_ENV=production
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      start_period: 10s
+      retries: 3
+    restart: unless-stopped
+    networks:
+      - bookacleaner-network
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile.standalone
+    container_name: bookacleaner-web-prod
+    ports:
+      - "3010:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8003
+      - NEXTAUTH_URL=https://bookacleaner.thewindstorm.uk
+      - NEXTAUTH_SECRET=${NEXTAUTH_SECRET:-bookacleaner_nextauth_secret_2025}
+      - NODE_ENV=production
+    depends_on:
+      - api
+    restart: unless-stopped
+    networks:
+      - bookacleaner-network
+
+volumes:
+  bookacleaner_postgres_data:
+    name: bookacleaner_postgres_data
+  bookacleaner_redis_data:
+    name: bookacleaner_redis_data
+
+networks:
+  bookacleaner-network:
+    name: bookacleaner-network

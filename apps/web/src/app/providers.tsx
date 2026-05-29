@@ -6,6 +6,7 @@ import { ThemeProvider } from 'next-themes'
 import { SessionProvider } from 'next-auth/react'
 import { Toaster } from 'sonner'
 import { useState } from 'react'
+import { LanguageProvider } from '@/lib/i18n/context'
 
 export function Providers({ children }: { children: React.ReactNode }) {
     const [queryClient] = useState(
@@ -30,8 +31,10 @@ export function Providers({ children }: { children: React.ReactNode }) {
                     enableSystem
                     disableTransitionOnChange
                 >
-                    {children}
-                    <Toaster richColors position="top-right" />
+                    <LanguageProvider>
+                        {children}
+                        <Toaster richColors position="top-right" />
+                    </LanguageProvider>
                 </ThemeProvider>
                 <ReactQueryDevtools initialIsOpen={false} />
             </QueryClientProvider>

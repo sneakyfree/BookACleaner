@@ -1,8 +1,14 @@
+'use client'
+
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { ArrowRight, Sparkles, Shield, Calendar, Star } from 'lucide-react'
+import { useLanguage } from '@/lib/i18n/context'
+import { LanguageToggle } from '@/components/LanguageToggle'
 
 export default function HomePage() {
+    const { t } = useLanguage()
+
     return (
         <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
             {/* Navigation */}
@@ -17,25 +23,28 @@ export default function HomePage() {
 
                     <div className="hidden md:flex items-center gap-8">
                         <Link href="/cleaners" className="text-white/80 hover:text-white transition">
-                            Find Cleaners
+                            {t.nav.findCleaners}
                         </Link>
                         <Link href="/for-cleaners" className="text-white/80 hover:text-white transition">
-                            For Cleaners
+                            {t.nav.forCleaners}
                         </Link>
                         <Link href="/pricing" className="text-white/80 hover:text-white transition">
-                            Pricing
+                            {t.nav.pricing}
                         </Link>
                     </div>
 
                     <div className="flex items-center gap-4">
+                        {/* Language Toggle - Prominent Position */}
+                        <LanguageToggle />
+                        
                         <Link href="/login">
                             <Button variant="ghost" className="text-white hover:bg-white/10">
-                                Sign In
+                                {t.nav.signIn}
                             </Button>
                         </Link>
                         <Link href="/register">
                             <Button className="bg-brand-500 hover:bg-brand-600 text-white">
-                                Get Started
+                                {t.nav.getStarted}
                             </Button>
                         </Link>
                     </div>
@@ -47,24 +56,23 @@ export default function HomePage() {
                 <div className="container mx-auto text-center">
                     <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-brand-500/10 border border-brand-500/20 text-brand-400 text-sm mb-8">
                         <Sparkles className="w-4 h-4" />
-                        <span>The Future of Cleaning is Here</span>
+                        <span>{t.hero.badge}</span>
                     </div>
 
                     <h1 className="text-5xl md:text-7xl font-display font-bold text-white mb-6 leading-tight">
-                        They schedule.
+                        {t.hero.title1}
                         <br />
-                        <span className="text-gradient">We think.</span>
+                        <span className="text-gradient">{t.hero.title2}</span>
                     </h1>
 
                     <p className="text-xl text-white/60 max-w-2xl mx-auto mb-10">
-                        The world&apos;s first AI-native operating system for the cleaning industry.
-                        Connect with trusted professionals, automate scheduling, and grow your business.
+                        {t.hero.subtitle}
                     </p>
 
                     <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
                         <Link href="/register?role=client">
                             <Button size="lg" className="bg-brand-500 hover:bg-brand-600 text-white text-lg px-8 py-6">
-                                Find a Cleaner
+                                {t.hero.findCleaner}
                                 <ArrowRight className="w-5 h-5 ml-2" />
                             </Button>
                         </Link>
@@ -74,13 +82,13 @@ export default function HomePage() {
                                 variant="outline"
                                 className="border-brand-500/50 bg-transparent text-white hover:bg-brand-500/10 text-lg px-8 py-6"
                             >
-                                Join as a Cleaner
+                                {t.hero.joinAsCleaner}
                             </Button>
                         </Link>
                     </div>
 
                     <p className="text-white/40 text-sm mt-6">
-                        Free to use • No credit card required • Cancel anytime
+                        {t.hero.freeNote}
                     </p>
                 </div>
             </section>
@@ -95,11 +103,10 @@ export default function HomePage() {
                                 <Shield className="w-6 h-6 text-brand-500" />
                             </div>
                             <h3 className="text-xl font-display font-semibold text-white mb-3">
-                                Verified Professionals
+                                {t.features.verified.title}
                             </h3>
                             <p className="text-white/60">
-                                Every cleaner is verified with background checks, insurance, and certifications.
-                                5-tier verification system ensures trust.
+                                {t.features.verified.description}
                             </p>
                         </div>
 
@@ -109,11 +116,10 @@ export default function HomePage() {
                                 <Calendar className="w-6 h-6 text-accent-fresh" />
                             </div>
                             <h3 className="text-xl font-display font-semibold text-white mb-3">
-                                AI-Powered Scheduling
+                                {t.features.scheduling.title}
                             </h3>
                             <p className="text-white/60">
-                                Automatic Airbnb calendar sync, route optimization, and intelligent gap filling.
-                                Let AI handle the logistics.
+                                {t.features.scheduling.description}
                             </p>
                         </div>
 
@@ -123,11 +129,10 @@ export default function HomePage() {
                                 <Star className="w-6 h-6 text-accent-sparkle" />
                             </div>
                             <h3 className="text-xl font-display font-semibold text-white mb-3">
-                                Two-Sided Reviews
+                                {t.features.reviews.title}
                             </h3>
                             <p className="text-white/60">
-                                eBay-style satisfaction ratings for both cleaners and clients.
-                                Build reputation, earn trust, grow your business.
+                                {t.features.reviews.description}
                             </p>
                         </div>
                     </div>
@@ -139,15 +144,14 @@ export default function HomePage() {
                 <div className="container mx-auto">
                     <div className="glass rounded-3xl p-12 text-center">
                         <h2 className="text-3xl md:text-4xl font-display font-bold text-white mb-4">
-                            Ready to experience the future?
+                            {t.cta.title}
                         </h2>
                         <p className="text-white/60 max-w-xl mx-auto mb-8">
-                            Join thousands of cleaning professionals and property managers who are
-                            already using BookACleaner.ai to transform their business.
+                            {t.cta.subtitle}
                         </p>
                         <Link href="/register">
                             <Button size="lg" className="bg-brand-500 hover:bg-brand-600 text-white text-lg px-8 py-6">
-                                Get Started for Free
+                                {t.cta.button}
                                 <ArrowRight className="w-5 h-5 ml-2" />
                             </Button>
                         </Link>
@@ -168,18 +172,18 @@ export default function HomePage() {
 
                         <div className="flex items-center gap-8 text-white/60 text-sm">
                             <Link href="/privacy" className="hover:text-white transition">
-                                Privacy Policy
+                                {t.footer.privacy}
                             </Link>
                             <Link href="/terms" className="hover:text-white transition">
-                                Terms of Service
+                                {t.footer.terms}
                             </Link>
                             <Link href="/contact" className="hover:text-white transition">
-                                Contact
+                                {t.footer.contact}
                             </Link>
                         </div>
 
                         <p className="text-white/40 text-sm">
-                            © 2026 BookACleaner.ai. All rights reserved.
+                            {t.footer.copyright}
                         </p>
                     </div>
                 </div>

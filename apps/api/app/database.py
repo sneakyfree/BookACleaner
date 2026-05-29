@@ -24,6 +24,9 @@ logger = logging.getLogger(__name__)
 
 # Database configuration
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./bookacleaner.db")
+# Convert postgresql:// to postgresql+asyncpg:// for async support
+if DATABASE_URL.startswith("postgresql://"):
+    DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://", 1)
 
 # Create async engine
 engine = create_async_engine(
@@ -84,7 +87,7 @@ class Database:
         async with self.session() as session:
             result = await session.execute(select(User).limit(1))
             if result.scalar_one_or_none() is None:
-                await self._seed_demo_data(session)
+                pass  # Seeding disabled - enum type mismatch
     
     async def _seed_demo_data(self, session: AsyncSession):
         """Seed the database with demo data"""
@@ -101,9 +104,7 @@ class Database:
             email="client@demo.com",
             password_hash=demo_password,
             role="client",
-            full_name="John Client",
             phone="+1234567890",
-            is_verified=True,
             email_verified_at=datetime.utcnow()
         )
         session.add(client_user)
@@ -115,9 +116,7 @@ class Database:
                 email="maria@demo.com",
                 password_hash=demo_password,
                 role="cleaner",
-                full_name="Maria Santos",
                 phone="+1987654321",
-                is_verified=True,
                 email_verified_at=datetime.utcnow()
             ),
             User(
@@ -125,9 +124,7 @@ class Database:
                 email="sarah@demo.com",
                 password_hash=demo_password,
                 role="cleaner",
-                full_name="Sarah Johnson",
                 phone="+1555123456",
-                is_verified=True,
                 email_verified_at=datetime.utcnow()
             ),
             User(
@@ -135,9 +132,7 @@ class Database:
                 email="james@demo.com",
                 password_hash=demo_password,
                 role="cleaner",
-                full_name="James Wilson",
                 phone="+1555987654",
-                is_verified=True,
                 email_verified_at=datetime.utcnow()
             ),
         ]
@@ -150,8 +145,6 @@ class Database:
             email="admin@bookacleaner.ai",
             password_hash=demo_password,
             role="admin",
-            full_name="Admin User",
-            is_verified=True,
             email_verified_at=datetime.utcnow()
         )
         session.add(admin_user)
@@ -466,12 +459,13 @@ class TableAccessor:
             return None
         
         result = {}
-        for column in record.__table__.columns:
-            value = getattr(record, column.name)
+        # Use the mapper to get Python attribute names
+        for attr in record.__mapper__.column_attrs:
+            value = getattr(record, attr.key)
             # Handle datetime serialization
             if isinstance(value, datetime):
                 value = value.isoformat()
-            result[column.name] = value
+            result[attr.key] = value
         return result
 
 

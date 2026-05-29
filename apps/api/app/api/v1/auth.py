@@ -111,9 +111,7 @@ async def register(data: RegisterRequest, db = Depends(get_db)):
         data={
             "email": data.email,
             "password_hash": password_hash,
-            "role": data.role,
-            "full_name": data.email.split("@")[0],
-            "is_verified": False,
+            "role": data.role.upper(),
         }
     )
     
@@ -134,7 +132,7 @@ async def register(data: RegisterRequest, db = Depends(get_db)):
         verify_link = f"{settings.frontend_url}/verify-email?token={verification_token}"
         await email_service.send_verification_email(
             to_email=data.email,
-            name=user["full_name"],
+            name=user.get("email", "").split("@")[0],
             verify_link=verify_link
         )
     except Exception as e:
@@ -150,7 +148,6 @@ async def register(data: RegisterRequest, db = Depends(get_db)):
             "id": user["id"],
             "email": user["email"],
             "role": user["role"],
-            "is_verified": user["is_verified"],
         }
     )
 
@@ -184,7 +181,6 @@ async def login(data: LoginRequest, db = Depends(get_db)):
             "id": user["id"],
             "email": user["email"],
             "role": user["role"],
-            "is_verified": user.get("is_verified", False),
         }
     )
 
@@ -221,7 +217,7 @@ async def verify_email(data: VerifyEmailRequest, db = Depends(get_db)):
     await db.user.update(
         where={"id": verification["user_id"]},
         data={
-            "is_verified": True,
+            "emailVerified": datetime.utcnow(),
             "email_verified_at": datetime.utcnow()
         }
     )
@@ -265,7 +261,6 @@ async def resend_verification(email: EmailStr, db = Depends(get_db)):
         verify_link = f"{settings.frontend_url}/verify-email?token={verification_token}"
         await email_service.send_verification_email(
             to_email=email,
-            name=user.get("full_name", "User"),
             verify_link=verify_link
         )
     except Exception as e:
@@ -377,8 +372,7 @@ async def get_current_user(authorization: str = None, db = Depends(get_db)):
         "id": user["id"],
         "email": user["email"],
         "role": user["role"],
-        "full_name": user.get("full_name"),
-        "is_verified": user.get("is_verified", False),
+        "full_name": user.get("email", "").split("@")[0],
     }
 
 
@@ -402,9 +396,9 @@ async def oauth_google(data: OAuthGoogleRequest, db = Depends(get_db)):
                 "email": data.email,
                 "password_hash": None,  # OAuth users don't have password
                 "role": "client",  # Default to client role
-                "full_name": data.name or data.email.split("@")[0],
+                "email": data.email,
                 "avatar_url": data.image,
-                "is_verified": True,  # OAuth users are verified
+                "emailVerified": datetime.utcnow(),  # OAuth users are verified
                 "email_verified_at": datetime.utcnow(),
             }
         )
@@ -419,6 +413,5 @@ async def oauth_google(data: OAuthGoogleRequest, db = Depends(get_db)):
             "id": user["id"],
             "email": user["email"],
             "role": user["role"],
-            "is_verified": user.get("is_verified", True),
         }
     )
