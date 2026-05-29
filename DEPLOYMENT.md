@@ -1,68 +1,72 @@
-# BookACleaner Deployment Checklist
+# BookACleaner Deployment Guide
 
-## Pre-Deployment
+Production runs as a Docker Compose stack: **Postgres + Redis + API (gunicorn/uvicorn) +
+Celery worker + Celery beat + Next.js web**, fronted by nginx (`nginx/bookacleaner.conf`).
 
-### Environment Variables
+> Stack reality: backend is **FastAPI + SQLAlchemy 2.0 (async) + Alembic** (not Prisma).
+> Database schema is managed by Alembic migrations, applied automatically by the
+> one-shot `migrate` service before the API/Celery containers start.
 
-**Frontend (`apps/web/.env.local` → `.env.production`):**
-```env
-NEXTAUTH_URL=https://bookacleaner.ai
-NEXTAUTH_SECRET=<generate-secure-secret>
-GOOGLE_CLIENT_ID=<your-google-client-id>
-GOOGLE_CLIENT_SECRET=<your-google-client-secret>
-NEXT_PUBLIC_API_URL=https://api.bookacleaner.ai
-```
+## 1. Prerequisites
+- A host with Docker Engine + the Compose plugin (`docker compose version`)
+- DNS A records for `bookacleaner.ai` / `www` pointing at the host
+- nginx + certbot on the host (or a managed TLS terminator)
 
-**Backend (`apps/api/.env`):**
-```env
-DEV_MODE=false
-DATABASE_URL=postgresql://user:pass@host:5432/bookacleaner
-REDIS_URL=redis://host:6379
-JWT_SECRET=<generate-secure-secret>
-STRIPE_SECRET_KEY=<your-stripe-key>
-OPENAI_API_KEY=<your-openai-key>
-```
-
-### Database Setup
-- [ ] PostgreSQL database created
-- [ ] Migrations applied (from `apps/api`, venv active): `alembic upgrade head`
-- [ ] (Optional) Seed demo data: `python scripts/seed_demo.py`
-
----
-
-## Build & Deploy
-
-### Frontend (Port 3847)
+## 2. Configure environment
 ```bash
-cd apps/web
-npm run build
-npm run start  # Runs on port 3847
+cp .env.prod.example .env
+$EDITOR .env          # fill in DB_PASS, REDIS_PASS, JWT_SECRET, NEXTAUTH_SECRET,
+                      # INTERNAL_API_KEY (openssl rand -hex 32) + integration keys
 ```
+The API refuses to boot in production (`DEV_MODE=false`) unless `JWT_SECRET`,
+`NEXTAUTH_SECRET`, and `INTERNAL_API_KEY` are set to non-default values. Stripe/Twilio/
+OpenAI/AWS keys are optional — those features stay in mock/disabled mode if unset.
 
-### Backend (Port 8000)
+## 3. Build & launch
 ```bash
-cd apps/api
-pip install -r requirements.txt
-alembic upgrade head  # apply database migrations
-uvicorn app.main:app --host 0.0.0.0 --port 8000
+docker compose -f docker-compose.prod.yml up -d --build
+```
+Startup order is enforced by `depends_on`:
+`db` + `redis` (healthy) → `migrate` (runs `alembic upgrade head`, exits) →
+`api` + `celery-worker` + `celery-beat` → `web`.
+
+## 4. Database migrations
+Applied automatically by the `migrate` service on every `up`. To run manually:
+```bash
+docker compose -f docker-compose.prod.yml run --rm migrate          # alembic upgrade head
+docker compose -f docker-compose.prod.yml run --rm api alembic history
+```
+Optional demo seed (dev/staging only):
+```bash
+docker compose -f docker-compose.prod.yml run --rm api python scripts/seed_demo.py
 ```
 
----
+## 5. nginx + TLS (on the host)
+```bash
+sudo cp nginx/bookacleaner.conf /etc/nginx/sites-available/bookacleaner.conf
+sudo ln -s /etc/nginx/sites-available/bookacleaner.conf /etc/nginx/sites-enabled/
+sudo certbot --nginx -d bookacleaner.ai -d www.bookacleaner.ai
+sudo nginx -t && sudo systemctl reload nginx
+```
+nginx proxies `/api/`, `/health`, `/ws/` → API (:8000) and everything else → web (:3000),
+with rate limiting and security headers already configured.
 
-## Post-Deployment Verification
+## 6. Verify
+```bash
+docker compose -f docker-compose.prod.yml ps
+curl -f http://localhost:8000/health/ready     # API + DB + Redis readiness
+curl -f http://localhost:8000/health/celery    # Celery worker reachable
+```
+- [ ] All containers `healthy` / `migrate` exited 0
+- [ ] `/health/ready` returns 200
+- [ ] Registration + login work
+- [ ] Cleaner search returns results
+- [ ] Booking wizard submits
 
-- [ ] Health check: `curl https://api.bookacleaner.ai/health`
-- [ ] Frontend loads at https://bookacleaner.ai
-- [ ] User registration works
-- [ ] User login works
-- [ ] Cleaner search displays results
-- [ ] Booking wizard submits successfully
-
----
-
-## Ports Summary
-
-| Service | Dev Port | Prod Port |
-|---------|----------|-----------|
-| Frontend | 3002 | 3847 |
-| Backend API | 8000 | 8000 |
+## Ports
+| Service | Container | Host (default) |
+|---------|-----------|----------------|
+| Web (Next.js) | 3000 | `${WEB_PORT:-3000}` |
+| API (gunicorn) | 8000 | `${API_PORT:-8000}` |
+| Postgres | 5432 | `${DB_PORT:-5432}` |
+| Redis | 6379 | `${REDIS_PORT:-6379}` |

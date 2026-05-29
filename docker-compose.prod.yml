@@ -1,5 +1,3 @@
-version: '3.8'
-
 #
 # BookACleaner — Production Docker Compose
 # Usage:  docker compose -f docker-compose.prod.yml up -d
@@ -12,7 +10,7 @@ services:
     restart: always
     environment:
       POSTGRES_USER: ${DB_USER:-bookacleaner}
-      POSTGRES_PASSWORD: ${DB_PASS:?ERROR: DB_PASS must be set for production}
+      POSTGRES_PASSWORD: ${DB_PASS:?ERROR DB_PASS must be set for production}
       POSTGRES_DB: ${DB_NAME:-bookacleaner}
     ports:
       - "${DB_PORT:-5432}:5432"
@@ -32,12 +30,30 @@ services:
       - "${REDIS_PORT:-6379}:6379"
     volumes:
       - redis_data_prod:/data
-    command: redis-server --appendonly yes --requirepass ${REDIS_PASS:?ERROR: REDIS_PASS must be set for production}
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASS:?ERROR REDIS_PASS must be set for production}
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "${REDIS_PASS:?ERROR: REDIS_PASS must be set for production}", "ping"]
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASS:?ERROR REDIS_PASS must be set for production}", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
+
+  # One-shot: apply Alembic migrations before api/celery start (prevents races)
+  migrate:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+    container_name: bookacleaner-migrate-prod
+    command: alembic upgrade head
+    environment:
+      - DEV_MODE=false
+      - DATABASE_URL=postgresql+asyncpg://${DB_USER:-bookacleaner}:${DB_PASS:?ERROR DB_PASS must be set}@db:5432/${DB_NAME:-bookacleaner}
+      - JWT_SECRET=${JWT_SECRET:?ERROR JWT_SECRET must be set for production}
+      - NEXTAUTH_SECRET=${NEXTAUTH_SECRET:?ERROR NEXTAUTH_SECRET must be set for production}
+      - INTERNAL_API_KEY=${INTERNAL_API_KEY:?ERROR INTERNAL_API_KEY must be set for production}
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
 
   api:
     build:
@@ -48,15 +64,34 @@ services:
     ports:
       - "${API_PORT:-8000}:8000"
     environment:
-      - DATABASE_URL=postgresql+asyncpg://${DB_USER:-bookacleaner}:${DB_PASS:?ERROR: DB_PASS must be set}@db:5432/${DB_NAME:-bookacleaner}
-      - REDIS_URL=redis://:${REDIS_PASS:?ERROR: REDIS_PASS must be set for production}@redis:6379
-      - CELERY_BROKER_URL=redis://:${REDIS_PASS:?ERROR: REDIS_PASS must be set for production}@redis:6379/1
-      - CELERY_RESULT_BACKEND=redis://:${REDIS_PASS:?ERROR: REDIS_PASS must be set for production}@redis:6379/2
-      - ENVIRONMENT=production
-      - SECRET_KEY=${SECRET_KEY}
+      - DEV_MODE=false
+      - DATABASE_URL=postgresql+asyncpg://${DB_USER:-bookacleaner}:${DB_PASS:?ERROR DB_PASS must be set}@db:5432/${DB_NAME:-bookacleaner}
+      - REDIS_URL=redis://:${REDIS_PASS:?ERROR REDIS_PASS must be set for production}@redis:6379
+      - CELERY_BROKER_URL=redis://:${REDIS_PASS:?ERROR REDIS_PASS must be set for production}@redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://:${REDIS_PASS:?ERROR REDIS_PASS must be set for production}@redis:6379/2
+      # Secrets — with DEV_MODE=false the app FATALs at startup if these are unset/default
+      - JWT_SECRET=${JWT_SECRET:?ERROR JWT_SECRET must be set for production}
+      - NEXTAUTH_SECRET=${NEXTAUTH_SECRET:?ERROR NEXTAUTH_SECRET must be set for production}
+      - INTERNAL_API_KEY=${INTERNAL_API_KEY:?ERROR INTERNAL_API_KEY must be set for production}
+      # Integrations — features stay in mock/disabled mode if left unset
       - STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY}
+      - STRIPE_PUBLISHABLE_KEY=${STRIPE_PUBLISHABLE_KEY}
       - STRIPE_WEBHOOK_SECRET=${STRIPE_WEBHOOK_SECRET}
+      - STRIPE_PAY_AS_YOU_GO_PRICE_ID=${STRIPE_PAY_AS_YOU_GO_PRICE_ID}
+      - STRIPE_WEEKLY_CLEAN_PRICE_ID=${STRIPE_WEEKLY_CLEAN_PRICE_ID}
+      - STRIPE_HOST_PRO_PRICE_ID=${STRIPE_HOST_PRO_PRICE_ID}
+      - TWILIO_ACCOUNT_SID=${TWILIO_ACCOUNT_SID}
+      - TWILIO_AUTH_TOKEN=${TWILIO_AUTH_TOKEN}
+      - TWILIO_PHONE_NUMBER=${TWILIO_PHONE_NUMBER:-+15555555555}
       - SENDGRID_API_KEY=${SENDGRID_API_KEY}
+      - SENDGRID_FROM_EMAIL=${SENDGRID_FROM_EMAIL:-noreply@bookacleaner.ai}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - GOOGLE_MAPS_API_KEY=${GOOGLE_MAPS_API_KEY}
+      - GOOGLE_PLACES_API_KEY=${GOOGLE_PLACES_API_KEY}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_S3_BUCKET=${AWS_S3_BUCKET:-bookacleaner-uploads}
+      - AWS_REGION=${AWS_REGION:-us-east-1}
       - SENTRY_DSN=${SENTRY_DSN}
       - FRONTEND_URL=${FRONTEND_URL:-https://bookacleaner.com}
     command: gunicorn app.main:app -w 4 -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:8000
@@ -65,6 +100,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health/live"]
       interval: 30s
@@ -79,16 +116,32 @@ services:
     restart: always
     command: celery -A app.worker worker --loglevel=info --concurrency=4
     environment:
-      - DATABASE_URL=postgresql+asyncpg://${DB_USER:-bookacleaner}:${DB_PASS:?ERROR: DB_PASS must be set}@db:5432/${DB_NAME:-bookacleaner}
-      - REDIS_URL=redis://:${REDIS_PASS:?ERROR: REDIS_PASS must be set for production}@redis:6379
-      - CELERY_BROKER_URL=redis://:${REDIS_PASS:?ERROR: REDIS_PASS must be set for production}@redis:6379/1
-      - CELERY_RESULT_BACKEND=redis://:${REDIS_PASS:?ERROR: REDIS_PASS must be set for production}@redis:6379/2
+      - DEV_MODE=false
+      - DATABASE_URL=postgresql+asyncpg://${DB_USER:-bookacleaner}:${DB_PASS:?ERROR DB_PASS must be set}@db:5432/${DB_NAME:-bookacleaner}
+      - REDIS_URL=redis://:${REDIS_PASS:?ERROR REDIS_PASS must be set for production}@redis:6379
+      - CELERY_BROKER_URL=redis://:${REDIS_PASS:?ERROR REDIS_PASS must be set for production}@redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://:${REDIS_PASS:?ERROR REDIS_PASS must be set for production}@redis:6379/2
+      - JWT_SECRET=${JWT_SECRET:?ERROR JWT_SECRET must be set for production}
+      - NEXTAUTH_SECRET=${NEXTAUTH_SECRET:?ERROR NEXTAUTH_SECRET must be set for production}
+      - INTERNAL_API_KEY=${INTERNAL_API_KEY:?ERROR INTERNAL_API_KEY must be set for production}
+      - STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY}
+      - SENDGRID_API_KEY=${SENDGRID_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - TWILIO_ACCOUNT_SID=${TWILIO_ACCOUNT_SID}
+      - TWILIO_AUTH_TOKEN=${TWILIO_AUTH_TOKEN}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_S3_BUCKET=${AWS_S3_BUCKET:-bookacleaner-uploads}
+      - AWS_REGION=${AWS_REGION:-us-east-1}
+      - GOOGLE_MAPS_API_KEY=${GOOGLE_MAPS_API_KEY}
       - SENTRY_DSN=${SENTRY_DSN}
     depends_on:
       db:
         condition: service_healthy
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
 
   celery-beat:
     build:
@@ -98,11 +151,17 @@ services:
     restart: always
     command: celery -A app.worker beat --loglevel=info
     environment:
-      - CELERY_BROKER_URL=redis://:${REDIS_PASS:?ERROR: REDIS_PASS must be set for production}@redis:6379/1
-      - CELERY_RESULT_BACKEND=redis://:${REDIS_PASS:?ERROR: REDIS_PASS must be set for production}@redis:6379/2
+      - DEV_MODE=false
+      - CELERY_BROKER_URL=redis://:${REDIS_PASS:?ERROR REDIS_PASS must be set for production}@redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://:${REDIS_PASS:?ERROR REDIS_PASS must be set for production}@redis:6379/2
+      - JWT_SECRET=${JWT_SECRET:?ERROR JWT_SECRET must be set for production}
+      - NEXTAUTH_SECRET=${NEXTAUTH_SECRET:?ERROR NEXTAUTH_SECRET must be set for production}
+      - INTERNAL_API_KEY=${INTERNAL_API_KEY:?ERROR INTERNAL_API_KEY must be set for production}
     depends_on:
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
 
   web:
     build:
