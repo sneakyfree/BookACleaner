@@ -111,7 +111,7 @@ async def resolve_dispute(
         "status": "resolved",
         "resolution_notes": data.resolution_notes,
         "resolved_by": user["id"],
-        "resolved_at": datetime.now(timezone.utc).isoformat(),
+        "resolved_at": datetime.utcnow(),
     })
 
     # Handle resolution action

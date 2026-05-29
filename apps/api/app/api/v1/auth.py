@@ -139,7 +139,16 @@ async def register(data: RegisterRequest, db = Depends(get_db)):
             "is_verified": False,
         }
     )
-    
+
+    # Create role-specific profile so downstream features (bids, jobs, dashboards) work
+    try:
+        if data.role == "cleaner":
+            await db.cleaner.create(data={"user_id": user["id"]})
+        elif data.role == "client":
+            await db.client.create(data={"user_id": user["id"]})
+    except Exception as e:
+        logger.warning(f"Failed to create {data.role} profile for {user['id']}: {e}")
+
     # Create email verification token
     verification_token = secrets.token_urlsafe(32)
     expires_at = datetime.now(timezone.utc) + timedelta(hours=24)

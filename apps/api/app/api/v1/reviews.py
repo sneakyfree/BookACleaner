@@ -61,10 +61,13 @@ async def create_review(
     review = await db.review.create(data={
         "job_id": data.job_id,
         "author_id": user["id"],
+        "subject_id": job.get("cleaner_id") if user["id"] == job.get("client_id") else job.get("client_id"),
         "overall_rating": data.overall_rating,
-        "cleanliness_rating": data.cleanliness_rating,
-        "communication_rating": data.communication_rating,
-        "timeliness_rating": data.timeliness_rating,
+        "category_ratings": {
+            "cleanliness": data.cleanliness_rating,
+            "communication": data.communication_rating,
+            "timeliness": data.timeliness_rating,
+        },
         "text": data.text,
         "tags": data.tags,
         "photos": data.photos,

@@ -64,7 +64,7 @@ async def update_my_profile(
     if not update_data:
         raise HTTPException(status_code=400, detail="No fields to update")
 
-    update_data["updated_at"] = datetime.now(timezone.utc).isoformat()
+    update_data["updated_at"] = datetime.utcnow()
     updated = await db.user.update(where={"id": user["id"]}, data=update_data)
 
     if not updated:
