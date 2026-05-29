@@ -57,9 +57,11 @@ coverage/
 # Turbo
 .turbo/
 
-# Prisma
-prisma/*.db
-prisma/*.db-journal
+# Local databases (SQLite dev fallback — PostgreSQL is the production DB)
+apps/api/*.db
+apps/api/*.db-journal
+*.sqlite
+*.sqlite3
 
 # Misc
 *.pem

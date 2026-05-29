@@ -19,14 +19,14 @@ DEV_MODE=false
 DATABASE_URL=postgresql://user:pass@host:5432/bookacleaner
 REDIS_URL=redis://host:6379
 JWT_SECRET=<generate-secure-secret>
-STRIPE_API_KEY=<your-stripe-key>
+STRIPE_SECRET_KEY=<your-stripe-key>
 OPENAI_API_KEY=<your-openai-key>
 ```
 
 ### Database Setup
 - [ ] PostgreSQL database created
-- [ ] Prisma migrations run: `npx prisma migrate deploy`
-- [ ] Seed data loaded: `npx prisma db seed`
+- [ ] Migrations applied (from `apps/api`, venv active): `alembic upgrade head`
+- [ ] (Optional) Seed demo data: `python scripts/seed_demo.py`
 
 ---
 
@@ -43,6 +43,7 @@ npm run start  # Runs on port 3847
 ```bash
 cd apps/api
 pip install -r requirements.txt
+alembic upgrade head  # apply database migrations
 uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 

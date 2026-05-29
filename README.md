@@ -93,8 +93,8 @@ BookACleaner/
 │           ├── database.py     # Database module
 │           └── main.py         # FastAPI app
 │
-├── prisma/                     # Database schema
-│   └── schema.prisma
+├── apps/api/alembic/           # SQLAlchemy migrations
+│   └── versions/               # run: alembic upgrade head
 │
 ├── DNA_STRAND_*.md            # Architecture documentation
 └── docker-compose.yml
@@ -198,7 +198,7 @@ Supports: chat messages, typing indicators, job updates, notifications
 ### Backend
 - **FastAPI** - Modern Python API framework
 - **Pydantic** - Data validation
-- **Prisma** - Database ORM
+- **SQLAlchemy 2.0 (async) + Alembic** - ORM & migrations
 - **OpenAI GPT-4o** - AI capabilities
 
 ### Infrastructure
