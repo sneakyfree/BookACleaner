@@ -1,3 +1,5 @@
+import { getSession } from 'next-auth/react'
+
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
 interface ApiError {
@@ -76,6 +78,16 @@ class ApiClient {
         options: RequestInit = {}
     ): Promise<T> {
         const url = `${this.baseUrl}${endpoint}`
+
+        // Self-heal: if the token hasn't been synced yet (race on first mount),
+        // pull it directly from the NextAuth session before the request.
+        if (!this.token && typeof window !== 'undefined') {
+            try {
+                const session = await getSession()
+                const t = (session as any)?.accessToken
+                if (t) this.token = t
+            } catch { /* not authenticated */ }
+        }
 
         const headers: Record<string, string> = {
             'Content-Type': 'application/json',

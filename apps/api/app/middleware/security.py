@@ -40,8 +40,17 @@ class GlobalExceptionMiddleware(BaseHTTPMiddleware):
     Never leak raw stack traces to API consumers."""
 
     async def dispatch(self, request: Request, call_next):
+        from starlette.exceptions import HTTPException as StarletteHTTPException
         try:
             return await call_next(request)
+        except StarletteHTTPException as exc:
+            # Preserve intended HTTP status (e.g. 429 rate-limit, 401/403) raised
+            # by inner middleware — do NOT mask these as 500.
+            return JSONResponse(
+                status_code=exc.status_code,
+                content={"detail": exc.detail},
+                headers=dict(getattr(exc, "headers", None) or {}) or None,
+            )
         except Exception as exc:
             # Log the full traceback server-side
             logger.error(

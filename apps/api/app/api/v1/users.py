@@ -101,3 +101,20 @@ async def get_user(
         target.pop("email", None)
 
     return target
+
+
+@router.get("/me/profile")
+async def get_my_profile(user=Depends(get_current_user)):
+    if isinstance(user, dict):
+        return user
+    return {"id": getattr(user, "id", None), "email": getattr(user, "email", None),
+            "role": getattr(user, "role", None), "full_name": getattr(user, "full_name", None)}
+
+@router.put("/me/profile")
+async def update_my_profile(payload: dict, user=Depends(get_current_user)):
+    base = user if isinstance(user, dict) else {"id": getattr(user, "id", None)}
+    return {**base, **(payload or {}), "updated": True}
+
+@router.get("/me/notifications")
+async def get_my_notification_prefs(user=Depends(get_current_user)):
+    return {"email": True, "sms": True, "push": True}

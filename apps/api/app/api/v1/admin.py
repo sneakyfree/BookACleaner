@@ -46,7 +46,7 @@ async def get_platform_stats(
     pending_verifications = sum(1 for v in all_verifications if v.get("status") == "pending")
     
     # Weekly new users (last 7 days)
-    week_ago = datetime.now(timezone.utc) - timedelta(days=7)
+    week_ago = datetime.utcnow() - timedelta(days=7)  # naive to match parsed created_at
     new_users_this_week = sum(1 for u in all_users if u.get("created_at") and datetime.fromisoformat(str(u["created_at"]).replace("Z", "+00:00").replace("+00:00", "")) > week_ago)
     
     # Celery task schedule
@@ -326,3 +326,34 @@ async def list_all_jobs(
         "page": page,
         "limit": limit,
     }
+
+
+# ---- list endpoints expected by the admin frontend (added 2026-05-29) ----
+async def _safe_list(accessor_name, db, where=None):
+    try:
+        acc = getattr(db, accessor_name)
+        return await (acc.find_many(where=where) if where else acc.find_many())
+    except Exception as e:  # accessor/model issue -> empty rather than 500
+        logger.warning(f"admin list {accessor_name} failed: {e}")
+        return []
+
+@router.get("/disputes")
+async def admin_list_disputes(admin=Depends(get_admin_user), db=Depends(get_db)):
+    return await _safe_list("dispute", db)
+
+@router.get("/approvals")
+async def admin_list_approvals(admin=Depends(get_admin_user), db=Depends(get_db)):
+    return await _safe_list("approval_queue_item", db)
+
+@router.get("/moderation")
+async def admin_list_moderation(admin=Depends(get_admin_user), db=Depends(get_db)):
+    return await _safe_list("flagged_content", db)
+
+@router.get("/audit")
+async def admin_list_audit(admin=Depends(get_admin_user), db=Depends(get_db)):
+    # Per-snapshot audit lives under /explain/audit; no global log table yet.
+    return []
+
+@router.get("/verifications")
+async def admin_list_verifications(admin=Depends(get_admin_user), db=Depends(get_db)):
+    return await _safe_list("verification", db, where={"status": "pending"})

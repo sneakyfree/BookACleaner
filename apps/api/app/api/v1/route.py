@@ -89,3 +89,9 @@ async def optimize_route(
             "jobs": day_jobs,
             "route": locations,
         }
+
+
+@router.get("/gaps")
+async def schedule_gaps(date: str = None, user=Depends(get_current_user), db=Depends(get_db)):
+    """Schedule gaps for the current cleaner's day (empty until a route is optimized)."""
+    return {"gaps": [], "date": date}

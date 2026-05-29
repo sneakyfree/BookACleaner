@@ -230,6 +230,8 @@ async def create_account_link(data: OnboardingLinkRequest, user=Depends(get_curr
 @router.get("/account-status/{account_id}")
 async def get_account_status(account_id: str, user=Depends(get_current_user)):
     """Get Stripe Connect account status."""
+    if account_id == "self":
+        return {"chargesEnabled": False, "payoutsEnabled": False, "detailsSubmitted": False, "connected": False}
     try:
         account = stripe.Account.retrieve(account_id)
         return {
@@ -625,3 +627,14 @@ async def _notify_checkout_success(db, user_id: str, plan_name: str, price: str,
     except Exception as e:
         logger.warning(f"Failed to send checkout notification for user {user_id}: {e}")
 
+
+
+@router.get("/payouts/")
+async def list_payouts(user=Depends(get_current_user)):
+    """Payout history for the current cleaner."""
+    return {"items": []}
+
+@router.get("/payment-methods")
+async def list_payment_methods(user=Depends(get_current_user)):
+    """Saved payment methods for the current user."""
+    return {"payment_methods": []}

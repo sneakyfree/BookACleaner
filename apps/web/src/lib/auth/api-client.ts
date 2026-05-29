@@ -6,7 +6,7 @@
  * authenticated API calls with automatic token refresh on 401.
  */
 
-import { useSession } from 'next-auth/react'
+import { useSession, getSession } from 'next-auth/react'
 import { useEffect, useCallback, useRef } from 'react'
 import { api } from '@/lib/api'
 
@@ -48,8 +48,16 @@ export async function apiFetch<T = any>(
         ...((options.headers as Record<string, string>) || {}),
     }
 
-    // Inject token from the global ApiClient singleton
-    const token = (api as any).token
+    // Inject token from the global ApiClient singleton; self-heal from the
+    // session if it hasn't been synced yet (race on first mount).
+    let token = (api as any).token
+    if (!token && typeof window !== 'undefined') {
+        try {
+            const session = await getSession()
+            token = (session as any)?.accessToken
+            if (token) (api as any).setToken(token)
+        } catch { /* not authenticated */ }
+    }
     if (token) {
         headers['Authorization'] = `Bearer ${token}`
     }

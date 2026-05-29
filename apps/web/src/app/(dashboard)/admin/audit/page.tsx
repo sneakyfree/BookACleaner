@@ -37,7 +37,7 @@ export default function AdminAuditPage() {
 
     const { data: rawData, isLoading: loading, error, refetch } = useAdminAuditLog(page, typeFilter !== 'all' ? typeFilter : undefined)
 
-    const entries: AuditEntry[] = rawData?.items || rawData?.entries || rawData || []
+    const entries: AuditEntry[] = Array.isArray(rawData) ? rawData : ((rawData as any)?.items || (rawData as any)?.entries || [])
     const total = rawData?.total || entries.length
 
     const eventTypes = ['all', ...Array.from(new Set(entries.map(a => (a.event_type || '').split('.')[0]).filter(Boolean)))]

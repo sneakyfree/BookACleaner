@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from app.api.v1 import auth, users, cleaners, clients, properties, jobs, reviews, messages, payments, uploads, notifications, ai, verification, admin, bids, feed, hitl, explain, disputes, moderation, route, sponsored, services, agreements, privacy
+from app.api.v1 import auth, users, cleaners, clients, properties, jobs, reviews, messages, payments, uploads, notifications, ai, verification, admin, bids, feed, hitl, explain, disputes, moderation, route, sponsored, ws, services, agreements, privacy
 
 api_router = APIRouter()
 
@@ -20,6 +20,7 @@ api_router.include_router(verification.router, prefix="/verification", tags=["Ve
 api_router.include_router(admin.router, prefix="/admin", tags=["Admin"])
 api_router.include_router(bids.router, prefix="/bids", tags=["Marketplace Bidding"])
 api_router.include_router(feed.router, prefix="/feed", tags=["Newsfeed"])
+api_router.include_router(ws.router, tags=["WebSocket"])
 api_router.include_router(hitl.router, tags=["HITL Approvals"])
 api_router.include_router(explain.router, tags=["Explainability"])
 api_router.include_router(disputes.router, prefix="/disputes", tags=["Disputes"])

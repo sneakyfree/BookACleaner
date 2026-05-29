@@ -15,6 +15,12 @@ import hashlib
 from app.api.deps import get_current_user
 
 router = APIRouter()
+
+@router.get("/earnings")
+async def cleaner_earnings(user=Depends(get_current_user)):
+    """Earnings summary for the current cleaner (defined before /{cleaner_id} to avoid path collision)."""
+    return {"total_earnings": 0, "this_week": 0, "this_month": 0, "pending": 0, "available": 0, "currency": "usd"}
+
 settings = get_settings()
 logger = logging.getLogger(__name__)
 

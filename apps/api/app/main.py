@@ -95,13 +95,8 @@ if os.getenv("ENVIRONMENT") == "production":
         "https://app.bookacleaner.ai",
     ])
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=allowed_origins,
-    allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "Accept", "X-Requested-With"],
-)
+# (CORSMiddleware is registered LAST below so it is the OUTERMOST layer —
+# this ensures error responses from GlobalExceptionMiddleware also get CORS headers.)
 
 # Add rate limiting middleware — ALWAYS enabled
 # Auth endpoints have stricter per-endpoint limits defined in RateLimitMiddleware
@@ -120,6 +115,15 @@ app.add_middleware(SecurityHeadersMiddleware)
 
 # Add global exception handler (catch unhandled errors, no stack trace leaks)
 app.add_middleware(GlobalExceptionMiddleware)
+
+# CORS LAST = outermost, so even error responses carry Access-Control-Allow-Origin
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=allowed_origins,
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "Accept", "X-Requested-With"],
+)
 
 # Include API routes
 app.include_router(api_router, prefix="/api/v1")
