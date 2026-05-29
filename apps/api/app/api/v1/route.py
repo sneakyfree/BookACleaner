@@ -61,7 +61,7 @@ async def optimize_route(
     # Build locations from job properties
     locations = []
     for job in day_jobs:
-        prop = await db.property.find_unique(where={"id": job.get("property_id")}) if job.get("property_id") else None
+        prop = await db.properties.find_unique(where={"id": job.get("property_id")}) if job.get("property_id") else None
         locations.append({
             "job_id": job["id"],
             "address": prop.get("address", "Unknown") if prop else "Unknown",
