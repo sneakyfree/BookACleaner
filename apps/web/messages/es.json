@@ -1,0 +1,44 @@
+{
+  "nav": {
+    "findCleaners": "Buscar Limpiadores",
+    "forCleaners": "Para Limpiadores",
+    "pricing": "Precios",
+    "signIn": "Iniciar Sesión",
+    "getStarted": "Comenzar"
+  },
+  "hero": {
+    "badge": "El Futuro de la Limpieza Está Aquí",
+    "title1": "Ellos programan.",
+    "title2": "Nosotros pensamos.",
+    "subtitle": "El primer sistema operativo nativo de IA para la industria de la limpieza. Conéctese con profesionales de confianza, automatice la programación y haga crecer su negocio.",
+    "findCleaner": "Buscar un Limpiador",
+    "joinAsCleaner": "Unirse como Limpiador",
+    "freeToUse": "Gratis • Sin tarjeta de crédito • Cancele cuando quiera"
+  },
+  "features": {
+    "verified": {
+      "title": "Profesionales Verificados",
+      "description": "Cada limpiador está verificado con antecedentes, seguro y certificaciones. Sistema de verificación de 5 niveles garantiza confianza."
+    },
+    "scheduling": {
+      "title": "Programación con IA",
+      "description": "Sincronización automática con calendario de Airbnb, optimización de rutas y llenado inteligente de espacios. Deja que la IA maneje la logística."
+    },
+    "reviews": {
+      "title": "Reseñas Bidireccionales",
+      "description": "Calificaciones de satisfacción estilo eBay para limpiadores y clientes. Construya reputación, gane confianza, haga crecer su negocio."
+    }
+  },
+  "cta": {
+    "title": "¿Listo para experimentar el futuro?",
+    "subtitle": "Únase a miles de profesionales de limpieza y administradores de propiedades que ya usan BookACleaner.ai para transformar su negocio.",
+    "button": "Comenzar Gratis"
+  },
+  "footer": {
+    "privacy": "Política de Privacidad",
+    "terms": "Términos de Servicio",
+    "contact": "Contacto",
+    "copyright": "© 2026 BookACleaner.ai. Todos los derechos reservados."
+  },
+  "aiAssistant": "Asistente IA"
+}

@@ -3,6 +3,8 @@ import { Inter, Outfit } from 'next/font/google'
 import './globals.css'
 import { Providers } from './providers'
 import { AIChatWidget } from '@/components/ai-chat-widget'
+import { NextIntlClientProvider } from 'next-intl'
+import { getMessages, getLocale } from 'next-intl/server'
 
 const inter = Inter({
     subsets: ['latin'],
@@ -69,20 +71,24 @@ export const metadata: Metadata = {
     },
 }
 
-export default function RootLayout({
+export default async function RootLayout({
     children,
 }: {
     children: React.ReactNode
 }) {
+    const locale = await getLocale();
+    const messages = await getMessages();
+    
     return (
-        <html lang="en" suppressHydrationWarning>
+        <html lang={locale} suppressHydrationWarning>
             <body className={`${inter.variable} ${outfit.variable} font-sans antialiased`}>
-                <Providers>
-                    {children}
-                    <AIChatWidget />
-                </Providers>
+                <NextIntlClientProvider messages={messages}>
+                    <Providers>
+                        {children}
+                        <AIChatWidget />
+                    </Providers>
+                </NextIntlClientProvider>
             </body>
         </html>
     )
 }
-
