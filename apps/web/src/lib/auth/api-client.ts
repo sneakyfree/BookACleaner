@@ -17,12 +17,16 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
  * Place this once in a top-level provider (e.g. providers.tsx).
  */
 export function useApiTokenSync() {
-    const { data: session } = useSession()
+    const { data: session, status } = useSession()
 
     useEffect(() => {
+        // Publish status first so the client knows whether to wait for a token
+        // ('loading') or fire immediately ('unauthenticated'); setToken releases
+        // any requests parked during the loading window.
+        api.setAuthStatus(status)
         const accessToken = (session as any)?.accessToken
         api.setToken(accessToken ?? null)
-    }, [session])
+    }, [session, status])
 }
 
 /**
@@ -41,6 +45,10 @@ export async function apiFetch<T = any>(
     _retried = false
 ): Promise<T> {
     const url = endpoint.startsWith('http') ? endpoint : `${API_URL}${endpoint}`
+
+    // Wait out the auth-loading window so imperative calls fired right after
+    // mount don't race ahead of the bearer token (same guard as ApiClient).
+    await (api as any).ensureAuthResolved?.()
 
     // Get token from current session (server-side compatible via stored ref)
     const headers: Record<string, string> = {

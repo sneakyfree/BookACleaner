@@ -59,9 +59,18 @@ interface JobSummaryResult {
     recommendations: string[]
 }
 
+type AuthStatus = 'loading' | 'authenticated' | 'unauthenticated'
+
 class ApiClient {
     private baseUrl: string
     private token: string | null = null
+    // Auth readiness: NextAuth's session (and thus the bearer token) loads
+    // asynchronously after first render, so queries that fire on page mount
+    // used to race ahead of the token and get a 401 before React Query retried.
+    // We track the session status and let request() briefly await the token
+    // during the 'loading' window so the first request goes out authenticated.
+    private authStatus: AuthStatus = 'loading'
+    private tokenWaiters: Array<() => void> = []
 
     constructor(baseUrl: string) {
         this.baseUrl = baseUrl
@@ -69,12 +78,49 @@ class ApiClient {
 
     setToken(token: string | null) {
         this.token = token
+        if (token) this.flushTokenWaiters()
+    }
+
+    setAuthStatus(status: AuthStatus) {
+        this.authStatus = status
+        // Once we know the user is logged out, stop blocking on a token that
+        // will never arrive. (For 'authenticated', the token is set right after
+        // via setToken(), which is what releases waiters.)
+        if (status === 'unauthenticated') this.flushTokenWaiters()
+    }
+
+    private flushTokenWaiters() {
+        const waiters = this.tokenWaiters
+        this.tokenWaiters = []
+        waiters.forEach((resolve) => resolve())
+    }
+
+    /**
+     * Resolve once the auth state is settled enough to fire a request:
+     * a token exists, the user is known to be logged out, or a safety timeout
+     * elapses. No-op on the server and once auth has already settled.
+     */
+    private async ensureAuthResolved(timeoutMs = 3000): Promise<void> {
+        if (typeof window === 'undefined') return
+        if (this.token || this.authStatus !== 'loading') return
+        await new Promise<void>((resolve) => {
+            const timer = setTimeout(() => {
+                this.tokenWaiters = this.tokenWaiters.filter((w) => w !== onReady)
+                resolve()
+            }, timeoutMs)
+            const onReady = () => {
+                clearTimeout(timer)
+                resolve()
+            }
+            this.tokenWaiters.push(onReady)
+        })
     }
 
     private async request<T>(
         endpoint: string,
         options: RequestInit = {}
     ): Promise<T> {
+        await this.ensureAuthResolved()
         const url = `${this.baseUrl}${endpoint}`
 
         const headers: Record<string, string> = {
