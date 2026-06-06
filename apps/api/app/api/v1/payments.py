@@ -296,6 +296,16 @@ async def list_my_payouts(user=Depends(get_current_user), db=Depends(get_db)):
     return payouts
 
 
+@router.get("/payment-methods")
+async def list_payment_methods(user=Depends(get_current_user)):
+    """Saved payment methods for the current user.
+
+    Empty in mock mode; with live Stripe this lists the customer's cards. The
+    settings UI expects a plain array.
+    """
+    return []
+
+
 class PayoutRequest(BaseModel):
     amount: float
 

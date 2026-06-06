@@ -61,10 +61,12 @@ export default function ClientSettingsPage() {
                 ])
 
                 if (profileData) {
+                    // GET /users/me nests the account under `user`.
+                    const u = profileData.user || profileData
                     setProfile({
-                        displayName: profileData.display_name || profileData.full_name || '',
-                        email: profileData.email || session?.user?.email || '',
-                        phone: profileData.phone || '',
+                        displayName: u.display_name || u.full_name || '',
+                        email: u.email || session?.user?.email || '',
+                        phone: u.phone || '',
                     })
                 }
                 if (paymentData) {

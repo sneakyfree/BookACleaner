@@ -46,6 +46,24 @@ async def get_my_profile(
     return profile_data
 
 
+@router.get("/me/notifications")
+async def get_my_notification_prefs(user=Depends(get_current_user)):
+    """Notification preferences for the current user.
+
+    Returns sensible defaults (channel + per-event toggles) so the settings UI
+    has a baseline; persistence can be layered on later without changing the
+    response shape.
+    """
+    return {
+        "bookingConfirmations": True,
+        "cleaningReminders": True,
+        "reviewRequests": True,
+        "promotions": False,
+        "smsEnabled": True,
+        "emailEnabled": True,
+    }
+
+
 @router.patch("/me")
 async def update_my_profile(
     data: UpdateProfileRequest,
