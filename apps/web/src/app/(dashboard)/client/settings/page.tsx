@@ -55,7 +55,7 @@ export default function ClientSettingsPage() {
         queryFn: async () => {
             try {
                 const [profileData, paymentData, notifData] = await Promise.all([
-                    apiFetch('/api/v1/users/me/profile').catch(() => null),
+                    apiFetch('/api/v1/users/me').catch(() => null),
                     apiFetch('/api/v1/payments/payment-methods').catch(() => null),
                     apiFetch('/api/v1/users/me/notifications').catch(() => null),
                 ])
@@ -83,10 +83,10 @@ export default function ClientSettingsPage() {
     async function handleSaveProfile() {
         setIsLoading(true)
         try {
-            await apiFetch('/api/v1/users/me/profile', {
-                method: 'PUT',
+            await apiFetch('/api/v1/users/me', {
+                method: 'PATCH',
                 body: JSON.stringify({
-                    display_name: profile.displayName,
+                    full_name: profile.displayName,
                     phone: profile.phone,
                 }),
             })
