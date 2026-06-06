@@ -172,7 +172,7 @@ async def accept_bid(
     # Accept the bid
     await db.bid.update(where={"id": bid_id}, data={
         "status": "accepted",
-        "accepted_at": datetime.now(timezone.utc).isoformat(),
+        "accepted_at": datetime.now(timezone.utc),
     })
     
     # Assign cleaner to job and update price
@@ -188,7 +188,7 @@ async def accept_bid(
         if other["id"] != bid_id and other.get("status") == "pending":
             await db.bid.update(where={"id": other["id"]}, data={
                 "status": "declined",
-                "declined_at": datetime.now(timezone.utc).isoformat(),
+                "declined_at": datetime.now(timezone.utc),
             })
     
     return {
@@ -212,7 +212,7 @@ async def decline_bid(
     
     await db.bid.update(where={"id": bid_id}, data={
         "status": "declined",
-        "declined_at": datetime.now(timezone.utc).isoformat(),
+        "declined_at": datetime.now(timezone.utc),
     })
     
     return {
@@ -240,7 +240,7 @@ async def withdraw_bid(
     
     await db.bid.update(where={"id": bid_id}, data={
         "status": "withdrawn",
-        "withdrawn_at": datetime.now(timezone.utc).isoformat(),
+        "withdrawn_at": datetime.now(timezone.utc),
     })
     
     return {

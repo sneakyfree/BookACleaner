@@ -267,7 +267,7 @@ class ApiClient {
         send: (conversationId: string, content: string, attachments?: string[]) =>
             this.request<any>('/api/v1/messages/send', {
                 method: 'POST',
-                body: JSON.stringify({ conversationId, content, attachments }),
+                body: JSON.stringify({ conversation_id: conversationId, content, attachments }),
             }),
 
         markAsRead: (conversationId: string) =>
@@ -488,25 +488,26 @@ class ApiClient {
             }),
     }
 
-    // Bids endpoints
+    // Bids endpoints — paths match the backend bids router (jobs/{id}/bids to
+    // create, /bids/{id}/... to act on a bid, /my-bids to list own).
     bids = {
         list: (status?: string) =>
-            this.request<any[]>(`/api/v1/bids${status ? `?status=${status}` : ''}`),
+            this.request<any[]>(`/api/v1/bids/my-bids${status ? `?status=${status}` : ''}`),
 
         create: (data: { job_id: string; amount: number; message?: string }) =>
-            this.request<any>('/api/v1/bids', {
+            this.request<any>(`/api/v1/bids/jobs/${data.job_id}/bids`, {
                 method: 'POST',
                 body: JSON.stringify(data),
             }),
 
         accept: (id: string) =>
-            this.request<any>(`/api/v1/bids/${id}/accept`, { method: 'POST' }),
+            this.request<any>(`/api/v1/bids/bids/${id}/accept`, { method: 'POST' }),
 
         decline: (id: string) =>
-            this.request<any>(`/api/v1/bids/${id}/decline`, { method: 'POST' }),
+            this.request<any>(`/api/v1/bids/bids/${id}/decline`, { method: 'POST' }),
 
         withdraw: (id: string) =>
-            this.request<any>(`/api/v1/bids/${id}/withdraw`, { method: 'POST' }),
+            this.request<any>(`/api/v1/bids/bids/${id}`, { method: 'DELETE' }),
     }
 
     // Cleaner-specific management endpoints

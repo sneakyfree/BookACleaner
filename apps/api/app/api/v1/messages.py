@@ -21,7 +21,10 @@ logger = logging.getLogger(__name__)
 
 class SendMessageRequest(BaseModel):
     conversation_id: Optional[str] = None
-    recipient_id: str
+    # Optional: only needed to open a new conversation. Messages sent into an
+    # existing conversation_id don't carry it — required-but-unused here 422'd
+    # every in-conversation send.
+    recipient_id: Optional[str] = None
     content: str
     job_id: Optional[str] = None
     attachments: List[str] = []
