@@ -434,21 +434,22 @@ class ApiClient {
         },
 
         approvals: (page = 1, status?: string) => {
-            const params = new URLSearchParams({ page: String(page) })
+            const params = new URLSearchParams()
             if (status) params.set('status', status)
-            return this.request<any>(`/api/v1/admin/approvals?${params}`)
+            const qs = params.toString()
+            return this.request<any>(`/api/v1/hitl/queue${qs ? `?${qs}` : ''}`)
         },
 
         approveItem: (id: string, notes?: string) =>
-            this.request<any>(`/api/v1/admin/approvals/${id}/approve`, {
+            this.request<any>(`/api/v1/hitl/queue/${id}/decide`, {
                 method: 'POST',
-                body: JSON.stringify({ notes }),
+                body: JSON.stringify({ approved: true, notes }),
             }),
 
         rejectItem: (id: string, reason: string) =>
-            this.request<any>(`/api/v1/admin/approvals/${id}/reject`, {
+            this.request<any>(`/api/v1/hitl/queue/${id}/decide`, {
                 method: 'POST',
-                body: JSON.stringify({ reason }),
+                body: JSON.stringify({ approved: false, notes: reason }),
             }),
 
         auditLog: (page = 1, action?: string) => {
