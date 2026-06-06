@@ -82,8 +82,20 @@ async def list_disputes(
 
     start = (page - 1) * limit
     end = start + limit
+    page_items = disputes[start:end]
 
-    return {"disputes": disputes[start:end], "total": len(disputes), "page": page}
+    # Enrich with job title and the raising user's name for the admin UI.
+    enriched = []
+    for d in page_items:
+        job = await db.job.find_unique(where={"id": d["job_id"]}) if d.get("job_id") else None
+        raiser = await db.user.find_unique(where={"id": d["raised_by"]}) if d.get("raised_by") else None
+        enriched.append({
+            **d,
+            "job_title": job.get("title") if job else None,
+            "raised_by_name": raiser.get("full_name") if raiser else None,
+        })
+
+    return {"disputes": enriched, "total": len(disputes), "page": page}
 
 
 @router.get("/{dispute_id}")

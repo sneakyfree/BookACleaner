@@ -418,12 +418,12 @@ class ApiClient {
         disputes: (page = 1, status?: string) => {
             const params = new URLSearchParams({ page: String(page) })
             if (status) params.set('status', status)
-            return this.request<any>(`/api/v1/admin/disputes?${params}`)
+            return this.request<any>(`/api/v1/disputes/?${params}`)
         },
 
         resolveDispute: (id: string, data: any) =>
-            this.request<any>(`/api/v1/admin/disputes/${id}/resolve`, {
-                method: 'POST',
+            this.request<any>(`/api/v1/disputes/${id}/resolve`, {
+                method: 'PUT',
                 body: JSON.stringify(data),
             }),
 
@@ -460,7 +460,7 @@ class ApiClient {
         moderation: (page = 1, status?: string) => {
             const params = new URLSearchParams({ page: String(page) })
             if (status) params.set('status', status)
-            return this.request<any>(`/api/v1/admin/moderation?${params}`)
+            return this.request<any>(`/api/v1/moderation/flagged?${params}`)
         },
     }
 
