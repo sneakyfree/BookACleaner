@@ -4,6 +4,7 @@ from typing import Optional
 from datetime import datetime, timezone
 import stripe
 import os
+import math
 import logging
 
 from app.config import get_settings
@@ -317,8 +318,10 @@ async def request_payout(data: PayoutRequest, user=Depends(get_current_user), db
     In mock mode (no live Stripe Connect) we acknowledge the request; a real
     payout is executed via Stripe Transfer once Connect onboarding is complete.
     """
-    if data.amount is None or data.amount <= 0:
-        raise HTTPException(status_code=400, detail="No available balance to withdraw")
+    # Reject non-finite amounts (NaN/Infinity): Pydantic coerces "NaN" to a
+    # float that passes <= 0 and then fails JSON serialization with a 500.
+    if data.amount is None or not math.isfinite(data.amount) or data.amount <= 0:
+        raise HTTPException(status_code=400, detail="Invalid payout amount")
     return {"status": "requested", "amount": data.amount, "message": "Payout requested"}
 
 
