@@ -549,7 +549,32 @@ class TableAccessor:
                 await session.refresh(record)
                 return self._to_dict(record)
             return None
-    
+
+    async def update_many(self, where: Dict, data: Dict) -> int:
+        """Update every record matching `where`; returns the count updated.
+
+        Used for guarded transitions like atomic job-accept
+        (where={"id": id, "status": "pending"}) — a 0 return means no row
+        matched (already taken or absent), which the caller maps to a conflict.
+        """
+        async with self._db.session() as session:
+            query = select(self._model)
+            conditions = []
+            for key, value in where.items():
+                if hasattr(self._model, key):
+                    conditions.append(getattr(self._model, key) == value)
+            if conditions:
+                query = query.where(and_(*conditions))
+
+            result = await session.execute(query)
+            records = result.scalars().all()
+            for record in records:
+                for key, value in data.items():
+                    if hasattr(record, key):
+                        setattr(record, key, value)
+            await session.flush()
+            return len(records)
+
     async def delete(self, where: Dict) -> bool:
         """Delete a record"""
         async with self._db.session() as session:
