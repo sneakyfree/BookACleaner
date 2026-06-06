@@ -17,6 +17,7 @@ declare module 'next-auth' {
         email: string
         role: 'CLIENT' | 'CLEANER' | 'ADMIN'
         accessToken: string
+        accessTokenExpires?: number
     }
 }
 
@@ -25,5 +26,6 @@ declare module 'next-auth/jwt' {
         id: string
         role: 'CLIENT' | 'CLEANER' | 'ADMIN'
         accessToken: string
+        accessTokenExpires?: number
     }
 }
