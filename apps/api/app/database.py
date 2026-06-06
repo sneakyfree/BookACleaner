@@ -22,7 +22,7 @@ from app.models import (
     UserBadge, Subscription, FlaggedContent, FeedItem,
     ApprovalQueueItem, SponsoredListing, ServiceAgreement,
     Availability, PortfolioPhoto, PropertyPlaybook,
-    ServiceCategory, Service, CleanerService, FeedLike
+    ServiceCategory, Service, CleanerService, FeedLike, AuditLog
 )
 
 logger = logging.getLogger(__name__)
@@ -429,6 +429,10 @@ class Database:
     @property
     def service_agreement(self):
         return TableAccessor(self, ServiceAgreement)
+
+    @property
+    def audit_log(self):
+        return TableAccessor(self, AuditLog)
 
     @property
     def availability(self):

@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 import logging
 
 from app.database import get_db
+from app.core.audit import record_audit
 from app.config import get_settings
 from app.api.deps import get_current_user
 
@@ -99,4 +100,9 @@ async def review_flagged_content(
                 await db.execute("DELETE FROM feed_items WHERE id = :id", {"id": f["content_id"]})
             logger.info(f"Content removed: {f.get('content_type')}/{f.get('content_id')}")
 
+    await record_audit(
+        db,
+        event_type="content.removed" if action == "remove" else "content.dismissed",
+        actor=user, target=flag_id, details=f"Flagged content {new_status}",
+    )
     return {"status": new_status, "action": action}

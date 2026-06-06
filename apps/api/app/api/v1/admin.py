@@ -11,6 +11,7 @@ import logging
 from app.database import get_db
 from app.config import get_settings
 from app.api.deps import get_admin_user
+from app.core.audit import record_audit
 
 router = APIRouter()
 settings = get_settings()
@@ -273,7 +274,9 @@ async def approve_verification(
     
     if not verification:
         raise HTTPException(status_code=404, detail="Verification not found")
-    
+
+    await record_audit(db, event_type="verification.approved", actor=admin,
+                       target=verification_id, details="Verification document approved")
     return {"approved": True, "verification_id": verification_id}
 
 
@@ -296,7 +299,9 @@ async def reject_verification(
     
     if not verification:
         raise HTTPException(status_code=404, detail="Verification not found")
-    
+
+    await record_audit(db, event_type="verification.rejected", actor=admin,
+                       target=verification_id, details=f"Rejected: {reason}")
     return {"rejected": True, "verification_id": verification_id, "reason": reason}
 
 
@@ -326,3 +331,21 @@ async def list_all_jobs(
         "page": page,
         "limit": limit,
     }
+
+
+@router.get("/audit")
+async def get_audit_log(
+    action: Optional[str] = Query(None),
+    page: int = Query(1, ge=1),
+    limit: int = Query(50, ge=1, le=200),
+    admin = Depends(get_admin_user),
+    db = Depends(get_db),
+):
+    """Admin audit trail, most recent first. `action` filters by event-type prefix."""
+    logs = await db.audit_log.find_many() or []
+    if action:
+        logs = [l for l in logs if (l.get("event_type") or "").startswith(action)]
+    logs.sort(key=lambda l: str(l.get("created_at") or ""), reverse=True)
+    total = len(logs)
+    start = (page - 1) * limit
+    return {"items": logs[start:start + limit], "total": total, "page": page}

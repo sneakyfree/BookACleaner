@@ -13,6 +13,7 @@ import logging
 import uuid
 
 from app.database import get_db
+from app.core.audit import record_audit
 from app.api.deps import get_admin_user
 
 router = APIRouter(prefix="/hitl", tags=["HITL Approvals"])
@@ -152,11 +153,16 @@ async def decide_approval(
         }
     )
     
+    await record_audit(
+        db,
+        event_type="approval.approved" if decision.approved else "approval.rejected",
+        actor=admin, target=approval_id, details=item.get("type"),
+    )
     logger.info(
         f"HITL Decision: {item.get('type')} #{approval_id} "
         f"{'APPROVED' if decision.approved else 'REJECTED'} by {admin_id}"
     )
-    
+
     # TODO: Trigger post-approval actions (webhooks, notifications, etc.)
     
     return {
