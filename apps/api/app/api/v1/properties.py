@@ -254,7 +254,7 @@ async def get_playbook(property_id: str, authorization: str = Header(None), db=D
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
 
-    prop = await db.property.find_unique(where={"id": property_id})
+    prop = await db.properties.find_unique(where={"id": property_id})
     if not prop:
         raise HTTPException(status_code=404, detail="Property not found")
 
@@ -280,13 +280,13 @@ async def save_playbook(property_id: str, data: PlaybookData, authorization: str
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
 
-    prop = await db.property.find_unique(where={"id": property_id})
+    prop = await db.properties.find_unique(where={"id": property_id})
     if not prop:
         raise HTTPException(status_code=404, detail="Property not found")
 
     import json
     playbook = data.dict(exclude_none=True)
-    await db.property.update(
+    await db.properties.update(
         where={"id": property_id},
         data={"notes": json.dumps(playbook)}
     )

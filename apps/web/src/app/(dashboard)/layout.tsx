@@ -71,6 +71,7 @@ const clientNavItems: NavItem[] = [
 ]
 
 const adminNavItems: NavItem[] = [
+    { label: 'Dashboard', href: '/admin', icon: LayoutDashboard },
     { label: 'Analytics', href: '/admin/analytics', icon: BarChart3 },
     { label: 'Users', href: '/admin/users', icon: Users },
     { label: 'Verifications', href: '/admin/verifications', icon: ClipboardCheck },

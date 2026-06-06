@@ -313,10 +313,11 @@ async def get_job(
     """Get job details"""
     
     job = await db.job.find_unique(where={"id": job_id})
-    
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
-    
+
+    # Object-level authorization: only the job's client owner, the
+    # assigned cleaner, or an admin may view it (prevents IDOR).
+    job, _role = await _verify_job_access(job, user, db)
+
     # Get property
     prop = None
     if job.get("property_id"):

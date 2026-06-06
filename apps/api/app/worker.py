@@ -30,6 +30,13 @@ celery_app.conf.update(
     task_soft_time_limit=240,  # 4 min soft limit
     worker_prefetch_multiplier=1,
     worker_max_tasks_per_child=1000,
+    # Fail fast when Redis (broker/result backend) is unreachable so synchronous
+    # .delay() dispatches from API handlers don't block the HTTP response ~19s
+    # retrying. Notification dispatch is best-effort (wrapped in try/except).
+    broker_connection_retry_on_startup=False,
+    broker_connection_max_retries=1,
+    broker_transport_options={"socket_connect_timeout": 2, "socket_timeout": 2, "max_retries": 1},
+    result_backend_transport_options={"retry_policy": {"max_retries": 1, "interval_start": 0, "interval_step": 0.2, "interval_max": 0.5}},
 )
 
 # ==================== PERIODIC TASKS ====================
