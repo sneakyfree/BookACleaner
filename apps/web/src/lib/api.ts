@@ -384,7 +384,7 @@ class ApiClient {
         verifications: (page = 1, status?: string) => {
             const params = new URLSearchParams({ page: String(page) })
             if (status) params.set('status', status)
-            return this.request<any>(`/api/v1/admin/verifications?${params}`)
+            return this.request<any>(`/api/v1/admin/verifications/queue?${params}`)
         },
 
         approvals: (page = 1, status?: string) => {
