@@ -96,10 +96,15 @@ async def get_conversation(
     """Get conversation with messages"""
     
     conv = await db.conversation.find_unique(where={"id": conversation_id})
-    
+
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
-    
+
+    # Object-level authz: only participants may read the thread (was an IDOR
+    # leaking other users' private messages).
+    if not await is_conversation_participant(db, conversation_id, user["id"]):
+        raise HTTPException(status_code=403, detail="Not authorized")
+
     # Get messages
     messages = await db.message.find_many(where={"conversation_id": conversation_id})
     
@@ -129,6 +134,17 @@ async def get_conversation(
     }
 
 
+async def is_conversation_participant(db, conversation_id: str, user_id: str) -> bool:
+    """A user is a participant if they're recorded in conversation_participants
+    or have sent a message in the conversation (covers pre-existing threads
+    created before participants were tracked)."""
+    parts = await db.conversation_participant.find_many(where={"conversation_id": conversation_id})
+    if any(p.get("user_id") == user_id for p in parts):
+        return True
+    msgs = await db.message.find_many(where={"conversation_id": conversation_id})
+    return any(m.get("sender_id") == user_id for m in msgs)
+
+
 @router.post("/conversations")
 async def create_conversation(
     data: CreateConversationRequest,
@@ -136,18 +152,25 @@ async def create_conversation(
     db = Depends(get_db)
 ):
     """Create a new conversation"""
-    
+
     # Check if recipient exists
     recipient = await db.user.find_unique(where={"id": data.recipient_id})
     if not recipient:
         raise HTTPException(status_code=404, detail="Recipient not found")
-    
+
     # Create conversation
     conv = await db.conversation.create(data={
         "job_id": data.job_id,
         "last_message_at": datetime.now(timezone.utc),
     })
-    
+
+    # Record both parties so conversation access can be authorized.
+    for member_id in {user["id"], data.recipient_id}:
+        await db.conversation_participant.create(data={
+            "conversation_id": conv["id"],
+            "user_id": member_id,
+        })
+
     # If initial message provided, create it
     if data.initial_message:
         await db.message.create(data={
@@ -173,23 +196,33 @@ async def send_message(
     """Send a message"""
     
     conversation_id = data.conversation_id
-    
-    # If no conversation ID, create one or find existing
-    if not conversation_id:
-        # Try to find existing conversation with this user
-        conversations = await db.conversation.find_many()
-        # In production, would query by participants
-        
-        if not conversations:
-            # Create new conversation
-            conv = await db.conversation.create(data={
-                "job_id": data.job_id,
-                "last_message_at": datetime.now(timezone.utc),
+
+    if conversation_id:
+        # Sending into an existing conversation — must be a participant
+        # (otherwise anyone could inject messages into others' threads).
+        conv = await db.conversation.find_unique(where={"id": conversation_id})
+        if not conv:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+        if not await is_conversation_participant(db, conversation_id, user["id"]):
+            raise HTTPException(status_code=403, detail="Not authorized")
+    else:
+        # No conversation id: open a new thread (previously this grabbed the
+        # first conversation in the whole table — sending into a stranger's
+        # thread). Record the sender (and recipient if supplied) as participants.
+        conv = await db.conversation.create(data={
+            "job_id": data.job_id,
+            "last_message_at": datetime.now(timezone.utc),
+        })
+        conversation_id = conv["id"]
+        member_ids = {user["id"]}
+        if data.recipient_id:
+            member_ids.add(data.recipient_id)
+        for member_id in member_ids:
+            await db.conversation_participant.create(data={
+                "conversation_id": conversation_id,
+                "user_id": member_id,
             })
-            conversation_id = conv["id"]
-        else:
-            conversation_id = conversations[0]["id"]
-    
+
     # Create message
     message = await db.message.create(data={
         "conversation_id": conversation_id,
