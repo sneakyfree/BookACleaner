@@ -102,7 +102,7 @@ export function useJobs() {
 
     const updateJobStatus = async (id: string, status: string) => {
         return apiFetch(`/jobs/${id}/status`, {
-            method: 'PUT',
+            method: 'PATCH',
             body: JSON.stringify({ status }),
         });
     };
@@ -138,7 +138,7 @@ export function useMessages() {
     };
 
     const sendMessage = async (conversationId: string, content: string) => {
-        return apiFetch('/messages', {
+        return apiFetch('/messages/send', {
             method: 'POST',
             body: JSON.stringify({ conversation_id: conversationId, content }),
         });
