@@ -33,10 +33,17 @@ class ICalSyncService:
     """Service for syncing iCal calendars (Airbnb, VRBO, etc.)"""
     
     def __init__(self):
-        self.client = httpx.AsyncClient(timeout=30.0)
-    
+        self.client = httpx.AsyncClient(timeout=30.0, follow_redirects=False)
+
     async def fetch_calendar(self, ical_url: str) -> Optional[str]:
         """Fetch iCal data from URL"""
+        # SSRF guard: the URL is user-supplied (property.airbnb_calendar_url).
+        from app.services.ical import _assert_public_http_url
+        try:
+            await _assert_public_http_url(ical_url)
+        except ValueError as e:
+            logger.warning(f"Refusing to fetch non-public iCal URL: {e}")
+            return None
         try:
             response = await self.client.get(ical_url)
             response.raise_for_status()
