@@ -140,10 +140,22 @@ async def accept_agreement(
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
 
-    # Verify user is a party to this job
+    # Verify user is a party to this job. job.client_id/cleaner_id are *profile*
+    # ids, not user ids — comparing against user["id"] rejected the real client
+    # (and the cleaner side wasn't checked at all).
     role = user.get("role", "client")
-    if role == "client" and job.get("client_id") != user["id"]:
-        raise HTTPException(status_code=403, detail="You are not the client for this job")
+    if role == "client":
+        client = await db.client.find_first(where={"user_id": user["id"]})
+        if not client or job.get("client_id") != client["id"]:
+            raise HTTPException(status_code=403, detail="You are not the client for this job")
+    elif role == "cleaner":
+        cleaner = await db.cleaner.find_first(where={"user_id": user["id"]})
+        if not cleaner or job.get("cleaner_id") != cleaner["id"]:
+            raise HTTPException(status_code=403, detail="You are not the cleaner for this job")
+    else:
+        # Only the two parties to the job may accept its agreement (not admins
+        # or any other role).
+        raise HTTPException(status_code=403, detail="Only the job's client or cleaner can accept its agreement")
 
     # Check if already accepted
     existing = await db.service_agreement.find_many(where={
