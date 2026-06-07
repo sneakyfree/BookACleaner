@@ -589,9 +589,12 @@ class ApiClient {
 
     // Settings/privacy endpoints
     settings = {
-        exportData: () => this.request<any>('/api/v1/privacy/export', { method: 'POST' }),
+        exportData: () => this.request<any>('/api/v1/privacy/export'),
 
-        deleteAccount: () => this.request<void>('/api/v1/privacy/delete', { method: 'DELETE' }),
+        deleteAccount: () => this.request<void>('/api/v1/privacy/delete', {
+            method: 'POST',
+            body: JSON.stringify({ confirm: true }),
+        }),
 
         updateSettings: (data: any) =>
             this.request<any>('/api/v1/auth/settings', {
