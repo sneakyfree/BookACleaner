@@ -297,7 +297,7 @@ export default function BookingWizardPage() {
                         ) : properties.length === 0 ? (
                             <div className="text-center py-8">
                                 <p className="text-muted-foreground mb-4">No properties found</p>
-                                <Button onClick={() => router.push('/client/properties/add')}>
+                                <Button onClick={() => router.push('/client/properties/new')}>
                                     Add a Property
                                 </Button>
                             </div>

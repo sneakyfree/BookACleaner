@@ -327,7 +327,7 @@ class ApiClient {
             this.request<void>(`/api/v1/notifications/${id}/read`, { method: 'POST' }),
 
         markAllRead: () =>
-            this.request<void>('/api/v1/notifications/mark-all-read', { method: 'POST' }),
+            this.request<void>('/api/v1/notifications/read-all', { method: 'POST' }),
     }
 
     // Feed endpoints
@@ -357,7 +357,7 @@ class ApiClient {
     // Payments endpoints
     payments = {
         createIntent: (data: { amount: number; jobId: string; capture_method?: string }) =>
-            this.request<any>('/api/v1/payments/create-intent', {
+            this.request<any>('/api/v1/payments/create-payment-intent', {
                 method: 'POST',
                 body: JSON.stringify(data),
             }),

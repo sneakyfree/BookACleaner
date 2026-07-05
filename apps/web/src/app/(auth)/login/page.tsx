@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { signIn } from 'next-auth/react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
@@ -16,6 +16,10 @@ export default function LoginPage() {
     const [error, setError] = useState<string | null>(null)
     const [isLoading, setIsLoading] = useState(false)
     const [isGoogleLoading, setIsGoogleLoading] = useState(false)
+    // Gate the submit button until React has hydrated so a pre-hydration
+    // native submit can't fire a GET with credentials in the URL.
+    const [mounted, setMounted] = useState(false)
+    useEffect(() => setMounted(true), [])
 
     async function onGoogleSignIn() {
         setIsGoogleLoading(true)
@@ -114,7 +118,7 @@ export default function LoginPage() {
                     </div>
 
                     {/* Email/Password Form */}
-                    <form onSubmit={onSubmit} className="space-y-4">
+                    <form method="post" onSubmit={onSubmit} className="space-y-4">
                         {error && (
                             <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-sm text-center">
                                 {error}
@@ -166,7 +170,7 @@ export default function LoginPage() {
                         <Button
                             type="submit"
                             className="w-full min-h-[48px] bg-brand-500 hover:bg-brand-600 text-white touch-manipulation"
-                            disabled={isLoading}
+                            disabled={!mounted || isLoading}
                         >
                             {isLoading ? (
                                 <>

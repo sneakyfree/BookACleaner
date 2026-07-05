@@ -1,6 +1,9 @@
 'use client';
 
 import { useState } from 'react';
+import { useSession } from 'next-auth/react';
+import { useRouter } from 'next/navigation';
+import { api } from '@/lib/api';
 import styles from './PricingPage.module.css';
 
 interface PricingTier {
@@ -72,14 +75,24 @@ interface PricingPageProps {
 export default function PricingPage({ onBack }: PricingPageProps) {
     const [isLoading, setIsLoading] = useState(false);
     const [loadingTier, setLoadingTier] = useState<string | null>(null);
+    const { status } = useSession();
+    const router = useRouter();
+
+    // Business assumption (confirm w/ Grant): tier id -> backend plan slug.
+    const PLAN_MAP: Record<string, string> = {
+        basic: 'pay_as_you_go',
+        pro: 'weekly_clean',
+        host: 'host_pro',
+    };
 
     const handleSubscribe = async (tierId: string) => {
-        if (tierId === 'host') {
-            window.location.href = 'mailto:sales@bookacleaner.com?subject=Host%20Pro%20Inquiry';
-            return;
-        }
-        if (tierId === 'basic') {
-            window.location.href = '/book';
+        const plan = PLAN_MAP[tierId];
+        if (!plan) return;
+
+        // Not signed in: don't fire the auth-required checkout call; send
+        // them to register and bring them back to pricing afterwards.
+        if (status !== 'authenticated') {
+            router.push('/register?callbackUrl=/pricing');
             return;
         }
 
@@ -87,23 +100,12 @@ export default function PricingPage({ onBack }: PricingPageProps) {
         setLoadingTier(tierId);
 
         try {
-            const token = localStorage.getItem('token')
-            const response = await fetch('/api/v1/payments/checkout', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    ...(token ? { Authorization: `Bearer ${token}` } : {}),
-                },
-                body: JSON.stringify({
-                    tier_id: tierId,
-                    success_url: window.location.origin + '/?subscription=success',
-                    cancel_url: window.location.origin + '/pricing',
-                }),
-            });
-
-            const data = await response.json();
-            if (data.session_url || data.checkout_url || data.url) {
-                window.location.href = data.session_url || data.checkout_url || data.url;
+            const data = await api.payments.createCheckoutSession(plan);
+            const url = data?.url || data?.sessionId;
+            if (url) {
+                window.location.href = url;
+            } else {
+                alert('Unable to start checkout. Please try again.');
             }
         } catch {
             alert('Unable to connect to payment service.');

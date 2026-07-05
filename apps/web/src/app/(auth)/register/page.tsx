@@ -59,7 +59,7 @@ export default function RegisterPage() {
             }
 
             // Redirect to onboarding flow
-            router.push('/onboarding')
+            router.push('/welcome')
         } catch (err) {
             if (err instanceof TypeError && err.message === 'Failed to fetch') {
                 setError('Cannot connect to server. The backend API may not be running.')
