@@ -55,7 +55,7 @@ export default function ClientDashboard() {
         upcomingBookings: pendingJobs.length,
         properties: properties.length,
         completedJobs: completedJobs.length,
-        rating: 4.8,  // Would come from reviews API
+        rating: null as number | null,  // no client rating until reviews API exists
     }
 
     // Format jobs for display
@@ -64,7 +64,7 @@ export default function ClientDashboard() {
         title: job.services.join(', '),
         property: properties.find(p => p.id === job.property_id)?.address || 'Property',
         cleaner: 'Assigned Cleaner',
-        cleanerRating: 4.8,
+        cleanerRating: null as number | null,
         date: job.scheduled_date,
         time: job.scheduled_time,
         status: job.status.toLowerCase(),
@@ -145,7 +145,7 @@ export default function ClientDashboard() {
                                 <Star className="w-6 h-6 text-amber-600 dark:text-amber-400" />
                             </div>
                             <div>
-                                <p className="text-2xl font-bold">{stats.rating}</p>
+                                <p className="text-2xl font-bold">{stats.rating ?? '—'}</p>
                                 <p className="text-sm text-muted-foreground">Your Rating</p>
                             </div>
                         </div>

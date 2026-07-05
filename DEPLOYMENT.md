@@ -70,3 +70,28 @@ curl -f http://localhost:8000/health/celery    # Celery worker reachable
 | API (gunicorn) | 8000 | `${API_PORT:-8000}` |
 | Postgres | 5432 | `${DB_PORT:-5432}` |
 | Redis | 6379 | `${REDIS_PORT:-6379}` |
+
+## Running the web app in production WITHOUT Docker (bare metal / dev box)
+
+`next.config.js` uses `output: "standalone"`, which changes the rules:
+
+1. **Always clean before building.** A `.next/` left behind by `next dev`
+   poisons `next build` (hangs on `PageNotFoundError: /_document`):
+   `rm -rf apps/web/.next`
+2. **Always `npm ci` after pulling** — a dependency added by a merged branch
+   (e.g. the `next-intl` incident) otherwise crashes boot with
+   `Cannot find module`.
+3. `npm run build`, then **do not use `next start`** (it 500s with standalone
+   output). Instead:
+   ```bash
+   cd apps/web
+   cp -r .next/static .next/standalone/.next/static
+   cp -r public .next/standalone/public
+   set -a; source .env.local; set +a   # standalone does NOT read .env.local
+   PORT=3002 node .next/standalone/server.js
+   ```
+   Skipping the env injection breaks NextAuth with `error=Configuration`
+   (`/api/auth/session` 500).
+
+CI (`.github/workflows/ci.yml`) runs `npm ci && next build` on every PR to
+catch all of the above classes before merge.

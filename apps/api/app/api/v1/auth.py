@@ -139,7 +139,21 @@ async def register(data: RegisterRequest, db = Depends(get_db)):
             "is_verified": False,
         }
     )
-    
+
+    # Create the role-specific profile row so downstream features work for
+    # brand-new accounts (bidding requires a cleaner profile; bookings require
+    # a client profile). Mirrors the lazy-create in cleaners.py /me.
+    try:
+        if data.role == "cleaner":
+            await db.cleaner.create(data={
+                "user_id": user["id"],
+                "business_name": "My Cleaning Service",
+            })
+        elif data.role == "client":
+            await db.client.create(data={"user_id": user["id"]})
+    except Exception as e:
+        logger.warning(f"Could not create {data.role} profile for {user['id']}: {e}")
+
     # Create email verification token
     verification_token = secrets.token_urlsafe(32)
     expires_at = datetime.now(timezone.utc) + timedelta(hours=24)
