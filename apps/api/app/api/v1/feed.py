@@ -39,7 +39,7 @@ DEMO_FEED_ITEMS = [
         "title": "🎉 Welcome to BookACleaner.ai!",
         "content": "We're excited to have you join our community of trusted cleaning professionals and happy clients. Check out our getting started guide to make the most of the platform.",
         "cta_text": "Get Started",
-        "cta_url": "/getting-started",
+        "cta_url": "/welcome",
         "target_roles": ["client", "cleaner"],
         "priority": 100,
         "likes": 234,
@@ -65,7 +65,7 @@ DEMO_FEED_ITEMS = [
         "content": "New clients get 20% off their first deep cleaning service. Use code CLEANHOME at checkout.",
         "image_url": "/images/feed/promo-deep-clean.jpg",
         "cta_text": "Book Now",
-        "cta_url": "/book",
+        "cta_url": "/client/book",
         "target_roles": ["client"],
         "priority": 90,
         "likes": 89,
@@ -77,7 +77,7 @@ DEMO_FEED_ITEMS = [
         "title": "✨ New: Airbnb Calendar Sync",
         "content": "Vacation rental owners can now sync their Airbnb calendar to automatically schedule turnover cleanings. Never miss a checkout again!",
         "cta_text": "Learn More",
-        "cta_url": "/features/airbnb-sync",
+        "cta_url": "/cleaner/calendar-sync",
         "target_roles": ["client"],
         "priority": 70,
         "likes": 67,
@@ -211,3 +211,54 @@ async def create_feed_item(
     })
     
     return {"success": True, "item": new_item}
+
+
+class UpdateFeedItemRequest(BaseModel):
+    type: Optional[str] = None
+    title: Optional[str] = None
+    content: Optional[str] = None
+    image_url: Optional[str] = None
+    cta_text: Optional[str] = None
+    cta_url: Optional[str] = None
+    target_roles: Optional[List[str]] = None
+    priority: Optional[int] = None
+
+
+@router.patch("/{item_id}")
+async def update_feed_item(
+    item_id: str,
+    data: UpdateFeedItemRequest,
+    user = Depends(get_current_user),
+    db = Depends(get_db)
+):
+    """Update a feed item (admin only)."""
+
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    payload = data.dict(exclude_unset=True)
+    existing = await db.feed_item.find_unique(where={"id": item_id})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Feed item not found")
+
+    updated = await db.feed_item.update(where={"id": item_id}, data=payload)
+    return {"success": True, "item": updated}
+
+
+@router.delete("/{item_id}")
+async def delete_feed_item(
+    item_id: str,
+    user = Depends(get_current_user),
+    db = Depends(get_db)
+):
+    """Delete a feed item (admin only)."""
+
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    existing = await db.feed_item.find_unique(where={"id": item_id})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Feed item not found")
+
+    await db.feed_item.delete(where={"id": item_id})
+    return {"success": True}
