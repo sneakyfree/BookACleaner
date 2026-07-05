@@ -47,8 +47,17 @@ async def get_platform_stats(
     pending_verifications = sum(1 for v in all_verifications if v.get("status") == "pending")
     
     # Weekly new users (last 7 days)
+    # Stored timestamps may be naive (SQLite) or aware (Postgres). Normalize to
+    # aware-UTC before comparing, otherwise "can't compare offset-naive and
+    # offset-aware datetimes" 500s the whole admin dashboard.
+    def _as_aware_utc(value):
+        dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        return dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
     week_ago = datetime.now(timezone.utc) - timedelta(days=7)
-    new_users_this_week = sum(1 for u in all_users if u.get("created_at") and datetime.fromisoformat(str(u["created_at"]).replace("Z", "+00:00").replace("+00:00", "")) > week_ago)
+    new_users_this_week = sum(
+        1 for u in all_users
+        if u.get("created_at") and _as_aware_utc(u["created_at"]) > week_ago
+    )
     
     # Celery task schedule
     try:

@@ -91,6 +91,14 @@ async def update_my_profile(
     if not updated:
         raise HTTPException(status_code=500, detail="Failed to update profile")
 
+    # Never return sensitive columns to the client (the raw ORM row includes
+    # the bcrypt hash and refresh token). GET /auth/me and /admin/users already
+    # strip these; this endpoint was returning them verbatim.
+    if isinstance(updated, dict):
+        updated = {
+            k: v for k, v in updated.items()
+            if k not in ("password_hash", "refresh_token", "refresh_token_expires_at")
+        }
     return {"success": True, "user": updated}
 
 
