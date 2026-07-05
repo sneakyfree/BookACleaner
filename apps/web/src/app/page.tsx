@@ -4,9 +4,12 @@ import { useState } from 'react'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { ArrowRight, Sparkles, Shield, Calendar, Star, Menu, X } from 'lucide-react'
+import { useTranslations } from 'next-intl'
+import { LanguageSwitcher } from '@/components/LanguageSwitcher'
 
 export default function HomePage() {
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+    const t = useTranslations()
 
     return (
         <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 overflow-x-hidden">
@@ -23,26 +26,31 @@ export default function HomePage() {
                     {/* Desktop nav links */}
                     <div className="hidden md:flex items-center gap-8">
                         <Link href="/cleaners" className="text-white/80 hover:text-white transition">
-                            Find Cleaners
+                            {t('nav.findCleaners')}
                         </Link>
                         <Link href="/register?role=cleaner" className="text-white/80 hover:text-white transition">
-                            For Cleaners
+                            {t('nav.forCleaners')}
                         </Link>
                         <Link href="/pricing" className="text-white/80 hover:text-white transition">
-                            Pricing
+                            {t('nav.pricing')}
                         </Link>
                     </div>
 
                     <div className="flex items-center gap-2 sm:gap-4">
+                        {/* Language switcher — desktop */}
+                        <div className="hidden sm:block">
+                            <LanguageSwitcher />
+                        </div>
+
                         {/* Sign In / Get Started — desktop */}
                         <Link href="/login" className="hidden sm:block">
                             <Button variant="ghost" className="text-white hover:bg-white/10">
-                                Sign In
+                                {t('nav.signIn')}
                             </Button>
                         </Link>
                         <Link href="/register" className="hidden sm:block">
                             <Button className="bg-brand-500 hover:bg-brand-600 text-white">
-                                Get Started
+                                {t('nav.getStarted')}
                             </Button>
                         </Link>
 
@@ -89,7 +97,7 @@ export default function HomePage() {
                                 onClick={() => setMobileMenuOpen(false)}
                             >
                                 <Shield className="w-5 h-5 text-brand-400" />
-                                Find Cleaners
+                                {t('nav.findCleaners')}
                             </Link>
                             <Link
                                 href="/register?role=cleaner"
@@ -97,7 +105,7 @@ export default function HomePage() {
                                 onClick={() => setMobileMenuOpen(false)}
                             >
                                 <Star className="w-5 h-5 text-accent-sparkle" />
-                                For Cleaners
+                                {t('nav.forCleaners')}
                             </Link>
                             <Link
                                 href="/pricing"
@@ -105,20 +113,25 @@ export default function HomePage() {
                                 onClick={() => setMobileMenuOpen(false)}
                             >
                                 <Calendar className="w-5 h-5 text-accent-fresh" />
-                                Pricing
+                                {t('nav.pricing')}
                             </Link>
                         </nav>
+
+                        {/* Language switcher — mobile */}
+                        <div className="px-4 py-3 border-t border-white/10">
+                            <LanguageSwitcher />
+                        </div>
 
                         {/* Auth CTAs */}
                         <div className="p-4 border-t border-white/10 space-y-3">
                             <Link href="/login" className="block" onClick={() => setMobileMenuOpen(false)}>
                                 <Button variant="outline" className="w-full border-white/20 text-white hover:bg-white/10 min-h-[48px]">
-                                    Sign In
+                                    {t('nav.signIn')}
                                 </Button>
                             </Link>
                             <Link href="/register" className="block" onClick={() => setMobileMenuOpen(false)}>
                                 <Button className="w-full bg-brand-500 hover:bg-brand-600 text-white min-h-[48px]">
-                                    Get Started
+                                    {t('nav.getStarted')}
                                     <ArrowRight className="w-4 h-4 ml-2" />
                                 </Button>
                             </Link>
@@ -132,24 +145,23 @@ export default function HomePage() {
                 <div className="container mx-auto text-center">
                     <div className="inline-flex items-center gap-2 px-3 sm:px-4 py-2 rounded-full bg-brand-500/10 border border-brand-500/20 text-brand-400 text-xs sm:text-sm mb-6 sm:mb-8">
                         <Sparkles className="w-4 h-4" />
-                        <span>The Future of Cleaning is Here</span>
+                        <span>{t('hero.badge')}</span>
                     </div>
 
                     <h1 className="text-4xl sm:text-5xl md:text-7xl font-display font-bold text-white mb-4 sm:mb-6 leading-tight">
-                        They schedule.
+                        {t('hero.title1')}
                         <br />
-                        <span className="text-gradient">We think.</span>
+                        <span className="text-gradient">{t('hero.title2')}</span>
                     </h1>
 
                     <p className="text-base sm:text-xl text-white/60 max-w-2xl mx-auto mb-8 sm:mb-10 px-2">
-                        The world&apos;s first AI-native operating system for the cleaning industry.
-                        Connect with trusted professionals, automate scheduling, and grow your business.
+                        {t('hero.subtitle')}
                     </p>
 
                     <div className="flex flex-col sm:flex-row items-center justify-center gap-3 sm:gap-4">
                         <Link href="/register?role=client" className="w-full sm:w-auto">
                             <Button size="lg" className="w-full sm:w-auto bg-brand-500 hover:bg-brand-600 text-white text-base sm:text-lg px-8 py-6 min-h-[48px]">
-                                Find a Cleaner
+                                {t('hero.findCleaner')}
                                 <ArrowRight className="w-5 h-5 ml-2" />
                             </Button>
                         </Link>
@@ -159,13 +171,13 @@ export default function HomePage() {
                                 variant="outline"
                                 className="w-full sm:w-auto border-brand-500/50 bg-transparent text-white hover:bg-brand-500/10 text-base sm:text-lg px-8 py-6 min-h-[48px]"
                             >
-                                Join as a Cleaner
+                                {t('hero.joinAsCleaner')}
                             </Button>
                         </Link>
                     </div>
 
                     <p className="text-white/40 text-xs sm:text-sm mt-4 sm:mt-6">
-                        Free to use • No credit card required • Cancel anytime
+                        {t('hero.freeToUse')}
                     </p>
                 </div>
             </section>
@@ -180,11 +192,10 @@ export default function HomePage() {
                                 <Shield className="w-6 h-6 text-brand-500" />
                             </div>
                             <h3 className="text-lg sm:text-xl font-display font-semibold text-white mb-2 sm:mb-3">
-                                Verified Professionals
+                                {t('features.verified.title')}
                             </h3>
                             <p className="text-sm sm:text-base text-white/60">
-                                Every cleaner is verified with background checks, insurance, and certifications.
-                                5-tier verification system ensures trust.
+                                {t('features.verified.description')}
                             </p>
                         </div>
 
@@ -194,11 +205,10 @@ export default function HomePage() {
                                 <Calendar className="w-6 h-6 text-accent-fresh" />
                             </div>
                             <h3 className="text-lg sm:text-xl font-display font-semibold text-white mb-2 sm:mb-3">
-                                AI-Powered Scheduling
+                                {t('features.scheduling.title')}
                             </h3>
                             <p className="text-sm sm:text-base text-white/60">
-                                Automatic Airbnb calendar sync, route optimization, and intelligent gap filling.
-                                Let AI handle the logistics.
+                                {t('features.scheduling.description')}
                             </p>
                         </div>
 
@@ -208,11 +218,10 @@ export default function HomePage() {
                                 <Star className="w-6 h-6 text-accent-sparkle" />
                             </div>
                             <h3 className="text-lg sm:text-xl font-display font-semibold text-white mb-2 sm:mb-3">
-                                Two-Sided Reviews
+                                {t('features.reviews.title')}
                             </h3>
                             <p className="text-sm sm:text-base text-white/60">
-                                eBay-style satisfaction ratings for both cleaners and clients.
-                                Build reputation, earn trust, grow your business.
+                                {t('features.reviews.description')}
                             </p>
                         </div>
                     </div>
@@ -224,15 +233,14 @@ export default function HomePage() {
                 <div className="container mx-auto">
                     <div className="glass rounded-2xl sm:rounded-3xl p-6 sm:p-12 text-center">
                         <h2 className="text-2xl sm:text-3xl md:text-4xl font-display font-bold text-white mb-3 sm:mb-4">
-                            Ready to experience the future?
+                            {t('cta.title')}
                         </h2>
                         <p className="text-sm sm:text-base text-white/60 max-w-xl mx-auto mb-6 sm:mb-8">
-                            Join thousands of cleaning professionals and property managers who are
-                            already using BookACleaner.ai to transform their business.
+                            {t('cta.subtitle')}
                         </p>
                         <Link href="/register" className="inline-block w-full sm:w-auto">
                             <Button size="lg" className="w-full sm:w-auto bg-brand-500 hover:bg-brand-600 text-white text-base sm:text-lg px-8 py-6 min-h-[48px]">
-                                Get Started for Free
+                                {t('cta.button')}
                                 <ArrowRight className="w-5 h-5 ml-2" />
                             </Button>
                         </Link>
@@ -253,18 +261,18 @@ export default function HomePage() {
 
                         <div className="flex flex-wrap items-center justify-center gap-6 sm:gap-8 text-white/60 text-sm">
                             <Link href="/privacy" className="hover:text-white transition py-1 touch-manipulation">
-                                Privacy Policy
+                                {t('footer.privacy')}
                             </Link>
                             <Link href="/terms" className="hover:text-white transition py-1 touch-manipulation">
-                                Terms of Service
+                                {t('footer.terms')}
                             </Link>
                             <a href="mailto:support@bookacleaner.ai" className="hover:text-white transition py-1 touch-manipulation">
-                                Contact
+                                {t('footer.contact')}
                             </a>
                         </div>
 
                         <p className="text-white/40 text-sm">
-                            © 2026 BookACleaner.ai. All rights reserved.
+                            {t('footer.copyright')}
                         </p>
                     </div>
                 </div>

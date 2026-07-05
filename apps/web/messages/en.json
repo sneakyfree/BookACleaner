@@ -1,0 +1,44 @@
+{
+  "nav": {
+    "findCleaners": "Find Cleaners",
+    "forCleaners": "For Cleaners",
+    "pricing": "Pricing",
+    "signIn": "Sign In",
+    "getStarted": "Get Started"
+  },
+  "hero": {
+    "badge": "The Future of Cleaning is Here",
+    "title1": "They schedule.",
+    "title2": "We think.",
+    "subtitle": "The world's first AI-native operating system for the cleaning industry. Connect with trusted professionals, automate scheduling, and grow your business.",
+    "findCleaner": "Find a Cleaner",
+    "joinAsCleaner": "Join as a Cleaner",
+    "freeToUse": "Free to use • No credit card required • Cancel anytime"
+  },
+  "features": {
+    "verified": {
+      "title": "Verified Professionals",
+      "description": "Every cleaner is verified with background checks, insurance, and certifications. 5-tier verification system ensures trust."
+    },
+    "scheduling": {
+      "title": "AI-Powered Scheduling",
+      "description": "Automatic Airbnb calendar sync, route optimization, and intelligent gap filling. Let AI handle the logistics."
+    },
+    "reviews": {
+      "title": "Two-Sided Reviews",
+      "description": "eBay-style satisfaction ratings for both cleaners and clients. Build reputation, earn trust, grow your business."
+    }
+  },
+  "cta": {
+    "title": "Ready to experience the future?",
+    "subtitle": "Join thousands of cleaning professionals and property managers who are already using BookACleaner.ai to transform their business.",
+    "button": "Get Started for Free"
+  },
+  "footer": {
+    "privacy": "Privacy Policy",
+    "terms": "Terms of Service",
+    "contact": "Contact",
+    "copyright": "© 2026 BookACleaner.ai. All rights reserved."
+  },
+  "aiAssistant": "AI Assistant"
+}
