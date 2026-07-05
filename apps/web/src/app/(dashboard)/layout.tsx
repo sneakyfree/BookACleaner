@@ -208,14 +208,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                             <Bell className="w-5 h-5" />
                             <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full" />
                         </Link>
-                        {!isAdmin && (
                             <Link
                                 href={`${basePath}/settings`}
                                 className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg"
                             >
                                 <Settings className="w-5 h-5" />
                             </Link>
-                        )}
                     </div>
                 </header>
 
