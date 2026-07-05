@@ -1,4 +1,15 @@
-name: E2E Tests
+name: E2E Link-Crawl
+
+# Nav-404 / dead-link / white-page guard.
+#
+# Boots the API (sqlite, auto-seeded demo data) and a PRODUCTION standalone
+# build of the web app, then BFS-crawls every reachable navigation target for
+# every role. Any 404 / 5xx / branded-404 / error-boundary / blank page fails
+# the build, so frontend<->backend path drift can never ship silently.
+#
+# The dev server emits false 500s on cold-compiled chunks, so we deliberately
+# serve the standalone production output (next.config.js already sets
+# output: 'standalone').
 
 on:
   push:
@@ -7,15 +18,25 @@ on:
     branches: [main, develop]
 
 jobs:
-  e2e-tests:
+  link-crawl:
+    name: Link-crawl (nav 404 / dead-link guard)
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    
+
+    env:
+      API_PORT: '8020'
+      WEB_PORT: '3030'
+      NEXT_PUBLIC_API_URL: http://localhost:8020
+      NEXTAUTH_URL: http://localhost:3030
+      NEXTAUTH_SECRET: ci-nextauth-secret-not-for-production
+      INTERNAL_API_KEY: ci-internal-api-key
+      NEXT_TELEMETRY_DISABLED: '1'
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-      
-      - name: Setup Node.js
+
+      - name: Setup Node.js 20
         uses: actions/setup-node@v4
         with:
           node-version: '20'
@@ -23,48 +44,110 @@ jobs:
           cache-dependency-path: |
             apps/web/package-lock.json
             e2e/package-lock.json
-      
-      - name: Setup Python
+
+      - name: Setup Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
           cache: 'pip'
           cache-dependency-path: apps/api/requirements.txt
-      
-      - name: Install frontend dependencies
-        run: cd apps/web && npm ci
-      
+
       - name: Install backend dependencies
-        run: |
-          cd apps/api
-          python -m venv venv
-          source venv/bin/activate
-          pip install -r requirements.txt
-      
+        run: pip install -r apps/api/requirements.txt
+
+      - name: Install web dependencies
+        run: cd apps/web && npm ci
+
       - name: Install E2E dependencies
         run: cd e2e && npm ci
-      
-      - name: Install Playwright browsers
+
+      - name: Install Playwright browser (chromium)
         run: cd e2e && npx playwright install --with-deps chromium
-      
-      - name: Run E2E tests
-        run: cd e2e && npm test
+
+      # ---- Backend: sqlite, TESTING mode. connect_db() creates the schema and
+      # auto-seeds the demo users (client@demo.com / maria@demo.com /
+      # admin@bookacleaner.ai, all password demo1234) when the DB is empty.
+      # The F1 sqlite fix (database.py) drops pool kwargs for any sqlite URL, so
+      # a plain sqlite+aiosqlite URL boots cleanly. REDIS_URL is left empty so
+      # the cache runs in graceful no-op mode (no Redis service required).
+      - name: Boot backend
+        run: |
+          cd apps/api
+          rm -f ci.db
+          TESTING=true \
+          DEV_MODE=true \
+          DATABASE_URL="sqlite+aiosqlite:///./ci.db" \
+          REDIS_URL="" \
+          FRONTEND_URL="http://localhost:${WEB_PORT}" \
+          JWT_SECRET=ci-jwt-secret \
+          NEXTAUTH_SECRET="${NEXTAUTH_SECRET}" \
+          nohup python -m uvicorn app.main:app --host 127.0.0.1 --port "${API_PORT}" \
+            > /tmp/api.log 2>&1 &
+          echo "backend starting on ${API_PORT}"
+
+      - name: Wait for backend health
+        run: |
+          for i in $(seq 1 60); do
+            if curl -sf "http://localhost:${API_PORT}/health" >/dev/null; then
+              echo "backend healthy"; exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::backend failed to become healthy"; cat /tmp/api.log; exit 1
+
+      # ---- Frontend: PRODUCTION standalone build. rm -rf .next avoids the
+      # stale /_document hang. NEXT_PUBLIC_* must be present at build time so the
+      # client bundle and next.config rewrites target the API.
+      - name: Build web (production)
+        run: |
+          cd apps/web
+          rm -rf .next
+          npm run build
+
+      - name: Assemble and boot standalone frontend
+        run: |
+          cd apps/web
+          # standalone/server.js serves ./.next/static and ./public relative to its cwd
+          cp -r .next/static .next/standalone/.next/static
+          cp -r public .next/standalone/public || true
+          cd .next/standalone
+          PORT="${WEB_PORT}" HOSTNAME=127.0.0.1 \
+          NEXT_PUBLIC_API_URL="http://localhost:${API_PORT}" \
+          NEXTAUTH_URL="http://localhost:${WEB_PORT}" \
+          NEXTAUTH_SECRET="${NEXTAUTH_SECRET}" \
+          INTERNAL_API_KEY="${INTERNAL_API_KEY}" \
+          nohup node server.js > /tmp/web.log 2>&1 &
+          echo "frontend starting on ${WEB_PORT}"
+
+      - name: Wait for frontend health
+        run: |
+          for i in $(seq 1 60); do
+            if curl -sf "http://localhost:${WEB_PORT}/login" >/dev/null; then
+              echo "frontend healthy"; exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::frontend failed to become healthy"; cat /tmp/web.log; exit 1
+
+      # ---- The guard. Fails the job (non-zero) on any broken navigation target.
+      - name: Run link-crawl guard
+        run: cd e2e && npm run test:crawl
         env:
-          CI: true
-          BASE_URL: http://localhost:3002
-      
-      - name: Upload test report
-        uses: actions/upload-artifact@v4
+          CI: 'true'
+          BASE_URL: http://localhost:3030
+
+      - name: Upload crawl report and failure screenshots
         if: always()
-        with:
-          name: playwright-report
-          path: e2e/playwright-report/
-          retention-days: 7
-      
-      - name: Upload test results
         uses: actions/upload-artifact@v4
-        if: failure()
         with:
-          name: test-results
-          path: e2e/test-results/
+          name: link-crawl-report
+          path: |
+            e2e/playwright-report/
+            e2e/test-results/
           retention-days: 7
+
+      - name: Dump server logs on failure
+        if: failure()
+        run: |
+          echo "===== API LOG ====="; cat /tmp/api.log || true
+          echo "===== WEB LOG ====="; cat /tmp/web.log || true

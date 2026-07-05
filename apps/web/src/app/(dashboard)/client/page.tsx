@@ -86,7 +86,7 @@ export default function ClientDashboard() {
                         Manage your properties and bookings.
                     </p>
                 </div>
-                <Link href="/book">
+                <Link href="/client/book">
                     <Button className="bg-brand-500 hover:bg-brand-600">
                         <Plus className="w-4 h-4 mr-2" />
                         Book a Cleaning

@@ -49,6 +49,11 @@ if "postgresql" in DATABASE_URL and not os.getenv("DATABASE_URL"):
         _use_sqlite = True
         logger.warning(f"⚠️  PostgreSQL not available — falling back to SQLite: {_db_path}")
 
+# Honor an explicit sqlite DATABASE_URL (not only the auto-fallback path) so
+# pool kwargs are skipped for ANY sqlite engine, avoiding a boot-time
+# TypeError: Invalid argument pool_size when deploying against sqlite.
+_use_sqlite = _use_sqlite or DATABASE_URL.startswith("sqlite")
+
 # Create async engine with connection pool settings
 _engine_kwargs = {
     "echo": os.getenv("SQL_ECHO", "false").lower() == "true",

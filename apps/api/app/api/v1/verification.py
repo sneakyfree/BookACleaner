@@ -298,6 +298,43 @@ async def upload_verification_document(
     )
 
 
+class VerificationSubmitRequest(BaseModel):
+    # Frontend sends `type`; older API clients/tests send `document_type`.
+    # Accept either so both contracts resolve.
+    type: Optional[str] = None
+    document_type: Optional[str] = None
+    document_url: str
+
+
+@router.post("/submit", response_model=UploadResponse)
+async def submit_verification_document(
+    data: VerificationSubmitRequest,
+    user = Depends(get_current_user),
+    db = Depends(get_db)
+):
+    """Submit a verification document by URL (JSON-body variant of /upload)."""
+
+    valid_types = ["id", "business_license", "insurance", "certification", "background_check"]
+    vtype = data.type or data.document_type
+    if not vtype or vtype not in valid_types:
+        raise HTTPException(status_code=400, detail=f"Invalid verification type. Must be one of: {valid_types}")
+
+    verification = await db.verification.create(
+        data={
+            "user_id": user["id"],
+            "type": vtype,
+            "status": "pending",
+            "document_url": data.document_url,
+        }
+    )
+
+    return UploadResponse(
+        id=verification["id"],
+        status="pending",
+        message=f"{vtype.replace('_', ' ').title()} submitted. Review typically takes 24-48 hours."
+    )
+
+
 @router.get("/types")
 async def get_verification_types():
     """Get available verification types and their descriptions"""

@@ -225,7 +225,7 @@ export default function PropertiesPage() {
                                             </span>
                                         </div>
                                     ) : (
-                                        <Link href={`/book?propertyId=${property.id}`}>
+                                        <Link href={`/client/book?propertyId=${property.id}`}>
                                             <Button variant="link" className="text-brand-600 p-0 h-auto">
                                                 Schedule cleaning →
                                             </Button>
