@@ -54,7 +54,7 @@ export default function AdminVerificationsPage() {
     const { data: rawData, isLoading: loading, error, refetch } = useAdminVerifications(1, statusFilter !== 'all' ? statusFilter : undefined)
     const queryClient = useQueryClient()
 
-    const verifications: VerificationItem[] = rawData?.items || rawData || []
+    const verifications: VerificationItem[] = rawData?.verifications || rawData?.items || rawData || []
     const selected = verifications.find(v => v.id === selectedId)
 
     const approveMut = useMutation({

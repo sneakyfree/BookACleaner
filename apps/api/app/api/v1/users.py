@@ -46,6 +46,24 @@ async def get_my_profile(
     return profile_data
 
 
+@router.get("/me/notifications")
+async def get_my_notification_prefs(user=Depends(get_current_user)):
+    """Notification preferences for the current user.
+
+    Returns sensible defaults (channel + per-event toggles) so the settings UI
+    has a baseline; persistence can be layered on later without changing the
+    response shape.
+    """
+    return {
+        "bookingConfirmations": True,
+        "cleaningReminders": True,
+        "reviewRequests": True,
+        "promotions": False,
+        "smsEnabled": True,
+        "emailEnabled": True,
+    }
+
+
 @router.patch("/me")
 async def update_my_profile(
     data: UpdateProfileRequest,
@@ -64,7 +82,10 @@ async def update_my_profile(
     if not update_data:
         raise HTTPException(status_code=400, detail="No fields to update")
 
-    update_data["updated_at"] = datetime.now(timezone.utc).isoformat()
+    # Pass a datetime object, not an ISO string: the ORM DateTime column is
+    # written via setattr, and SQLite rejects strings ("only accepts Python
+    # datetime and date objects") — this 500'd every profile update.
+    update_data["updated_at"] = datetime.now(timezone.utc)
     updated = await db.user.update(where={"id": user["id"]}, data=update_data)
 
     if not updated:

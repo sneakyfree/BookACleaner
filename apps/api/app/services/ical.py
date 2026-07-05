@@ -2,15 +2,52 @@
 iCal Calendar Service for BookACleaner.ai
 Parses Airbnb/VRBO calendar feeds and creates turnover jobs
 """
+import asyncio
+import ipaddress
+import socket
 import httpx
 from icalendar import Calendar
 from datetime import datetime, date, timedelta
 from typing import List, Optional, Dict, Any
+from urllib.parse import urlparse
 import logging
 
 from app.database import get_db
 
 logger = logging.getLogger(__name__)
+
+
+async def _assert_public_http_url(url: str) -> None:
+    """SSRF guard for user-supplied calendar URLs.
+
+    The calendar URL comes straight from a property's airbnb_calendar_url, so it
+    is attacker-controlled. Without this, a user could make the server fetch
+    internal hosts (cloud metadata 169.254.169.254, the WireGuard mesh, other
+    localhost services) and read the response back via the error detail. Allow
+    only http(s) to a host that resolves exclusively to public addresses.
+    """
+    try:
+        parsed = urlparse(url)
+    except Exception:
+        raise ValueError("Invalid calendar URL")
+    if parsed.scheme not in ("http", "https"):
+        raise ValueError("Calendar URL must use http or https")
+    host = parsed.hostname
+    if not host:
+        raise ValueError("Invalid calendar URL")
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    try:
+        infos = await asyncio.to_thread(socket.getaddrinfo, host, port, 0, socket.SOCK_STREAM)
+    except socket.gaierror:
+        raise ValueError("Could not resolve calendar host")
+    for info in infos:
+        try:
+            ip = ipaddress.ip_address(info[4][0])
+        except ValueError:
+            raise ValueError("Invalid calendar host")
+        if (ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved
+                or ip.is_multicast or ip.is_unspecified):
+            raise ValueError("Calendar URL must point to a public host")
 
 
 class CalendarEvent:
@@ -49,11 +86,14 @@ class ICalService:
     async def _get_client(self) -> httpx.AsyncClient:
         """Get or create HTTP client"""
         if self.http_client is None:
-            self.http_client = httpx.AsyncClient(timeout=30.0)
+            # follow_redirects stays off so a public URL can't 30x-bounce to an
+            # internal one and slip past the SSRF guard.
+            self.http_client = httpx.AsyncClient(timeout=30.0, follow_redirects=False)
         return self.http_client
-    
+
     async def fetch_calendar(self, url: str) -> str:
         """Fetch raw iCal data from URL"""
+        await _assert_public_http_url(url)
         try:
             client = await self._get_client()
             response = await client.get(url)
@@ -68,8 +108,10 @@ class ICalService:
         try:
             cal = Calendar.from_ical(ical_data)
         except Exception as e:
+            # Don't echo the fetched body back to the caller — with the SSRF
+            # guard in place this is defence-in-depth against content leakage.
             logger.error(f"Failed to parse iCal: {e}")
-            raise ValueError(f"Invalid iCal format: {str(e)}")
+            raise ValueError("Invalid iCal format")
         
         events = []
         

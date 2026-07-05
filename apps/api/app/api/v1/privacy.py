@@ -45,7 +45,7 @@ async def export_user_data(
     if client:
         export["client_profile"] = client
         # Properties
-        properties = await db.property.find_many(where={"client_id": client["id"]})
+        properties = await db.properties.find_many(where={"client_id": client["id"]})
         export["properties"] = properties
 
     # Jobs (as cleaner or client)
@@ -150,9 +150,9 @@ async def delete_user_data(
         # Delete client profile and properties
         client = await db.client.find_first(where={"user_id": user_id})
         if client:
-            properties = await db.property.find_many(where={"client_id": client["id"]})
+            properties = await db.properties.find_many(where={"client_id": client["id"]})
             for p in properties:
-                await db.property.delete(where={"id": p["id"]})
+                await db.properties.delete(where={"id": p["id"]})
             deleted["entities_deleted"].append(f"properties: {len(properties)}")
 
             await db.client.delete(where={"id": client["id"]})

@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 import logging
 
 from app.database import get_db
+from app.core.audit import record_audit
 from app.config import get_settings
 from app.api.deps import get_current_user
 
@@ -82,8 +83,20 @@ async def list_disputes(
 
     start = (page - 1) * limit
     end = start + limit
+    page_items = disputes[start:end]
 
-    return {"disputes": disputes[start:end], "total": len(disputes), "page": page}
+    # Enrich with job title and the raising user's name for the admin UI.
+    enriched = []
+    for d in page_items:
+        job = await db.job.find_unique(where={"id": d["job_id"]}) if d.get("job_id") else None
+        raiser = await db.user.find_unique(where={"id": d["raised_by"]}) if d.get("raised_by") else None
+        enriched.append({
+            **d,
+            "job_title": job.get("title") if job else None,
+            "raised_by_name": raiser.get("full_name") if raiser else None,
+        })
+
+    return {"disputes": enriched, "total": len(disputes), "page": page}
 
 
 @router.get("/{dispute_id}")
@@ -111,7 +124,9 @@ async def resolve_dispute(
         "status": "resolved",
         "resolution_notes": data.resolution_notes,
         "resolved_by": user["id"],
-        "resolved_at": datetime.now(timezone.utc).isoformat(),
+        # datetime object, not isoformat string — the SQLite DateTime column
+        # rejects strings (this 500'd dispute resolution).
+        "resolved_at": datetime.now(timezone.utc),
     })
 
     # Handle resolution action
@@ -123,5 +138,7 @@ async def resolve_dispute(
     elif data.action == "dismiss" and job_id:
         await db.job.update(where={"id": job_id}, data={"status": "completed"})
 
+    await record_audit(db, event_type="dispute.resolved", actor=user,
+                       target=dispute_id, details=f"Action: {data.action}")
     logger.info(f"Dispute {dispute_id} resolved by admin {user['id']}: {data.action}")
     return {"status": "resolved", "action": data.action}

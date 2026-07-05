@@ -254,9 +254,15 @@ async def get_playbook(property_id: str, authorization: str = Header(None), db=D
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
 
-    prop = await db.property.find_unique(where={"id": property_id})
+    prop = await db.properties.find_unique(where={"id": property_id})
     if not prop:
         raise HTTPException(status_code=404, detail="Property not found")
+
+    # Object-level authz: only the owning client may read the playbook, which
+    # holds entry/access instructions and special notes (IDOR otherwise).
+    client = await db.client.find_first(where={"user_id": user["id"]})
+    if not client or prop.get("client_id") != client["id"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
 
     # Playbook stored in property notes as JSON
     import json
@@ -280,13 +286,18 @@ async def save_playbook(property_id: str, data: PlaybookData, authorization: str
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
 
-    prop = await db.property.find_unique(where={"id": property_id})
+    prop = await db.properties.find_unique(where={"id": property_id})
     if not prop:
         raise HTTPException(status_code=404, detail="Property not found")
 
+    # Object-level authz: only the owning client may write the playbook.
+    client = await db.client.find_first(where={"user_id": user["id"]})
+    if not client or prop.get("client_id") != client["id"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+
     import json
     playbook = data.dict(exclude_none=True)
-    await db.property.update(
+    await db.properties.update(
         where={"id": property_id},
         data={"notes": json.dumps(playbook)}
     )

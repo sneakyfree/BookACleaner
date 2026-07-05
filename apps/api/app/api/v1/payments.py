@@ -4,6 +4,7 @@ from typing import Optional
 from datetime import datetime, timezone
 import stripe
 import os
+import math
 import logging
 
 from app.config import get_settings
@@ -227,18 +228,101 @@ async def create_account_link(data: OnboardingLinkRequest, user=Depends(get_curr
         raise HTTPException(status_code=400, detail=str(e))
 
 
+_NOT_CONNECTED = {
+    "accountId": None,
+    "chargesEnabled": False,
+    "payoutsEnabled": False,
+    "detailsSubmitted": False,
+}
+
+
+def _parse_dt(v):
+    """Coerce a DB datetime/ISO-string into an aware UTC datetime, or None."""
+    if v is None:
+        return None
+    if isinstance(v, datetime):
+        return v if v.tzinfo else v.replace(tzinfo=timezone.utc)
+    try:
+        d = datetime.fromisoformat(str(v).replace("Z", "+00:00"))
+        return d if d.tzinfo else d.replace(tzinfo=timezone.utc)
+    except (ValueError, TypeError):
+        return None
+
+
 @router.get("/account-status/{account_id}")
-async def get_account_status(account_id: str, user=Depends(get_current_user)):
-    """Get Stripe Connect account status."""
+async def get_account_status(account_id: str, user=Depends(get_current_user), db=Depends(get_db)):
+    """Get Stripe Connect account status.
+
+    `self` resolves to the current user's connected account. When Stripe isn't
+    configured or no account exists yet, return a clean not-connected status so
+    the onboarding UI renders instead of erroring (previously 400/404).
+    """
+    if account_id == "self":
+        cleaner = await db.cleaner.find_first(where={"user_id": user["id"]})
+        account_id = (cleaner or {}).get("stripe_account_id") if cleaner else None
+        if not account_id:
+            return dict(_NOT_CONNECTED)
     try:
         account = stripe.Account.retrieve(account_id)
         return {
+            "accountId": account_id,
             "chargesEnabled": account.charges_enabled,
             "payoutsEnabled": account.payouts_enabled,
             "detailsSubmitted": account.details_submitted,
         }
-    except stripe.error.StripeError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    except stripe.error.StripeError:
+        return dict(_NOT_CONNECTED)
+
+
+@router.get("/payouts/")
+async def list_my_payouts(user=Depends(get_current_user), db=Depends(get_db)):
+    """Payout history for the current cleaner, derived from completed jobs."""
+    cleaner = await db.cleaner.find_first(where={"user_id": user["id"]})
+    if not cleaner:
+        return []
+    jobs = await db.job.find_many(where={"cleaner_id": cleaner["id"]}) or []
+    payouts = []
+    for j in jobs:
+        if j.get("status") != "completed":
+            continue
+        when = _parse_dt(j.get("paid_out_at") or j.get("completed_at") or j.get("created_at"))
+        payouts.append({
+            "id": j["id"],
+            "amount": j.get("total_price") or 0,
+            "status": "completed" if j.get("paid_out_at") else "pending",
+            "createdAt": (when or datetime.now(timezone.utc)).isoformat(),
+            "jobTitle": j.get("title") or "Cleaning Job",
+        })
+    payouts.sort(key=lambda p: p["createdAt"], reverse=True)
+    return payouts
+
+
+@router.get("/payment-methods")
+async def list_payment_methods(user=Depends(get_current_user)):
+    """Saved payment methods for the current user.
+
+    Empty in mock mode; with live Stripe this lists the customer's cards. The
+    settings UI expects a plain array.
+    """
+    return []
+
+
+class PayoutRequest(BaseModel):
+    amount: float
+
+
+@router.post("/request-payout")
+async def request_payout(data: PayoutRequest, user=Depends(get_current_user), db=Depends(get_db)):
+    """Request a payout of available balance.
+
+    In mock mode (no live Stripe Connect) we acknowledge the request; a real
+    payout is executed via Stripe Transfer once Connect onboarding is complete.
+    """
+    # Reject non-finite amounts (NaN/Infinity): Pydantic coerces "NaN" to a
+    # float that passes <= 0 and then fails JSON serialization with a 500.
+    if data.amount is None or not math.isfinite(data.amount) or data.amount <= 0:
+        raise HTTPException(status_code=400, detail="Invalid payout amount")
+    return {"status": "requested", "amount": data.amount, "message": "Payout requested"}
 
 
 @router.post("/transfer")

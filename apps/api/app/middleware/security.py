@@ -6,6 +6,7 @@ import logging
 import traceback
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from fastapi import Request
 
 logger = logging.getLogger(__name__)
@@ -42,6 +43,17 @@ class GlobalExceptionMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         try:
             return await call_next(request)
+        except StarletteHTTPException as exc:
+            # Intentional HTTP errors raised from middleware (e.g. rate limiting)
+            # carry a deliberate status code, detail, and headers. FastAPI's
+            # exception handlers only cover route handlers, not middleware, so
+            # these would otherwise be swallowed below and masked as a 500.
+            # Pass them through with their real status code (429, etc.).
+            return JSONResponse(
+                status_code=exc.status_code,
+                content={"detail": exc.detail},
+                headers=getattr(exc, "headers", None),
+            )
         except Exception as exc:
             # Log the full traceback server-side
             logger.error(

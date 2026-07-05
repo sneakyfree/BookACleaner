@@ -254,7 +254,7 @@ export default function AnalyticsDashboard() {
                                 </div>
                                 {stats.background_tasks.scheduled.length > 0 && (
                                     <div className="space-y-1">
-                                        {stats.background_tasks.scheduled.map((t, i) => (
+                                        {stats.background_tasks.scheduled.map((t: { name: string; schedule: string }, i: number) => (
                                             <div key={i} className="flex justify-between text-xs p-2 rounded bg-white/5">
                                                 <span className="text-white/60 truncate">{t.name}</span>
                                                 <span className="text-white/40 ml-2 flex-shrink-0">{t.schedule}</span>

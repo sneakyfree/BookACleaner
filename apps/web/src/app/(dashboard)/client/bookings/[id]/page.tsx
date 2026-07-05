@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import {
     MapPin, Clock, DollarSign, User, ArrowLeft, CheckCircle,
-    AlertCircle, MessageSquare, Star, Play, Camera, Loader2, RotateCcw, Sparkles, ChevronDown
+    AlertCircle, MessageSquare, Star, Camera, Loader2, RotateCcw, Sparkles, ChevronDown
 } from 'lucide-react'
 import Link from 'next/link'
 import { toast } from 'sonner'
@@ -442,26 +442,7 @@ export default function JobDetailPage() {
 
             {/* Actions */}
             <div className="flex flex-wrap gap-3">
-                {job.status === 'pending' && (
-                    <>
-                        <Button onClick={() => handleAction('accept')} disabled={actionLoading} className="gap-2">
-                            <CheckCircle className="w-4 h-4" /> Accept
-                        </Button>
-                        <Button variant="outline" onClick={() => handleAction('decline')} disabled={actionLoading} className="gap-2">
-                            Decline
-                        </Button>
-                    </>
-                )}
-                {job.status === 'confirmed' && (
-                    <Button onClick={() => handleAction('start')} disabled={actionLoading} className="gap-2">
-                        <Play className="w-4 h-4" /> Start Job
-                    </Button>
-                )}
-                {job.status === 'in_progress' && (
-                    <Button onClick={() => handleAction('complete')} disabled={actionLoading} className="gap-2 bg-green-600 hover:bg-green-700">
-                        <CheckCircle className="w-4 h-4" /> Mark Complete
-                    </Button>
-                )}
+                {/* Accept/Decline/Start/Complete are cleaner-side actions — not shown on the client's booking view (handled on /cleaner/jobs). */}
                 {job.status === 'completed' && !showReviewForm && (
                     <Button onClick={() => setShowReviewForm(true)} className="gap-2">
                         <Star className="w-4 h-4" /> Leave Review

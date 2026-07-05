@@ -13,6 +13,8 @@ import logging
 import uuid
 
 from app.database import get_db
+from app.core.audit import record_audit
+from app.api.deps import get_admin_user
 
 router = APIRouter(prefix="/hitl", tags=["HITL Approvals"])
 logger = logging.getLogger(__name__)
@@ -73,6 +75,7 @@ async def get_approval_queue(
     priority_filter: Optional[str] = Query(None, alias="priority"),
     limit: int = Query(50, le=100),
     offset: int = Query(0, ge=0),
+    admin=Depends(get_admin_user),
     db=Depends(get_db),
 ):
     """Get pending approval queue for admin review"""
@@ -120,10 +123,14 @@ async def get_approval_request(approval_id: str, db=Depends(get_db)):
 async def decide_approval(
     approval_id: str,
     decision: ApprovalDecision,
-    admin_id: str = Query(..., description="ID of the admin making the decision"),
+    admin=Depends(get_admin_user),
     db=Depends(get_db),
 ):
     """Approve or reject an approval request"""
+    # Reviewer identity comes from the authenticated admin, never a caller-
+    # supplied value — previously admin_id was an unauthenticated query param,
+    # letting anyone decide approvals and spoof the reviewer.
+    admin_id = admin["id"]
     item = await db.approval_queue.find_unique(where={"id": approval_id})
     if not item:
         raise HTTPException(status_code=404, detail="Approval request not found")
@@ -146,11 +153,16 @@ async def decide_approval(
         }
     )
     
+    await record_audit(
+        db,
+        event_type="approval.approved" if decision.approved else "approval.rejected",
+        actor=admin, target=approval_id, details=item.get("type"),
+    )
     logger.info(
         f"HITL Decision: {item.get('type')} #{approval_id} "
         f"{'APPROVED' if decision.approved else 'REJECTED'} by {admin_id}"
     )
-    
+
     # TODO: Trigger post-approval actions (webhooks, notifications, etc.)
     
     return {

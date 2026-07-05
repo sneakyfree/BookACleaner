@@ -42,11 +42,11 @@ export default function CleanerProfilePage() {
         queryKey: ['my-profile'],
         queryFn: async () => {
             try {
-                const data = await apiFetch('/api/v1/users/me/profile')
+                const data = await apiFetch('/api/v1/cleaners/me')
                 setProfile({
                     businessName: data.business_name || data.businessName || '',
                     bio: data.bio || '',
-                    phone: data.phone || '',
+                    phone: data.phone || data.user?.phone || '',
                     website: data.website || '',
                     serviceAreas: data.service_areas || data.serviceAreas || [],
                     verificationTier: data.verification_tier || data.verificationTier || 1,
@@ -61,15 +61,20 @@ export default function CleanerProfilePage() {
     async function handleSave() {
         setIsLoading(true)
         try {
-            await apiFetch('/api/v1/users/me/profile', {
-                method: 'PUT',
+            // Business profile lives on the cleaner record; phone lives on the
+            // user record — save each to its real endpoint so neither is
+            // silently dropped.
+            await apiFetch('/api/v1/cleaners/me', {
+                method: 'PATCH',
                 body: JSON.stringify({
                     business_name: profile.businessName,
                     bio: profile.bio,
-                    phone: profile.phone,
-                    website: profile.website,
                     service_areas: profile.serviceAreas,
                 }),
+            })
+            await apiFetch('/api/v1/users/me', {
+                method: 'PATCH',
+                body: JSON.stringify({ phone: profile.phone }),
             })
             toast.success('Profile updated successfully!')
         } catch {

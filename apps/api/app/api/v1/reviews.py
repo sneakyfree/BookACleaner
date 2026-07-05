@@ -51,23 +51,46 @@ async def create_review(
     # Verify job is completed
     if job.get("status") != "completed":
         raise HTTPException(status_code=400, detail="Can only review completed jobs")
-    
-    # Check if already reviewed
+
+    # Reviews reference user ids, but the job stores client/cleaner *profile*
+    # ids — resolve both participants.
+    client_profile = await db.client.find_unique(where={"id": job.get("client_id")}) if job.get("client_id") else None
+    cleaner_profile = await db.cleaner.find_unique(where={"id": job.get("cleaner_id")}) if job.get("cleaner_id") else None
+    client_user_id = client_profile.get("user_id") if client_profile else None
+    cleaner_user_id = cleaner_profile.get("user_id") if cleaner_profile else None
+
+    # Authz: only a participant of the job may review it; the subject is the
+    # other party.
+    if user["id"] == client_user_id:
+        subject_id = cleaner_user_id
+    elif user["id"] == cleaner_user_id:
+        subject_id = client_user_id
+    else:
+        raise HTTPException(status_code=403, detail="Only participants of the job can review it")
+
+    # One review per author per job — the *other* party still gets to review
+    # (both stay hidden until the two-sided reveal). Checking job-wide here would
+    # block the second reviewer and defeat the reveal.
     existing = await db.review.find_many(where={"job_id": data.job_id})
-    if existing:
-        raise HTTPException(status_code=400, detail="Job already reviewed")
-    
-    # Create review — hidden until both sides review (two-sided reveal)
+    if any(r.get("author_id") == user["id"] for r in existing):
+        raise HTTPException(status_code=400, detail="You have already reviewed this job")
+
+    # Create review — hidden until both sides review (two-sided reveal). The
+    # model stores sub-scores in a category_ratings JSON column (passing them as
+    # columns raised TypeError: invalid keyword argument for Review).
     review = await db.review.create(data={
         "job_id": data.job_id,
         "author_id": user["id"],
+        "subject_id": subject_id,
         "overall_rating": data.overall_rating,
-        "cleanliness_rating": data.cleanliness_rating,
-        "communication_rating": data.communication_rating,
-        "timeliness_rating": data.timeliness_rating,
+        "category_ratings": {
+            "cleanliness": data.cleanliness_rating,
+            "communication": data.communication_rating,
+            "timeliness": data.timeliness_rating,
+        },
         "text": data.text,
-        "tags": data.tags,
-        "photos": data.photos,
+        "tags": data.tags or [],
+        "photos": data.photos or [],
         "is_public": False,
         "revealed": False,
     })

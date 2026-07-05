@@ -59,9 +59,18 @@ interface JobSummaryResult {
     recommendations: string[]
 }
 
+type AuthStatus = 'loading' | 'authenticated' | 'unauthenticated'
+
 class ApiClient {
     private baseUrl: string
     private token: string | null = null
+    // Auth readiness: NextAuth's session (and thus the bearer token) loads
+    // asynchronously after first render, so queries that fire on page mount
+    // used to race ahead of the token and get a 401 before React Query retried.
+    // We track the session status and let request() briefly await the token
+    // during the 'loading' window so the first request goes out authenticated.
+    private authStatus: AuthStatus = 'loading'
+    private tokenWaiters: Array<() => void> = []
 
     constructor(baseUrl: string) {
         this.baseUrl = baseUrl
@@ -69,12 +78,49 @@ class ApiClient {
 
     setToken(token: string | null) {
         this.token = token
+        if (token) this.flushTokenWaiters()
+    }
+
+    setAuthStatus(status: AuthStatus) {
+        this.authStatus = status
+        // Once we know the user is logged out, stop blocking on a token that
+        // will never arrive. (For 'authenticated', the token is set right after
+        // via setToken(), which is what releases waiters.)
+        if (status === 'unauthenticated') this.flushTokenWaiters()
+    }
+
+    private flushTokenWaiters() {
+        const waiters = this.tokenWaiters
+        this.tokenWaiters = []
+        waiters.forEach((resolve) => resolve())
+    }
+
+    /**
+     * Resolve once the auth state is settled enough to fire a request:
+     * a token exists, the user is known to be logged out, or a safety timeout
+     * elapses. No-op on the server and once auth has already settled.
+     */
+    private async ensureAuthResolved(timeoutMs = 3000): Promise<void> {
+        if (typeof window === 'undefined') return
+        if (this.token || this.authStatus !== 'loading') return
+        await new Promise<void>((resolve) => {
+            const timer = setTimeout(() => {
+                this.tokenWaiters = this.tokenWaiters.filter((w) => w !== onReady)
+                resolve()
+            }, timeoutMs)
+            const onReady = () => {
+                clearTimeout(timer)
+                resolve()
+            }
+            this.tokenWaiters.push(onReady)
+        })
     }
 
     private async request<T>(
         endpoint: string,
         options: RequestInit = {}
     ): Promise<T> {
+        await this.ensureAuthResolved()
         const url = `${this.baseUrl}${endpoint}`
 
         const headers: Record<string, string> = {
@@ -221,7 +267,7 @@ class ApiClient {
         send: (conversationId: string, content: string, attachments?: string[]) =>
             this.request<any>('/api/v1/messages/send', {
                 method: 'POST',
-                body: JSON.stringify({ conversationId, content, attachments }),
+                body: JSON.stringify({ conversation_id: conversationId, content, attachments }),
             }),
 
         markAsRead: (conversationId: string) =>
@@ -372,37 +418,38 @@ class ApiClient {
         disputes: (page = 1, status?: string) => {
             const params = new URLSearchParams({ page: String(page) })
             if (status) params.set('status', status)
-            return this.request<any>(`/api/v1/admin/disputes?${params}`)
+            return this.request<any>(`/api/v1/disputes/?${params}`)
         },
 
         resolveDispute: (id: string, data: any) =>
-            this.request<any>(`/api/v1/admin/disputes/${id}/resolve`, {
-                method: 'POST',
+            this.request<any>(`/api/v1/disputes/${id}/resolve`, {
+                method: 'PUT',
                 body: JSON.stringify(data),
             }),
 
         verifications: (page = 1, status?: string) => {
             const params = new URLSearchParams({ page: String(page) })
             if (status) params.set('status', status)
-            return this.request<any>(`/api/v1/admin/verifications?${params}`)
+            return this.request<any>(`/api/v1/admin/verifications/queue?${params}`)
         },
 
         approvals: (page = 1, status?: string) => {
-            const params = new URLSearchParams({ page: String(page) })
+            const params = new URLSearchParams()
             if (status) params.set('status', status)
-            return this.request<any>(`/api/v1/admin/approvals?${params}`)
+            const qs = params.toString()
+            return this.request<any>(`/api/v1/hitl/queue${qs ? `?${qs}` : ''}`)
         },
 
         approveItem: (id: string, notes?: string) =>
-            this.request<any>(`/api/v1/admin/approvals/${id}/approve`, {
+            this.request<any>(`/api/v1/hitl/queue/${id}/decide`, {
                 method: 'POST',
-                body: JSON.stringify({ notes }),
+                body: JSON.stringify({ approved: true, notes }),
             }),
 
         rejectItem: (id: string, reason: string) =>
-            this.request<any>(`/api/v1/admin/approvals/${id}/reject`, {
+            this.request<any>(`/api/v1/hitl/queue/${id}/decide`, {
                 method: 'POST',
-                body: JSON.stringify({ reason }),
+                body: JSON.stringify({ approved: false, notes: reason }),
             }),
 
         auditLog: (page = 1, action?: string) => {
@@ -414,7 +461,7 @@ class ApiClient {
         moderation: (page = 1, status?: string) => {
             const params = new URLSearchParams({ page: String(page) })
             if (status) params.set('status', status)
-            return this.request<any>(`/api/v1/admin/moderation?${params}`)
+            return this.request<any>(`/api/v1/moderation/flagged?${params}`)
         },
     }
 
@@ -441,25 +488,26 @@ class ApiClient {
             }),
     }
 
-    // Bids endpoints
+    // Bids endpoints — paths match the backend bids router (jobs/{id}/bids to
+    // create, /bids/{id}/... to act on a bid, /my-bids to list own).
     bids = {
         list: (status?: string) =>
-            this.request<any[]>(`/api/v1/bids${status ? `?status=${status}` : ''}`),
+            this.request<any[]>(`/api/v1/bids/my-bids${status ? `?status=${status}` : ''}`),
 
         create: (data: { job_id: string; amount: number; message?: string }) =>
-            this.request<any>('/api/v1/bids', {
+            this.request<any>(`/api/v1/bids/jobs/${data.job_id}/bids`, {
                 method: 'POST',
                 body: JSON.stringify(data),
             }),
 
         accept: (id: string) =>
-            this.request<any>(`/api/v1/bids/${id}/accept`, { method: 'POST' }),
+            this.request<any>(`/api/v1/bids/bids/${id}/accept`, { method: 'POST' }),
 
         decline: (id: string) =>
-            this.request<any>(`/api/v1/bids/${id}/decline`, { method: 'POST' }),
+            this.request<any>(`/api/v1/bids/bids/${id}/decline`, { method: 'POST' }),
 
         withdraw: (id: string) =>
-            this.request<any>(`/api/v1/bids/${id}/withdraw`, { method: 'POST' }),
+            this.request<any>(`/api/v1/bids/bids/${id}`, { method: 'DELETE' }),
     }
 
     // Cleaner-specific management endpoints
@@ -541,9 +589,12 @@ class ApiClient {
 
     // Settings/privacy endpoints
     settings = {
-        exportData: () => this.request<any>('/api/v1/privacy/export', { method: 'POST' }),
+        exportData: () => this.request<any>('/api/v1/privacy/export'),
 
-        deleteAccount: () => this.request<void>('/api/v1/privacy/delete', { method: 'DELETE' }),
+        deleteAccount: () => this.request<void>('/api/v1/privacy/delete', {
+            method: 'POST',
+            body: JSON.stringify({ confirm: true }),
+        }),
 
         updateSettings: (data: any) =>
             this.request<any>('/api/v1/auth/settings', {

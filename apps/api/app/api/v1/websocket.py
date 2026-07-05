@@ -122,11 +122,22 @@ async def join_conversation(sid, data):
     user_id = connected_users.get(sid)
     if not user_id:
         return
-    
+
     conversation_id = data.get("conversation_id")
-    if conversation_id:
-        await sio.enter_room(sid, f"conversation:{conversation_id}")
-        logger.info(f"User {user_id} joined conversation: {conversation_id}")
+    if not conversation_id:
+        return
+
+    # Only participants may join a conversation room — otherwise any
+    # authenticated client could join by id and eavesdrop on live messages.
+    from app.database import db
+    from app.api.v1.messages import is_conversation_participant
+    if not await is_conversation_participant(db, conversation_id, user_id):
+        logger.warning(f"User {user_id} denied join of conversation {conversation_id}")
+        await sio.emit("error", {"detail": "Not authorized for this conversation"}, room=sid)
+        return
+
+    await sio.enter_room(sid, f"conversation:{conversation_id}")
+    logger.info(f"User {user_id} joined conversation: {conversation_id}")
 
 
 @sio.event

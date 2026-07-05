@@ -7,14 +7,12 @@ import {
     useStripe,
     useElements,
 } from '@stripe/react-stripe-js'
-import { loadStripe } from '@stripe/stripe-js'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Loader2, Lock, CheckCircle } from 'lucide-react'
+import { getStripe } from '@/lib/stripe-client'
 
-const stripePromise = loadStripe(
-    process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY || ''
-)
+const stripePromise = getStripe()
 
 interface PaymentFormProps {
     amount: number

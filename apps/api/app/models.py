@@ -744,3 +744,17 @@ class FeedLike(Base):
     item_id = Column(String(36), ForeignKey("feed_items.id"), nullable=False)
     user_id = Column(String(36), ForeignKey("users.id"), nullable=False)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
+class AuditLog(Base):
+    """Immutable record of privileged admin actions for the audit trail."""
+    __tablename__ = "audit_logs"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    event_type = Column(String(64), nullable=False, index=True)  # e.g. dispute.resolved
+    actor = Column(String(255), nullable=True)        # human label (name/email)
+    actor_id = Column(String(36), nullable=True)
+    actor_role = Column(String(20), nullable=True)
+    target = Column(String(255), nullable=True)        # what was acted on
+    details = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)

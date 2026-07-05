@@ -5,7 +5,7 @@ Handles cleaner search, profiles, and availability
 from fastapi import APIRouter, Depends, HTTPException, Query, Header
 from pydantic import BaseModel
 from typing import List, Optional
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 import logging
 
 from app.database import get_db
@@ -158,6 +158,54 @@ async def get_my_cleaner_profile(
             "full_name": user.get("full_name"),
             "phone": user.get("phone"),
         }
+    }
+
+
+def _earn_dt(v):
+    """Coerce a DB datetime/ISO-string into an aware UTC datetime, or None."""
+    if v is None:
+        return None
+    if isinstance(v, datetime):
+        return v if v.tzinfo else v.replace(tzinfo=timezone.utc)
+    try:
+        d = datetime.fromisoformat(str(v).replace("Z", "+00:00"))
+        return d if d.tzinfo else d.replace(tzinfo=timezone.utc)
+    except (ValueError, TypeError):
+        return None
+
+
+@router.get("/earnings")
+async def get_my_earnings(user=Depends(get_current_user), db=Depends(get_db)):
+    """Earnings summary for the current cleaner, computed from their jobs."""
+    cleaner = await db.cleaner.find_first(where={"user_id": user["id"]})
+    if not cleaner:
+        return {"thisWeek": 0, "thisMonth": 0, "pending": 0, "available": 0}
+
+    jobs = await db.job.find_many(where={"cleaner_id": cleaner["id"]}) or []
+    now = datetime.now(timezone.utc)
+    week_start = (now - timedelta(days=now.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
+    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+    this_week = this_month = pending = available = 0.0
+    for j in jobs:
+        price = j.get("total_price") or 0
+        status = j.get("status")
+        when = _earn_dt(j.get("completed_at") or j.get("scheduled_date"))
+        if status == "completed":
+            if when and when >= week_start:
+                this_week += price
+            if when and when >= month_start:
+                this_month += price
+            if not j.get("paid_out_at"):
+                available += price
+        elif status in ("confirmed", "pending", "in_progress"):
+            pending += price
+
+    return {
+        "thisWeek": round(this_week, 2),
+        "thisMonth": round(this_month, 2),
+        "pending": round(pending, 2),
+        "available": round(available, 2),
     }
 
 
