@@ -20,6 +20,23 @@ export function formatDate(date: Date | string): string {
     }).format(new Date(date))
 }
 
+export function parseLocalDate(dateStr: string): Date {
+    // Parse a 'YYYY-MM-DD' (or ISO) string as a LOCAL calendar date so the day
+    // never shifts by a timezone offset (avoids the classic UTC off-by-one).
+    if (!dateStr) return new Date(NaN)
+    const datePart = String(dateStr).split('T')[0]
+    const [y, m, d] = datePart.split('-').map(Number)
+    return new Date(y, (m || 1) - 1, d || 1)
+}
+
+export function toLocalDateISO(date: Date): string {
+    // Format a Date as 'YYYY-MM-DD' using LOCAL calendar fields (not UTC).
+    const y = date.getFullYear()
+    const m = String(date.getMonth() + 1).padStart(2, '0')
+    const d = String(date.getDate()).padStart(2, '0')
+    return `${y}-${m}-${d}`
+}
+
 export function formatTime(time: string): string {
     const [hours, minutes] = time.split(':').map(Number)
     const period = hours >= 12 ? 'PM' : 'AM'

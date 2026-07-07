@@ -269,6 +269,8 @@ async def get_verification_queue(
         user = await db.user.find_unique(where={"id": v["user_id"]})
         enriched.append({
             **v,
+            "user_name": user.get("full_name") if user else None,
+            "user_email": user.get("email") if user else None,
             "user": {
                 "id": user["id"] if user else None,
                 "email": user.get("email") if user else None,

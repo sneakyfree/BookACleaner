@@ -13,6 +13,7 @@ import { useQuery } from '@tanstack/react-query'
 import { apiFetch } from '@/lib/auth/api-client'
 import { getStripe } from '@/lib/stripe-client'
 import { Elements, PaymentElement, useStripe, useElements } from '@stripe/react-stripe-js'
+import { parseLocalDate, toLocalDateISO } from '@/lib/utils'
 
 const stripePromise = getStripe()
 
@@ -311,7 +312,7 @@ export default function BookingWizardPage() {
     const dates = Array.from({ length: 14 }, (_, i) => {
         const date = new Date()
         date.setDate(date.getDate() + i + 1)
-        return date.toISOString().split('T')[0]
+        return toLocalDateISO(date)
     })
 
     return (
@@ -443,7 +444,7 @@ export default function BookingWizardPage() {
                             <p className="text-sm font-medium mb-3">Select Date</p>
                             <div className="grid grid-cols-7 gap-2">
                                 {dates.map((date) => {
-                                    const d = new Date(date)
+                                    const d = parseLocalDate(date)
                                     const dayName = d.toLocaleDateString('en-US', { weekday: 'short' })
                                     const dayNum = d.getDate()
                                     return (
@@ -510,7 +511,7 @@ export default function BookingWizardPage() {
                             <div className="flex justify-between">
                                 <span className="text-muted-foreground">Date & Time</span>
                                 <span className="font-medium">
-                                    {new Date(selectedDate).toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })} at {selectedTime}
+                                    {parseLocalDate(selectedDate).toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })} at {selectedTime}
                                 </span>
                             </div>
                             {estimate && (
@@ -572,6 +573,11 @@ export default function BookingWizardPage() {
                                             I have read and accept the <strong>Service Agreement</strong>, <strong>Cancellation Policy</strong>, and <strong>Terms of Service</strong>.
                                         </span>
                                     </label>
+                                    {!agreementAccepted && error && (
+                                        <p className="mt-2 text-sm text-red-600 dark:text-red-400">
+                                            You must accept the service agreement to continue.
+                                        </p>
+                                    )}
                                 </>
                             )}
                         </div>

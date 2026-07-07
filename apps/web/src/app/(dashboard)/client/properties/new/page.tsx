@@ -22,6 +22,7 @@ export default function NewPropertyPage() {
     const [detecting, setDetecting] = useState(false)
     const [detected, setDetected] = useState<any>(null)
     const [detectedInfo, setDetectedInfo] = useState<any>(null)
+    const [errors, setErrors] = useState<Record<string, string>>({})
     const [formData, setFormData] = useState({
         name: '',
         address: '',
@@ -34,6 +35,19 @@ export default function NewPropertyPage() {
 
     async function handleSubmit(e: React.FormEvent) {
         e.preventDefault()
+
+        const newErrors: Record<string, string> = {}
+        if (!formData.name.trim()) newErrors.name = 'Property name is required'
+        if (!formData.address.trim()) newErrors.address = 'Street address is required'
+        if (!formData.city.trim()) newErrors.city = 'City is required'
+        if (!formData.state.trim()) newErrors.state = 'State is required'
+        if (!formData.zipCode.trim()) newErrors.zipCode = 'ZIP code is required'
+        setErrors(newErrors)
+        if (Object.keys(newErrors).length > 0) {
+            toast.error('Please fill in all required address fields')
+            return
+        }
+
         setIsLoading(true)
 
         try {
@@ -87,8 +101,8 @@ export default function NewPropertyPage() {
                                 value={formData.name}
                                 onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                                 placeholder="e.g., Lake House, Downtown Condo"
-                                required
                             />
+                            {errors.name && <p className="text-xs text-red-500">{errors.name}</p>}
                             <p className="text-xs text-muted-foreground">
                                 A friendly name to identify this property
                             </p>
@@ -113,6 +127,7 @@ export default function NewPropertyPage() {
                                 }}
                                 placeholder="Start typing an address..."
                             />
+                            {errors.address && <p className="text-xs text-red-500">{errors.address}</p>}
                         </div>
 
                         <div className="space-y-2">
@@ -130,8 +145,8 @@ export default function NewPropertyPage() {
                                 <Input
                                     value={formData.city}
                                     onChange={(e) => setFormData({ ...formData, city: e.target.value })}
-                                    required
                                 />
+                                {errors.city && <p className="text-xs text-red-500">{errors.city}</p>}
                             </div>
                             <div className="col-span-1 space-y-2">
                                 <label className="text-sm font-medium">State</label>
@@ -140,16 +155,16 @@ export default function NewPropertyPage() {
                                     onChange={(e) => setFormData({ ...formData, state: e.target.value })}
                                     maxLength={2}
                                     placeholder="TX"
-                                    required
                                 />
+                                {errors.state && <p className="text-xs text-red-500">{errors.state}</p>}
                             </div>
                             <div className="col-span-2 space-y-2">
                                 <label className="text-sm font-medium">ZIP Code</label>
                                 <Input
                                     value={formData.zipCode}
                                     onChange={(e) => setFormData({ ...formData, zipCode: e.target.value })}
-                                    required
                                 />
+                                {errors.zipCode && <p className="text-xs text-red-500">{errors.zipCode}</p>}
                             </div>
                         </div>
 

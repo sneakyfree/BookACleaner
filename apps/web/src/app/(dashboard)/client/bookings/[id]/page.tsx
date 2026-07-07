@@ -12,6 +12,7 @@ import Link from 'next/link'
 import { toast } from 'sonner'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiFetch } from '@/lib/auth/api-client'
+import { parseLocalDate } from '@/lib/utils'
 
 type JobStatus = 'pending' | 'confirmed' | 'in_progress' | 'completed' | 'cancelled' | 'disputed'
 
@@ -330,7 +331,7 @@ export default function JobDetailPage() {
                                 <Clock className="w-4 h-4 text-blue-600" />
                             </div>
                             <div>
-                                <p className="text-sm font-medium">{new Date(job.scheduled_date).toLocaleDateString()}</p>
+                                <p className="text-sm font-medium">{parseLocalDate(job.scheduled_date).toLocaleDateString()}</p>
                                 <p className="text-xs text-muted-foreground">{job.scheduled_time || 'TBD'}</p>
                             </div>
                         </div>

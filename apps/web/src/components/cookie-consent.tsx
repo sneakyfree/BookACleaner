@@ -55,8 +55,8 @@ export function CookieConsent() {
     if (!visible) return null
 
     return (
-        <div className="fixed bottom-0 inset-x-0 z-[9999] p-4 sm:p-6 animate-in slide-in-from-bottom-5 duration-500">
-            <div className="max-w-3xl mx-auto bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-gray-200 dark:border-white/10 overflow-hidden">
+        <div className="fixed bottom-0 left-0 z-[9999] p-4 sm:p-6 animate-in slide-in-from-bottom-5 duration-500 pointer-events-none max-w-full">
+            <div className="max-w-md mr-auto bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-gray-200 dark:border-white/10 overflow-hidden pointer-events-auto">
                 {/* Main Banner */}
                 <div className="p-5 sm:p-6">
                     <div className="flex items-start gap-4">

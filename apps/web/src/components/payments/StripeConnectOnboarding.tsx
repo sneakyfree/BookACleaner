@@ -38,9 +38,23 @@ export function StripeConnectOnboarding({
             setIsLoading(true)
             setError(null)
             const onboardingUrl = await onStartOnboarding()
+            if (!onboardingUrl) {
+                setError('Payouts setup is not available yet. Please try again later or contact support.')
+                setIsLoading(false)
+                return
+            }
             window.location.href = onboardingUrl
         } catch (err) {
-            setError('Failed to start onboarding. Please try again.')
+            const detail = (err as any)?.detail || (err instanceof Error ? err.message : '')
+            const status = (err as any)?.status
+            // A 400 from Stripe Connect almost always means Connect/payouts is not
+            // enabled on the platform account yet — surface a clear message rather
+            // than silently doing nothing.
+            if (status === 400) {
+                setError('Payouts setup is not available yet. Please try again later or contact support.')
+            } else {
+                setError(detail || 'Failed to start onboarding. Please try again.')
+            }
             setIsLoading(false)
         }
     }
