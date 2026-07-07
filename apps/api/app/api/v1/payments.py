@@ -414,7 +414,7 @@ async def create_checkout_session(
         session = stripe.checkout.Session.create(
             mode=cfg["mode"],
             line_items=[{"price": cfg["price_id"], "quantity": 1}],
-            success_url=f"{settings.frontend_url}/cleaner/subscription?success=true",
+            success_url=f"{settings.frontend_url}/cleaner/subscription?success=true&session_id={{CHECKOUT_SESSION_ID}}",
             cancel_url=f"{settings.frontend_url}/cleaner/subscription?canceled=true",
             metadata={"userId": user["id"], "plan": plan},
             customer_email=user.get("email"),
@@ -607,50 +607,10 @@ async def handle_webhook(request: Request):
 
     elif event.type == "checkout.session.completed":
         session_obj = event.data.object
-        user_id = session_obj.metadata.get("userId")
-        plan = session_obj.metadata.get("plan", "unknown")
-        plan_display = PLAN_DISPLAY.get(plan, {"name": plan, "price": ""})
-
-        if session_obj.mode == "subscription" and user_id:
-            # Retrieve the subscription to get period info
-            sub_id = session_obj.subscription
-            if sub_id:
-                sub = stripe.Subscription.retrieve(sub_id)
-                from app.models import generate_uuid
-                from datetime import datetime, timezone
-                await db.execute(
-                    """INSERT INTO subscriptions (id, user_id, stripe_subscription_id, stripe_customer_id, plan, status, current_period_start, current_period_end, created_at, updated_at)
-                       VALUES (:id, :uid, :sid, :cid, :plan, :status, :ps, :pe, :now, :now)
-                       ON CONFLICT (stripe_subscription_id) DO NOTHING""",
-                    {"id": generate_uuid(), "uid": user_id, "sid": sub.id, "cid": sub.customer,
-                     "plan": plan, "status": "active",
-                     "ps": datetime.fromtimestamp(sub.current_period_start),
-                     "pe": datetime.fromtimestamp(sub.current_period_end),
-                     "now": datetime.now(timezone.utc)}
-                )
-
-            # Send SMS + in-app notification for subscription purchase
-            await _notify_checkout_success(db, user_id, plan_display["name"], plan_display["price"], "subscription")
-            logger.info(f"Checkout completed (subscription) for user {user_id}: plan={plan}")
-
-        elif session_obj.mode == "payment" and user_id:
-            # Store one-time purchase record
-            from app.models import generate_uuid
-            from datetime import datetime
-            await db.execute(
-                """INSERT INTO subscriptions (id, user_id, stripe_subscription_id, stripe_customer_id, plan, status, created_at, updated_at)
-                   VALUES (:id, :uid, :sid, :cid, :plan, :status, :now, :now)""",
-                {"id": generate_uuid(), "uid": user_id,
-                 "sid": session_obj.payment_intent or "one_time",
-                 "cid": session_obj.customer or "",
-                 "plan": plan, "status": "one_time",
-                 "now": datetime.utcnow()}
-            )
-            # Send SMS + in-app notification
-            await _notify_checkout_success(db, user_id, plan_display["name"], f"${session_obj.amount_total / 100:.2f}", "one-time")
-            logger.info(f"Checkout completed (one-time payment) for user {user_id}: plan={plan}, amount=${session_obj.amount_total / 100:.2f}")
-        else:
-            logger.info(f"Checkout session completed: mode={session_obj.mode}")
+        # Shared persistence path (identical to the success-redirect reconcile
+        # endpoint) so webhook and redirect behave the same and stay idempotent.
+        await _persist_checkout_completion(db, session_obj)
+        logger.info(f"Checkout session completed (webhook): mode={getattr(session_obj, 'mode', '?')}")
 
     elif event.type == "invoice.payment_failed":
         invoice = event.data.object
@@ -709,3 +669,121 @@ async def _notify_checkout_success(db, user_id: str, plan_name: str, price: str,
     except Exception as e:
         logger.warning(f"Failed to send checkout notification for user {user_id}: {e}")
 
+
+
+def _sub_period(sub):
+    """Return (start_dt, end_dt) for a Stripe Subscription, tolerant of API
+    versions that moved current_period_* onto subscription items."""
+    ps = getattr(sub, "current_period_start", None)
+    pe = getattr(sub, "current_period_end", None)
+    if ps is None:
+        try:
+            item = sub["items"]["data"][0]
+            ps = item.get("current_period_start")
+            pe = item.get("current_period_end")
+        except (KeyError, IndexError, TypeError):
+            pass
+    ps_dt = datetime.fromtimestamp(ps, tz=timezone.utc) if ps else None
+    pe_dt = datetime.fromtimestamp(pe, tz=timezone.utc) if pe else None
+    return ps_dt, pe_dt
+
+
+async def _persist_checkout_completion(db, session_obj, notify: bool = True):
+    """Idempotently persist a completed Stripe Checkout Session into the
+    subscriptions table. Shared by the Stripe webhook (checkout.session.completed)
+    and the /checkout-session/{id} success-redirect reconcile endpoint so both
+    code paths behave identically. Returns the plan slug, or None if nothing was
+    persisted. Safe to call repeatedly (no duplicate rows)."""
+    from app.models import generate_uuid
+
+    md = session_obj.metadata or {}
+    user_id = md.get("userId")
+    plan = md.get("plan", "unknown")
+    if not user_id:
+        logger.info(f"Checkout session {getattr(session_obj, 'id', '?')} missing userId metadata; skip persist")
+        return None
+    plan_display = PLAN_DISPLAY.get(plan, {"name": plan, "price": ""})
+
+    if session_obj.mode == "subscription":
+        sub_id = session_obj.subscription
+        if not sub_id:
+            return None
+        existing = await db.execute(
+            "SELECT id FROM subscriptions WHERE stripe_subscription_id = :sid LIMIT 1",
+            {"sid": sub_id},
+        )
+        if existing and len(existing) > 0:
+            logger.info(f"Subscription {sub_id} already recorded; idempotent no-op")
+            return plan
+        sub = stripe.Subscription.retrieve(sub_id)
+        ps_dt, pe_dt = _sub_period(sub)
+        await db.execute(
+            """INSERT INTO subscriptions (id, user_id, stripe_subscription_id, stripe_customer_id, plan, status, current_period_start, current_period_end, created_at, updated_at)
+               VALUES (:id, :uid, :sid, :cid, :plan, :status, :ps, :pe, :now, :now)""",
+            {"id": generate_uuid(), "uid": user_id, "sid": sub.id, "cid": sub.customer,
+             "plan": plan, "status": "active", "ps": ps_dt, "pe": pe_dt,
+             "now": datetime.now(timezone.utc)},
+        )
+        if notify:
+            await _notify_checkout_success(db, user_id, plan_display["name"], plan_display["price"], "subscription")
+        logger.info(f"Persisted subscription for user {user_id}: plan={plan}, sub={sub.id}")
+        return plan
+
+    if session_obj.mode == "payment":
+        pi = session_obj.payment_intent or "one_time"
+        existing = await db.execute(
+            "SELECT id FROM subscriptions WHERE user_id = :uid AND stripe_subscription_id = :sid AND status = 'one_time' LIMIT 1",
+            {"uid": user_id, "sid": pi},
+        )
+        if existing and len(existing) > 0:
+            logger.info(f"One-time purchase {pi} already recorded; idempotent no-op")
+            return plan
+        await db.execute(
+            """INSERT INTO subscriptions (id, user_id, stripe_subscription_id, stripe_customer_id, plan, status, created_at, updated_at)
+               VALUES (:id, :uid, :sid, :cid, :plan, :status, :now, :now)""",
+            {"id": generate_uuid(), "uid": user_id, "sid": pi, "cid": session_obj.customer or "",
+             "plan": plan, "status": "one_time", "now": datetime.now(timezone.utc)},
+        )
+        if notify:
+            amount = session_obj.amount_total or 0
+            await _notify_checkout_success(db, user_id, plan_display["name"], f"${amount / 100:.2f}", "one-time")
+        logger.info(f"Persisted one-time purchase for user {user_id}: plan={plan}")
+        return plan
+
+    logger.info(f"Checkout session completed with unhandled mode={session_obj.mode}")
+    return None
+
+
+@router.get("/checkout-session/{session_id}")
+async def reconcile_checkout_session(session_id: str, user=Depends(get_current_user), db=Depends(get_db)):
+    """Webhook-independent reconciliation: retrieve a Stripe Checkout Session by
+    id (from the post-payment success redirect) and, if it is paid/complete,
+    persist the resulting subscription or one-time purchase via the same code
+    path as the webhook. Idempotent; safe to call more than once."""
+    try:
+        session_obj = stripe.checkout.Session.retrieve(session_id)
+    except stripe.error.StripeError as e:
+        logger.error(f"Reconcile: failed to retrieve session {session_id}: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+    # Only the owning user may reconcile their own session.
+    sess_user = (session_obj.metadata or {}).get("userId")
+    if sess_user and sess_user != user["id"]:
+        raise HTTPException(status_code=403, detail="Checkout session does not belong to current user")
+
+    paid = session_obj.get("payment_status") == "paid" or session_obj.get("status") == "complete"
+    if not paid:
+        return {
+            "reconciled": False,
+            "status": session_obj.get("status"),
+            "payment_status": session_obj.get("payment_status"),
+        }
+
+    plan = await _persist_checkout_completion(db, session_obj)
+    return {
+        "reconciled": True,
+        "plan": plan,
+        "mode": session_obj.get("mode"),
+        "subscription_id": session_obj.get("subscription"),
+        "session_id": session_id,
+    }

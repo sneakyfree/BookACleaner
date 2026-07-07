@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import {
@@ -15,7 +15,7 @@ import {
     TrendingUp,
     Award,
 } from 'lucide-react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiFetch } from '@/lib/auth/api-client'
 
 interface PlanTier {
@@ -106,8 +106,10 @@ const PLANS: PlanTier[] = [
 export default function SubscriptionPage() {
     const [loading, setLoading] = useState<string | null>(null)
     const [error, setError] = useState<string | null>(null)
+    const [successMsg, setSuccessMsg] = useState<string | null>(null)
+    const queryClient = useQueryClient()
 
-    const { data: subData } = useQuery({
+    const { data: subData, refetch } = useQuery({
         queryKey: ['subscription-plan'],
         queryFn: async () => {
             try {
@@ -117,6 +119,41 @@ export default function SubscriptionPage() {
     })
 
     const currentPlan = (subData as any)?.plan_id || (subData as any)?.plan || (subData as any)?.tier || 'free'
+
+    // Post-payment reconciliation: when Stripe redirects back with
+    // ?success=true&session_id=cs_..., call the reconcile endpoint (which
+    // persists the subscription/purchase webhook-independently), then refetch
+    // so the UI immediately reflects the new plan. Idempotent server-side.
+    useEffect(() => {
+        if (typeof window === 'undefined') return
+        const params = new URLSearchParams(window.location.search)
+        if (params.get('success') !== 'true') return
+        const sessionId = params.get('session_id')
+        const finish = () => {
+            queryClient.invalidateQueries({ queryKey: ['subscription-plan'] })
+            refetch()
+            // strip the query string so a refresh doesn't re-trigger this
+            window.history.replaceState({}, '', window.location.pathname)
+        }
+        if (sessionId) {
+            apiFetch(`/api/v1/payments/checkout-session/${sessionId}`)
+                .then((res: any) => {
+                    setSuccessMsg(
+                        res?.reconciled
+                            ? "Payment successful — your plan is now active! 🎉"
+                            : "Payment received — finalizing your plan…"
+                    )
+                })
+                .catch(() => {
+                    setSuccessMsg("Payment received — your plan will activate shortly.")
+                })
+                .finally(finish)
+        } else {
+            setSuccessMsg("Payment successful — your plan is now active! 🎉")
+            finish()
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [])
 
     const handleSubscribe = async (planId: string) => {
         if (planId === 'free' || planId === currentPlan) return
@@ -163,6 +200,12 @@ export default function SubscriptionPage() {
                     Upgrade to unlock powerful tools that help you earn more
                 </p>
             </div>
+
+            {successMsg && (
+                <div className="p-3 bg-green-50 dark:bg-green-500/10 border border-green-200 dark:border-green-800 rounded-lg text-sm text-green-700 dark:text-green-400 text-center font-medium">
+                    {successMsg}
+                </div>
+            )}
 
             {error && (
                 <div className="p-3 bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-800 rounded-lg text-sm text-red-600 text-center">
