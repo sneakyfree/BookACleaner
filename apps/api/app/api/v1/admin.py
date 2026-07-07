@@ -138,6 +138,7 @@ async def list_users(
             "email": u["email"],
             "role": u["role"],
             "full_name": u.get("full_name"),
+            "status": u.get("status") or "active",
             "is_verified": u.get("is_verified"),
             "created_at": u.get("created_at"),
         })
@@ -198,33 +199,51 @@ async def get_user_details(
     }
 
 
+class UpdateUserRequest(BaseModel):
+    """Admin user-moderation payload (JSON body).
+
+    The frontend admin users page sends these as a JSON body, not query
+    params. `status` drives suspend/ban/reactivate; `role` re-assigns role;
+    `is_verified` toggles the verification badge.
+    """
+    status: Optional[str] = None
+    role: Optional[str] = None
+    is_verified: Optional[bool] = None
+
+
 @router.patch("/users/{user_id}")
 async def update_user(
     user_id: str,
-    is_verified: Optional[bool] = None,
-    role: Optional[str] = None,
+    payload: UpdateUserRequest,
     admin = Depends(get_admin_user),
     db = Depends(get_db)
 ):
-    """Update user (admin actions)"""
-    
+    """Update user (admin actions): suspend/ban/reactivate, change role, verify."""
+
     update_data = {}
-    if is_verified is not None:
-        update_data["is_verified"] = is_verified
-    if role is not None:
-        if role not in ["client", "cleaner", "admin"]:
+    if payload.is_verified is not None:
+        update_data["is_verified"] = payload.is_verified
+    if payload.role is not None:
+        if payload.role not in ["client", "cleaner", "admin"]:
             raise HTTPException(status_code=400, detail="Invalid role")
-        update_data["role"] = role
-    
+        update_data["role"] = payload.role
+    if payload.status is not None:
+        if payload.status not in ["active", "suspended", "banned"]:
+            raise HTTPException(status_code=400, detail="Invalid status")
+        update_data["status"] = payload.status
+
     if not update_data:
         raise HTTPException(status_code=400, detail="No updates provided")
-    
+
     user = await db.user.update(where={"id": user_id}, data=update_data)
-    
+
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    
-    return {"updated": True, "user_id": user_id}
+
+    await record_audit(db, event_type="user.updated", actor=admin,
+                       target=user_id, details=f"Admin updated user: {update_data}")
+    return {"updated": True, "user_id": user_id, "status": user.get("status"),
+            "role": user.get("role"), "is_verified": user.get("is_verified")}
 
 
 @router.get("/verifications/queue")

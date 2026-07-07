@@ -1,11 +1,11 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import {
     CalendarCheck, Link2, Unlink, RefreshCw, ExternalLink,
     Loader2, AlertCircle, Check, CalendarDays
 } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { cn, errText } from '@/lib/utils'
 import { apiFetch } from '@/lib/auth/api-client'
 
 /**
@@ -15,6 +15,16 @@ import { apiFetch } from '@/lib/auth/api-client'
 
 export default function CalendarSyncPage() {
     const [googleConnected, setGoogleConnected] = useState(false)
+    const [googleConfigured, setGoogleConfigured] = useState(false)
+
+    // Honestly reflect whether the server has Google OAuth credentials. When it
+    // doesn't, the Connect control is rendered as a disabled 'Coming soon' state
+    // instead of firing a request that would 503/404.
+    useEffect(() => {
+        apiFetch('/api/v1/calendar/status')
+            .then((d: any) => setGoogleConfigured(!!d?.google_configured))
+            .catch(() => setGoogleConfigured(false))
+    }, [])
     const [icalUrl, setIcalUrl] = useState('')
     const [loading, setLoading] = useState(false)
     const [syncing, setSyncing] = useState(false)
@@ -22,6 +32,7 @@ export default function CalendarSyncPage() {
     const [success, setSuccess] = useState('')
 
     const connectGoogle = async () => {
+        if (!googleConfigured) return
         try {
             setLoading(true)
             setError('')
@@ -31,7 +42,7 @@ export default function CalendarSyncPage() {
                 window.location.href = data.url
             }
         } catch (err: any) {
-            setError(err?.detail || err?.message || 'Failed to connect Google Calendar')
+            setError(errText(err, 'Failed to connect Google Calendar'))
         } finally {
             setLoading(false)
         }
@@ -48,7 +59,7 @@ export default function CalendarSyncPage() {
             })
             setSuccess('iCal URL saved! Your calendar will sync automatically.')
         } catch (err: any) {
-            setError(err?.detail || err?.message || 'Failed to save iCal URL')
+            setError(errText(err, 'Failed to save iCal URL'))
         } finally {
             setLoading(false)
         }
@@ -97,19 +108,29 @@ export default function CalendarSyncPage() {
                                     <Check className="w-4 h-4" /> Connected
                                 </span>
                             ) : (
-                                <span className="text-white/40 text-sm">Not connected</span>
+                                <span className="text-white/40 text-sm">{googleConfigured ? 'Not connected' : 'Coming soon'}</span>
                             )}
                         </div>
 
                         {!googleConnected ? (
-                            <button
-                                onClick={connectGoogle}
-                                disabled={loading}
-                                className="px-5 py-2.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white rounded-lg font-medium transition-colors flex items-center gap-2"
-                            >
-                                {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Link2 className="w-4 h-4" />}
-                                Connect Google Calendar
-                            </button>
+                            googleConfigured ? (
+                                <button
+                                    onClick={connectGoogle}
+                                    disabled={loading}
+                                    className="px-5 py-2.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white rounded-lg font-medium transition-colors flex items-center gap-2"
+                                >
+                                    {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Link2 className="w-4 h-4" />}
+                                    Connect Google Calendar
+                                </button>
+                            ) : (
+                                <button
+                                    disabled
+                                    title="Google Calendar sync is coming soon"
+                                    className="px-5 py-2.5 bg-white/5 text-white/40 rounded-lg font-medium cursor-not-allowed flex items-center gap-2"
+                                >
+                                    <Link2 className="w-4 h-4" /> Coming soon
+                                </button>
+                            )
                         ) : (
                             <div className="flex gap-3">
                                 <button className="px-4 py-2 bg-white/10 hover:bg-white/20 text-white rounded-lg text-sm font-medium transition-colors flex items-center gap-2">

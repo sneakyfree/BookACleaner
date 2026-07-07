@@ -36,7 +36,10 @@ async def _get_user_id(authorization: str = Header(None)) -> str:
 
 
 class CreateSponsoredRequest(BaseModel):
-    cleaner_id: str
+    # Derived server-side from the authenticated cleaner; kept optional so the
+    # client need not (and the cleaner page does not) send it. Was required,
+    # which 422'd every purchase.
+    cleaner_id: Optional[str] = None
     duration_days: int = 30  # default 30-day boost
     priority: int = 1  # 1=standard, 2=premium, 3=featured
 

@@ -44,3 +44,19 @@ export function truncate(str: string, length: number): string {
 export function sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms))
 }
+
+
+// Coerce any thrown API error into a safe display STRING. FastAPI 422s return
+// detail as an array of {loc,msg,type} objects; rendering that object as a React
+// child throws "Objects are not valid as a React child" (#31) and white-screens
+// the page. Always run error state through this before setError().
+export function errText(err: any, fallback = 'Something went wrong'): string {
+    const d = err?.detail ?? err?.message ?? err
+    if (typeof d === 'string') return d
+    if (Array.isArray(d)) {
+        const msgs = d.map((x: any) => (typeof x === 'string' ? x : x?.msg)).filter(Boolean)
+        if (msgs.length) return msgs.join('; ')
+    }
+    if (d && typeof d === 'object' && typeof d.msg === 'string') return d.msg
+    return fallback
+}
