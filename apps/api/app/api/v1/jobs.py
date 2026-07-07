@@ -331,6 +331,7 @@ async def get_job(
             cleaner_user = await db.user.find_unique(where={"id": cleaner["user_id"]})
             cleaner_info = {
                 "id": cleaner["id"],
+                "user_id": cleaner.get("user_id"),
                 "business_name": cleaner.get("business_name"),
                 "name": cleaner_user.get("full_name") if cleaner_user else None,
                 "rating": cleaner.get("rating"),
@@ -345,6 +346,7 @@ async def get_job(
             client_user = await db.user.find_unique(where={"id": client["user_id"]})
             client_info = {
                 "id": client["id"],
+                "user_id": client.get("user_id"),
                 "name": (
                     client.get("display_name")
                     or (client_user.get("full_name") if client_user else None)

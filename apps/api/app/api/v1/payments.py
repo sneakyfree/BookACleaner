@@ -60,7 +60,7 @@ async def create_payment_intent(data: CreatePaymentIntentRequest, user=Depends(g
             customer=data.customerId,
             metadata={"jobId": data.jobId},
             capture_method=data.capture_method,
-            automatic_payment_methods={"enabled": True},
+            payment_method_types=["card"],
         )
 
         # Update job with payment intent ID
