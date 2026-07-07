@@ -18,6 +18,7 @@ import {
     Filter,
     Loader2,
 } from 'lucide-react'
+import { useRouter } from 'next/navigation'
 import { useJobs } from '@/hooks/use-api'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiFetch } from '@/lib/auth/api-client'
@@ -85,6 +86,8 @@ interface DisplayJob {
 export default function CleanerJobsPage() {
     const [filter, setFilter] = useState<'all' | 'pending' | 'upcoming' | 'past'>('all')
     const [actionLoading, setActionLoading] = useState<string | null>(null)
+    const [messagingJobId, setMessagingJobId] = useState<string | null>(null)
+    const router = useRouter()
 
     const { data: rawJobs, isLoading: loading, error } = useJobs()
     const queryClient = useQueryClient()
@@ -140,6 +143,28 @@ export default function CleanerJobsPage() {
             { jobId, action },
             { onSettled: () => setActionLoading(null) }
         )
+    }
+
+    const openClientConversation = async (jobId: string) => {
+        setMessagingJobId(jobId)
+        try {
+            const detail = await apiFetch(`/api/v1/jobs/${jobId}`)
+            const recipientId = detail?.client?.user_id
+            if (!recipientId) throw new Error('no client user')
+            const convs = await apiFetch('/api/v1/messages/conversations')
+            const existing = Array.isArray(convs) ? convs.find((c: any) => c.job_id === jobId) : null
+            let convId = existing?.id
+            if (!convId) {
+                const conv = await apiFetch('/api/v1/messages/conversations', {
+                    method: 'POST',
+                    body: JSON.stringify({ recipient_id: recipientId, job_id: jobId }),
+                })
+                convId = conv.id
+            }
+            router.push(`/cleaner/messages?conversation=${convId}`)
+        } catch {
+            setMessagingJobId(null)
+        }
     }
 
     if (loading) {
@@ -359,7 +384,8 @@ export default function CleanerJobsPage() {
                                             {actionLoading === `${job.id}-complete` ? 'Completing...' : 'Mark Complete'}
                                         </Button>
                                     )}
-                                    <Button variant="outline" size="sm">
+                                    <Button variant="outline" size="sm" onClick={() => openClientConversation(job.id)} disabled={messagingJobId === job.id}>
+                                        {messagingJobId === job.id ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : null}
                                         Message Client
                                     </Button>
                                     <Button variant="ghost" size="icon" className="ml-auto">

@@ -67,7 +67,9 @@ export default function CleanerMessagesPage() {
     const { data: session } = useSession()
     const [conversations, setConversations] = useState<DisplayConversation[]>([])
     const [messages, setMessages] = useState<DisplayMessage[]>([])
-    const [selectedConversation, setSelectedConversation] = useState<string | null>(null)
+    const [selectedConversation, setSelectedConversation] = useState<string | null>(() =>
+        typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("conversation") : null
+    )
     const [message, setMessage] = useState('')
     const [loading, setLoading] = useState(true)
     const [messagesLoading, setMessagesLoading] = useState(false)
