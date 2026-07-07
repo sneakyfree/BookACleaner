@@ -1,19 +1,27 @@
 'use client'
 
 import { useState } from 'react'
-import { useParams } from 'next/navigation'
+import { useParams, useRouter } from 'next/navigation'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import {
     MapPin, Clock, DollarSign, User, ArrowLeft, CheckCircle,
-    AlertCircle, MessageSquare, Star, Camera, Loader2, RotateCcw, Sparkles, ChevronDown
+    AlertCircle, MessageSquare, Star, Loader2, RotateCcw, Sparkles, ChevronDown, Gavel
 } from 'lucide-react'
 import Link from 'next/link'
 import { toast } from 'sonner'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiFetch } from '@/lib/auth/api-client'
+import { parseLocalDate } from '@/lib/utils'
 
 type JobStatus = 'pending' | 'confirmed' | 'in_progress' | 'completed' | 'cancelled' | 'disputed'
+
+interface CounterpartyRef {
+    id?: string
+    user_id?: string
+    name?: string
+    business_name?: string
+}
 
 interface JobDetail {
     id: string
@@ -26,6 +34,7 @@ interface JobDetail {
     address: string
     city: string
     description?: string
+    cleaner_id?: string
     cleaner_name?: string
     cleaner_rating?: number
     client_name?: string
@@ -33,6 +42,18 @@ interface JobDetail {
     created_at?: string
     started_at?: string
     completed_at?: string
+    cleaner?: CounterpartyRef
+    client?: CounterpartyRef
+}
+
+interface Bid {
+    id: string
+    job_id: string
+    cleaner_id: string
+    amount: number
+    message?: string
+    estimated_hours?: number
+    status: string
 }
 
 const STATUS_CONFIG: Record<JobStatus, { color: string; bg: string; label: string }> = {
@@ -44,8 +65,57 @@ const STATUS_CONFIG: Record<JobStatus, { color: string; bg: string; label: strin
     disputed: { color: 'text-orange-600', bg: 'bg-orange-100 dark:bg-orange-500/20', label: 'Disputed' },
 }
 
+// Renders a single bid, resolving the cleaner's public profile for a friendly name.
+function BidRow({ bid, onAccept, accepting }: { bid: Bid; onAccept: (id: string) => void; accepting: boolean }) {
+    const { data: cleaner } = useQuery({
+        queryKey: ['cleaner-public', bid.cleaner_id],
+        queryFn: () => apiFetch(`/api/v1/cleaners/${bid.cleaner_id}`),
+        enabled: !!bid.cleaner_id,
+    })
+    const name = (cleaner as any)?.businessName || (cleaner as any)?.name || `Cleaner ${bid.cleaner_id.slice(0, 8)}`
+    const rating = (cleaner as any)?.overallRating
+
+    return (
+        <div className="flex items-start justify-between gap-4 p-4 rounded-xl border bg-background">
+            <div className="flex gap-3 min-w-0">
+                <div className="w-11 h-11 rounded-full bg-brand-100 dark:bg-brand-500/20 flex items-center justify-center flex-shrink-0">
+                    <span className="font-semibold text-brand-600">{name.charAt(0).toUpperCase()}</span>
+                </div>
+                <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                        <p className="font-medium truncate">{name}</p>
+                        {rating > 0 && (
+                            <span className="text-xs text-muted-foreground flex items-center gap-0.5">
+                                <Star className="w-3 h-3 text-amber-500 fill-amber-500" /> {rating}
+                            </span>
+                        )}
+                    </div>
+                    {bid.estimated_hours ? (
+                        <p className="text-xs text-muted-foreground mt-0.5">Est. {bid.estimated_hours} hours</p>
+                    ) : null}
+                    {bid.message && <p className="text-sm text-muted-foreground mt-1">{bid.message}</p>}
+                </div>
+            </div>
+            <div className="text-right flex flex-col items-end gap-2 flex-shrink-0">
+                <p className="text-xl font-bold text-brand-600">${bid.amount}</p>
+                {bid.status === 'pending' ? (
+                    <Button size="sm" onClick={() => onAccept(bid.id)} disabled={accepting} className="gap-1">
+                        {accepting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle className="w-3.5 h-3.5" />}
+                        Accept
+                    </Button>
+                ) : (
+                    <span className={`text-xs px-2 py-1 rounded-full ${bid.status === 'accepted' ? 'bg-green-100 text-green-700 dark:bg-green-500/20 dark:text-green-300' : 'bg-slate-100 text-slate-500 dark:bg-slate-700 dark:text-slate-400'}`}>
+                        {bid.status}
+                    </span>
+                )}
+            </div>
+        </div>
+    )
+}
+
 export default function JobDetailPage() {
     const params = useParams()
+    const router = useRouter()
     const jobId = params?.id as string
     const queryClient = useQueryClient()
     const [actionLoading, setActionLoading] = useState(false)
@@ -58,6 +128,8 @@ export default function JobDetailPage() {
     const [aiExpanded, setAiExpanded] = useState(false)
     const [aiLoading, setAiLoading] = useState(false)
     const [refundLoading, setRefundLoading] = useState(false)
+    const [acceptingBid, setAcceptingBid] = useState<string | null>(null)
+    const [messaging, setMessaging] = useState(false)
 
     const { data: job, isLoading: loading, error } = useQuery<JobDetail>({
         queryKey: ['job-detail', jobId],
@@ -65,7 +137,59 @@ export default function JobDetailPage() {
         enabled: !!jobId,
     })
 
-    const refetchJob = () => queryClient.invalidateQueries({ queryKey: ['job-detail', jobId] })
+    // A job is open for bidding while it is pending and has no assigned cleaner.
+    const isOpenForBids = !!job && job.status === 'pending' && !job.cleaner_id
+
+    const { data: bidsData, isLoading: bidsLoading } = useQuery({
+        queryKey: ['job-bids', jobId],
+        queryFn: () => apiFetch(`/api/v1/bids/jobs/${jobId}/bids`),
+        enabled: !!jobId && isOpenForBids,
+    })
+    const bids: Bid[] = (bidsData as any)?.bids || []
+
+    const refetchJob = () => {
+        queryClient.invalidateQueries({ queryKey: ['job-detail', jobId] })
+        queryClient.invalidateQueries({ queryKey: ['job-bids', jobId] })
+    }
+
+    const handleAcceptBid = async (bidId: string) => {
+        setAcceptingBid(bidId)
+        try {
+            await apiFetch(`/api/v1/bids/bids/${bidId}/accept`, { method: 'POST' })
+            toast.success('Bid accepted — cleaner assigned to your job')
+            refetchJob()
+        } catch (err: any) {
+            toast.error(err?.detail || 'Failed to accept bid')
+        } finally {
+            setAcceptingBid(null)
+        }
+    }
+
+    const openConversationWithCleaner = async () => {
+        const recipientId = job?.cleaner?.user_id
+        if (!recipientId) {
+            toast.error('No cleaner assigned yet to message')
+            return
+        }
+        setMessaging(true)
+        try {
+            const convs = await apiFetch('/api/v1/messages/conversations')
+            const existing = Array.isArray(convs) ? convs.find((c: any) => c.job_id === jobId) : null
+            let convId = existing?.id
+            if (!convId) {
+                const conv = await apiFetch('/api/v1/messages/conversations', {
+                    method: 'POST',
+                    body: JSON.stringify({ recipient_id: recipientId, job_id: jobId }),
+                })
+                convId = conv.id
+            }
+            router.push(`/client/messages?conversation=${convId}`)
+        } catch {
+            toast.error('Could not open conversation')
+        } finally {
+            setMessaging(false)
+        }
+    }
 
     const handleAction = async (action: string) => {
         setActionLoading(true)
@@ -84,11 +208,7 @@ export default function JobDetailPage() {
         try {
             await apiFetch('/api/v1/reviews', {
                 method: 'POST',
-                body: JSON.stringify({
-                    job_id: jobId,
-                    overall_rating: reviewRating,
-                    text: reviewText,
-                }),
+                body: JSON.stringify({ job_id: jobId, overall_rating: reviewRating, text: reviewText }),
             })
             setShowReviewForm(false)
         } catch (err) {
@@ -166,7 +286,6 @@ export default function JobDetailPage() {
             {/* Job Header */}
             <Card>
                 <CardContent className="p-6">
-                    {/* Lifecycle Progress Bar */}
                     {(() => {
                         const stages = ['pending', 'confirmed', 'in_progress', 'completed'] as const
                         const labels = ['Pending', 'Confirmed', 'In Progress', 'Complete']
@@ -212,7 +331,7 @@ export default function JobDetailPage() {
                                 <Clock className="w-4 h-4 text-blue-600" />
                             </div>
                             <div>
-                                <p className="text-sm font-medium">{new Date(job.scheduled_date).toLocaleDateString()}</p>
+                                <p className="text-sm font-medium">{parseLocalDate(job.scheduled_date).toLocaleDateString()}</p>
                                 <p className="text-xs text-muted-foreground">{job.scheduled_time || 'TBD'}</p>
                             </div>
                         </div>
@@ -242,41 +361,46 @@ export default function JobDetailPage() {
                 </CardContent>
             </Card>
 
-            {/* Status Tracker */}
-            <Card>
-                <CardHeader>
-                    <CardTitle className="text-base">Job Progress</CardTitle>
-                </CardHeader>
-                <CardContent>
-                    <div className="flex items-center gap-2">
-                        {['pending', 'confirmed', 'in_progress', 'completed'].map((step, i) => {
-                            const steps = ['pending', 'confirmed', 'in_progress', 'completed']
-                            const currentIdx = steps.indexOf(job.status)
-                            const stepIdx = i
-                            const isComplete = stepIdx <= currentIdx
-                            const isCurrent = step === job.status
-
-                            return (
-                                <div key={step} className="flex items-center gap-2 flex-1">
-                                    <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium transition
-                                        ${isComplete ? 'bg-brand-600 text-white' : isCurrent ? 'bg-brand-100 text-brand-600 ring-2 ring-brand-600' : 'bg-muted text-muted-foreground'}`}>
-                                        {isComplete ? <CheckCircle className="w-4 h-4" /> : i + 1}
-                                    </div>
-                                    {i < 3 && (
-                                        <div className={`h-0.5 flex-1 rounded ${isComplete ? 'bg-brand-600' : 'bg-muted'}`} />
-                                    )}
-                                </div>
-                            )
-                        })}
-                    </div>
-                    <div className="flex justify-between mt-2 text-xs text-muted-foreground">
-                        <span>Booked</span>
-                        <span>Confirmed</span>
-                        <span>In Progress</span>
-                        <span>Complete</span>
-                    </div>
-                </CardContent>
-            </Card>
+            {/* Bids Panel — only for open (pending, unassigned) jobs */}
+            {isOpenForBids && (
+                <Card>
+                    <CardHeader>
+                        <CardTitle className="text-base flex items-center gap-2">
+                            <Gavel className="w-4 h-4 text-brand-500" />
+                            Bids from Cleaners
+                            {bids.length > 0 && (
+                                <span className="ml-1 px-2 py-0.5 rounded-full bg-brand-100 dark:bg-brand-500/20 text-brand-600 text-xs">
+                                    {bids.length}
+                                </span>
+                            )}
+                        </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                        {bidsLoading ? (
+                            <div className="flex items-center justify-center py-8">
+                                <Loader2 className="w-6 h-6 animate-spin text-brand-500" />
+                            </div>
+                        ) : bids.length === 0 ? (
+                            <div className="text-center py-8 text-muted-foreground">
+                                <Gavel className="w-10 h-10 mx-auto mb-3 opacity-40" />
+                                <p className="font-medium">No bids yet</p>
+                                <p className="text-sm mt-1">Cleaners in your area will submit bids soon. Accept one to confirm your booking.</p>
+                            </div>
+                        ) : (
+                            <div className="space-y-3">
+                                {bids.map((bid) => (
+                                    <BidRow
+                                        key={bid.id}
+                                        bid={bid}
+                                        onAccept={handleAcceptBid}
+                                        accepting={acceptingBid === bid.id}
+                                    />
+                                ))}
+                            </div>
+                        )}
+                    </CardContent>
+                </Card>
+            )}
 
             {/* Escrow Payment Status */}
             {job.payment_status && (
@@ -297,19 +421,15 @@ export default function JobDetailPage() {
                                 const isComplete = i <= currentStage
                                 const labels = ['Authorized', 'Held in Escrow', 'Released to Cleaner']
                                 const icons = ['💳', '🔒', '✅']
-
                                 return (
                                     <div key={stage} className="flex items-center gap-2 flex-1">
                                         <div className={`px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 ${isComplete
                                             ? 'bg-brand-100 dark:bg-brand-500/20 text-brand-700 dark:text-brand-300'
                                             : 'bg-muted text-muted-foreground'
                                             }`}>
-                                            <span>{icons[i]}</span>
-                                            {labels[i]}
+                                            <span>{icons[i]}</span>{labels[i]}
                                         </div>
-                                        {i < 2 && (
-                                            <div className={`h-0.5 flex-1 rounded ${isComplete ? 'bg-brand-500' : 'bg-muted'}`} />
-                                        )}
+                                        {i < 2 && (<div className={`h-0.5 flex-1 rounded ${isComplete ? 'bg-brand-500' : 'bg-muted'}`} />)}
                                     </div>
                                 )
                             })}
@@ -323,64 +443,6 @@ export default function JobDetailPage() {
                             <p className="text-xs text-muted-foreground mt-3">
                                 🔒 Your payment is safely held in escrow until the job is completed
                             </p>
-                        )}
-                    </CardContent>
-                </Card>
-            )}
-
-            {/* Refund Request */}
-            {job.status === 'completed' && job.payment_status !== 'refunded' && (
-                <Card>
-                    <CardContent className="p-4">
-                        {!showRefundModal ? (
-                            <div className="flex items-center justify-between">
-                                <div>
-                                    <p className="font-medium">Not satisfied?</p>
-                                    <p className="text-sm text-muted-foreground">You can request a refund within 48 hours</p>
-                                </div>
-                                <Button variant="outline" size="sm" className="text-amber-600 border-amber-300"
-                                    onClick={() => setShowRefundModal(true)}>
-                                    <RotateCcw className="w-3.5 h-3.5 mr-1" /> Request Refund
-                                </Button>
-                            </div>
-                        ) : (
-                            <div className="space-y-3">
-                                <p className="font-medium text-amber-600">Request Refund</p>
-                                <textarea
-                                    className="w-full px-3 py-2 border rounded-lg bg-background text-sm resize-none"
-                                    rows={3}
-                                    placeholder="Please describe the reason for your refund request..."
-                                    value={refundReason}
-                                    onChange={(e) => setRefundReason(e.target.value)}
-                                />
-                                <div className="flex gap-2 justify-end">
-                                    <Button variant="ghost" size="sm" onClick={() => { setShowRefundModal(false); setRefundReason('') }}>
-                                        Cancel
-                                    </Button>
-                                    <Button size="sm" disabled={!refundReason.trim() || refundLoading}
-                                        className="bg-amber-600 hover:bg-amber-700 text-white"
-                                        onClick={async () => {
-                                            setRefundLoading(true)
-                                            try {
-                                                await apiFetch(`/api/v1/jobs/${jobId}/request-refund`, {
-                                                    method: 'POST',
-                                                    body: JSON.stringify({ reason: refundReason }),
-                                                })
-                                                toast.success('Refund request submitted')
-                                                setShowRefundModal(false)
-                                                setRefundReason('')
-                                                refetchJob()
-                                            } catch {
-                                                toast.error('Failed to submit refund request')
-                                            } finally {
-                                                setRefundLoading(false)
-                                            }
-                                        }}>
-                                        {refundLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" /> : null}
-                                        Submit Request
-                                    </Button>
-                                </div>
-                            </div>
                         )}
                     </CardContent>
                 </Card>
@@ -407,8 +469,7 @@ export default function JobDetailPage() {
                         className="w-full p-4 flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-800/50 transition rounded-t-xl"
                     >
                         <div className="flex items-center gap-2 text-sm font-medium">
-                            <Sparkles className="w-4 h-4 text-brand-500" />
-                            AI Job Summary
+                            <Sparkles className="w-4 h-4 text-brand-500" /> AI Job Summary
                         </div>
                         <ChevronDown className={`w-4 h-4 text-muted-foreground transition-transform ${aiExpanded ? 'rotate-180' : ''}`} />
                     </button>
@@ -442,7 +503,6 @@ export default function JobDetailPage() {
 
             {/* Actions */}
             <div className="flex flex-wrap gap-3">
-                {/* Accept/Decline/Start/Complete are cleaner-side actions — not shown on the client's booking view (handled on /cleaner/jobs). */}
                 {job.status === 'completed' && !showReviewForm && (
                     <Button onClick={() => setShowReviewForm(true)} className="gap-2">
                         <Star className="w-4 h-4" /> Leave Review
@@ -453,12 +513,12 @@ export default function JobDetailPage() {
                         Cancel Job
                     </Button>
                 )}
-                <Link href={`/client/messages`}>
-                    <Button variant="outline" className="gap-2">
-                        <MessageSquare className="w-4 h-4" /> Message
+                {job.cleaner?.user_id && (
+                    <Button variant="outline" className="gap-2" onClick={openConversationWithCleaner} disabled={messaging}>
+                        {messaging ? <Loader2 className="w-4 h-4 animate-spin" /> : <MessageSquare className="w-4 h-4" />}
+                        Message Cleaner
                     </Button>
-                </Link>
-                {/* Refund button — shown for completed or cancelled jobs with payments */}
+                )}
                 {(job.status === 'completed' || job.status === 'cancelled') && job.payment_status && job.payment_status !== 'refunded' && (
                     <Button
                         variant="outline"
@@ -514,8 +574,7 @@ export default function JobDetailPage() {
                     <Card className="w-full max-w-md">
                         <CardHeader>
                             <CardTitle className="text-base flex items-center gap-2">
-                                <RotateCcw className="w-5 h-5 text-red-500" />
-                                Request a Refund
+                                <RotateCcw className="w-5 h-5 text-red-500" /> Request a Refund
                             </CardTitle>
                         </CardHeader>
                         <CardContent className="space-y-4">
@@ -541,18 +600,11 @@ export default function JobDetailPage() {
                                 </select>
                             </div>
                             <div className="flex gap-3 pt-2">
-                                <Button
-                                    onClick={handleRefundRequest}
-                                    disabled={!refundReason || refundLoading}
-                                    variant="destructive"
-                                    className="flex-1"
-                                >
+                                <Button onClick={handleRefundRequest} disabled={!refundReason || refundLoading} variant="destructive" className="flex-1">
                                     {refundLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
                                     Submit Refund Request
                                 </Button>
-                                <Button variant="outline" onClick={() => setShowRefundModal(false)} className="flex-1">
-                                    Cancel
-                                </Button>
+                                <Button variant="outline" onClick={() => setShowRefundModal(false)} className="flex-1">Cancel</Button>
                             </div>
                         </CardContent>
                     </Card>

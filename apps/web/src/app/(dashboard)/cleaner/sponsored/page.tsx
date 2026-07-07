@@ -4,7 +4,7 @@ import { useState } from 'react'
 import {
     Zap, Crown, Rocket, TrendingUp, Check, Loader2, AlertCircle, Star, XCircle
 } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { cn, errText } from '@/lib/utils'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiFetch } from '@/lib/auth/api-client'
 
@@ -71,7 +71,7 @@ export default function SponsoredListingsPage() {
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['sponsored-my-listing'] })
         },
-        onError: (err: any) => setError(err?.detail || 'Failed to purchase listing'),
+        onError: (err: any) => setError(errText(err, 'Failed to purchase listing')),
     })
 
     const cancelMut = useMutation({
@@ -79,7 +79,7 @@ export default function SponsoredListingsPage() {
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['sponsored-my-listing'] })
         },
-        onError: (err: any) => setError(err?.detail || 'Failed to cancel listing'),
+        onError: (err: any) => setError(errText(err, 'Failed to cancel listing')),
     })
 
     const handlePurchase = (priority: number, durationDays: number) => {

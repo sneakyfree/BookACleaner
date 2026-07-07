@@ -210,10 +210,19 @@ async def login(data: LoginRequest, db = Depends(get_db)):
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password"
         )
-    
+
+    # Block suspended/banned accounts (mirrors the /refresh guard) so admin
+    # moderation actually keeps a user out, not just flags them.
+    user_status = user.get("status", "active")
+    if user_status in ("banned", "suspended"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Account is {user_status}. Contact support.",
+        )
+
     # Create access token
     access_token = create_access_token({"sub": user["id"], "role": user["role"]})
-    
+
     return TokenResponse(
         access_token=access_token,
         expires_in=settings.access_token_expire_minutes * 60,

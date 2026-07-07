@@ -53,6 +53,15 @@ const tierNames: Record<number, string> = {
     5: 'Elite',
 }
 
+type SortKey = 'recommended' | 'rating' | 'reviews' | 'price'
+
+const SORT_LABELS: Record<SortKey, string> = {
+    recommended: 'Recommended',
+    rating: 'Highest Rated',
+    reviews: 'Most Reviews',
+    price: 'Price: Low to High',
+}
+
 export default function SearchCleanersPage() {
     const searchParams = useSearchParams()
     const initialLocation = searchParams.get('location') || ''
@@ -67,6 +76,8 @@ export default function SearchCleanersPage() {
         priceMax: 500,
     })
 
+    const [sortBy, setSortBy] = useState<SortKey>('recommended')
+    const [showSortMenu, setShowSortMenu] = useState(false)
     const [cleaners, setCleaners] = useState<CleanerResult[]>([])
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
@@ -104,6 +115,23 @@ export default function SearchCleanersPage() {
         if (filters.minRating && cleaner.overallRating < filters.minRating) return false
         if (filters.minTier && cleaner.verificationTier < filters.minTier) return false
         return true
+    })
+
+    const sortedCleaners = [...filteredCleaners].sort((a, b) => {
+        switch (sortBy) {
+            case 'rating':
+                return (b.overallRating || 0) - (a.overallRating || 0)
+            case 'reviews':
+                return (b.totalReviews || 0) - (a.totalReviews || 0)
+            case 'price':
+                return (a.hourlyRate ?? Infinity) - (b.hourlyRate ?? Infinity)
+            default:
+                return (
+                    (b.verificationTier - a.verificationTier) ||
+                    ((b.overallRating || 0) - (a.overallRating || 0)) ||
+                    ((b.totalReviews || 0) - (a.totalReviews || 0))
+                )
+        }
     })
 
     return (
@@ -230,14 +258,29 @@ export default function SearchCleanersPage() {
                             <>
                                 <div className="flex items-center justify-between mb-6">
                                     <p className="text-muted-foreground">
-                                        <strong>{filteredCleaners.length}</strong> cleaners available
+                                        <strong>{sortedCleaners.length}</strong> cleaners available
                                     </p>
-                                    <Button variant="ghost" size="sm">
-                                        Sort by: Recommended <ChevronDown className="w-4 h-4 ml-1" />
-                                    </Button>
+                                    <div className="relative">
+                                        <Button variant="ghost" size="sm" onClick={() => setShowSortMenu((v) => !v)}>
+                                            Sort by: {SORT_LABELS[sortBy]} <ChevronDown className="w-4 h-4 ml-1" />
+                                        </Button>
+                                        {showSortMenu && (
+                                            <div className="absolute right-0 mt-1 w-52 rounded-lg border bg-white dark:bg-slate-800 shadow-lg z-20 py-1">
+                                                {(Object.keys(SORT_LABELS) as SortKey[]).map((key) => (
+                                                    <button
+                                                        key={key}
+                                                        onClick={() => { setSortBy(key); setShowSortMenu(false) }}
+                                                        className={`w-full text-left px-4 py-2 text-sm hover:bg-slate-100 dark:hover:bg-slate-700 ${sortBy === key ? 'text-brand-600 font-medium' : ''}`}
+                                                    >
+                                                        {SORT_LABELS[key]}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
                                 </div>
 
-                                {filteredCleaners.length === 0 ? (
+                                {sortedCleaners.length === 0 ? (
                                     <Card>
                                         <CardContent className="py-12 text-center">
                                             <Search className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
@@ -249,7 +292,7 @@ export default function SearchCleanersPage() {
                                     </Card>
                                 ) : (
                                     <div className="space-y-4">
-                                        {filteredCleaners.map((cleaner) => (
+                                        {sortedCleaners.map((cleaner) => (
                                             <Link key={cleaner.id} href={`/cleaners/${cleaner.id}`}>
                                                 <Card className="hover:shadow-lg transition-shadow cursor-pointer">
                                                     <CardContent className="p-4 sm:p-6">

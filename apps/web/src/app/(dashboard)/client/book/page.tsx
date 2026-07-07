@@ -6,12 +6,14 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
-    Home, Calendar, Clock, CheckCircle, ArrowRight, ArrowLeft,
-    Loader2, Sparkles, Star, DollarSign
+    Home, Calendar, CheckCircle, ArrowRight, ArrowLeft,
+    Loader2, Sparkles, DollarSign, CreditCard, ShieldCheck
 } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { apiFetch } from '@/lib/auth/api-client'
 import { getStripe } from '@/lib/stripe-client'
+import { Elements, PaymentElement, useStripe, useElements } from '@stripe/react-stripe-js'
+import { parseLocalDate, toLocalDateISO } from '@/lib/utils'
 
 const stripePromise = getStripe()
 
@@ -45,11 +47,86 @@ interface Estimate {
     estimated_hours: number
 }
 
+/**
+ * Card collection + confirmation. Rendered inside <Elements> once we have a
+ * clientSecret. Mounts a real Stripe PaymentElement and confirms the intent.
+ */
+function CheckoutForm({ jobId, amount }: { jobId: string; amount: number }) {
+    const stripe = useStripe()
+    const elements = useElements()
+    const router = useRouter()
+    const [processing, setProcessing] = useState(false)
+    const [payError, setPayError] = useState('')
+    const [ready, setReady] = useState(false)
+
+    const handlePay = async () => {
+        if (!stripe || !elements) return
+        setProcessing(true)
+        setPayError('')
+        const { error, paymentIntent } = await stripe.confirmPayment({
+            elements,
+            confirmParams: {
+                return_url: `${window.location.origin}/client/bookings/${jobId}?payment=success`,
+            },
+            redirect: 'if_required',
+        })
+        if (error) {
+            setPayError(error.message || 'Payment failed. Please check your card details.')
+            setProcessing(false)
+            return
+        }
+        if (paymentIntent && (paymentIntent.status === 'succeeded' || paymentIntent.status === 'processing')) {
+            router.push(`/client/bookings/${jobId}?payment=success`)
+            return
+        }
+        // Fallback: intent may have redirected; otherwise surface status.
+        setPayError(`Payment status: ${paymentIntent?.status || 'unknown'}`)
+        setProcessing(false)
+    }
+
+    return (
+        <div className="space-y-5">
+            <div className="p-4 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30 flex items-start gap-3">
+                <ShieldCheck className="w-5 h-5 text-emerald-600 mt-0.5 flex-shrink-0" />
+                <div>
+                    <p className="font-medium text-emerald-700 dark:text-emerald-400 text-sm">Secure payment</p>
+                    <p className="text-xs text-emerald-600 dark:text-emerald-500 mt-1">
+                        Your card is processed securely by Stripe. Test card: 4242 4242 4242 4242.
+                    </p>
+                </div>
+            </div>
+
+            <div className="rounded-xl border p-4 bg-background">
+                {!ready && (
+                    <div className="flex items-center justify-center py-6 text-muted-foreground">
+                        <Loader2 className="w-5 h-5 animate-spin mr-2" /> Loading secure card form...
+                    </div>
+                )}
+                <PaymentElement onReady={() => setReady(true)} />
+            </div>
+
+            {payError && (
+                <div className="p-3 rounded-lg bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/30 text-red-600 text-sm">
+                    {payError}
+                </div>
+            )}
+
+            <Button
+                onClick={handlePay}
+                disabled={!stripe || processing}
+                className="w-full bg-emerald-500 hover:bg-emerald-600"
+            >
+                {processing ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <CreditCard className="w-4 h-4 mr-2" />}
+                {processing ? 'Processing Payment...' : `Pay $${amount.toFixed(2)}`}
+            </Button>
+        </div>
+    )
+}
+
 export default function BookingWizardPage() {
     const router = useRouter()
 
     const [step, setStep] = useState(1)
-    const [loading, setLoading] = useState(false)
     const [error, setError] = useState('')
 
     // Step 1: Property
@@ -68,6 +145,11 @@ export default function BookingWizardPage() {
     const [description, setDescription] = useState('')
     const [submitting, setSubmitting] = useState(false)
 
+    // Step 5: Payment
+    const [clientSecret, setClientSecret] = useState('')
+    const [createdJobId, setCreatedJobId] = useState('')
+    const [payableAmount, setPayableAmount] = useState(0)
+
     // Agreement
     const [agreementText, setAgreementText] = useState('')
     const [agreementAccepted, setAgreementAccepted] = useState(false)
@@ -77,13 +159,11 @@ export default function BookingWizardPage() {
     const [contradictions, setContradictions] = useState<string[]>([])
     const [validating, setValidating] = useState(false)
 
-    // Fetch properties via React Query
     const { data: properties = [], isLoading: loadingProperties } = useQuery<Property[]>({
         queryKey: ['properties-for-booking'],
         queryFn: () => apiFetch('/api/v1/properties'),
     })
 
-    // Fetch agreement template when reaching confirm step
     useEffect(() => {
         if (step !== 4 || agreementText) return
         setLoadingAgreement(true)
@@ -93,14 +173,12 @@ export default function BookingWizardPage() {
             .finally(() => setLoadingAgreement(false))
     }, [step, agreementText])
 
-    // Fetch estimate when services change
     useEffect(() => {
         const fetchEstimate = async () => {
             if (!selectedProperty || selectedServices.length === 0) {
                 setEstimate(null)
                 return
             }
-
             try {
                 const data = await apiFetch('/api/v1/jobs/estimate', {
                     method: 'POST',
@@ -115,23 +193,19 @@ export default function BookingWizardPage() {
                 // Estimate unavailable
             }
         }
-
         fetchEstimate()
     }, [selectedProperty, selectedServices, selectedAddOns])
 
     const toggleService = (id: string) => {
-        setSelectedServices(prev =>
-            prev.includes(id) ? prev.filter(s => s !== id) : [...prev, id]
-        )
+        setSelectedServices(prev => prev.includes(id) ? prev.filter(s => s !== id) : [...prev, id])
     }
 
     const toggleAddOn = (id: string) => {
-        setSelectedAddOns(prev =>
-            prev.includes(id) ? prev.filter(s => s !== id) : [...prev, id]
-        )
+        setSelectedAddOns(prev => prev.includes(id) ? prev.filter(s => s !== id) : [...prev, id])
     }
 
-    const handleSubmit = async () => {
+    // Step 4 → create job + payment intent, then advance to the card step.
+    const handleContinueToPayment = async () => {
         if (!agreementAccepted) {
             setError('Please accept the service agreement before proceeding')
             return
@@ -140,7 +214,7 @@ export default function BookingWizardPage() {
         setError('')
 
         try {
-            // Step 0: Validate for contradictions
+            // Validate for blocking contradictions
             setValidating(true)
             try {
                 const valData = await apiFetch('/api/v1/explain/booking/validate', {
@@ -160,7 +234,6 @@ export default function BookingWizardPage() {
                     setValidating(false)
                     return
                 }
-                // Non-blocking warnings stored for display
                 setContradictions(issues.map((c: any) => c.message || c.description || String(c)))
             } catch {
                 // Validation endpoint unavailable — proceed anyway
@@ -168,7 +241,7 @@ export default function BookingWizardPage() {
                 setValidating(false)
             }
 
-            // Step 1: Create the job
+            // Create the job
             let job: any
             try {
                 job = await apiFetch('/api/v1/jobs', {
@@ -183,58 +256,41 @@ export default function BookingWizardPage() {
                 })
             } catch (err: any) {
                 setError(err?.detail || 'Failed to create booking')
+                setSubmitting(false)
                 return
             }
 
-            // Step 1.5: Record agreement acceptance
+            // Record agreement acceptance (non-blocking)
             apiFetch('/api/v1/agreements/', {
                 method: 'POST',
-                body: JSON.stringify({
-                    job_id: job.id,
-                    agreement_type: 'service',
-                }),
-            }).catch(() => { /* non-blocking */ })
+                body: JSON.stringify({ job_id: job.id, agreement_type: 'service' }),
+            }).catch(() => { })
 
-            // Step 2: Create Stripe Payment Intent
-            const amountInCents = Math.round((estimate?.total || 100) * 100)
-            let clientSecret: string | undefined
+            // Create Stripe Payment Intent (immediate capture → succeeds on confirm)
+            const amountDollars = estimate?.total || 100
+            const amountInCents = Math.round(amountDollars * 100)
             try {
                 const paymentData = await apiFetch('/api/v1/payments/create-payment-intent', {
                     method: 'POST',
                     body: JSON.stringify({
                         amount: amountInCents,
                         jobId: job.id,
-                        customerId: undefined,
                         capture_method: 'automatic',
                     }),
                 })
-                clientSecret = paymentData.clientSecret
-            } catch {
-                // Job created but payment failed — still redirect, show warning
-                router.push(`/client/bookings/${job.id}?payment=pending`)
-                return
-            }
-
-            // Step 3: Confirm the payment with Stripe.js
-            const stripe = await stripePromise
-            if (stripe && clientSecret) {
-                const { error: stripeError } = await stripe.confirmPayment({
-                    clientSecret,
-                    confirmParams: {
-                        return_url: `${window.location.origin}/client/bookings/${job.id}?payment=success`,
-                    },
-                })
-
-                if (stripeError) {
-                    // Payment failed but job exists — redirect with status
-                    setError(stripeError.message || 'Payment failed')
-                    return
+                if (!paymentData?.clientSecret) {
+                    throw new Error('No client secret returned')
                 }
-            } else {
-                // Stripe not loaded — redirect with pending payment
-                router.push(`/client/bookings/${job.id}?payment=pending`)
+                setClientSecret(paymentData.clientSecret)
+                setCreatedJobId(job.id)
+                setPayableAmount(amountDollars)
+                setStep(5)
+            } catch (err: any) {
+                setError(err?.detail || 'Could not initialize payment. Your booking was created — pay from the booking page.')
+                // Job exists; let the client continue to the booking detail.
+                setTimeout(() => router.push(`/client/bookings/${job.id}?payment=pending`), 1500)
             }
-        } catch (err) {
+        } catch {
             setError('Failed to connect to server')
         } finally {
             setSubmitting(false)
@@ -252,30 +308,26 @@ export default function BookingWizardPage() {
     }
 
     const selectedPropertyData = properties.find(p => p.id === selectedProperty)
-
-    // Generate time slots
     const timeSlots = ['08:00', '09:00', '10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00', '17:00']
-
-    // Generate dates for next 14 days
     const dates = Array.from({ length: 14 }, (_, i) => {
         const date = new Date()
         date.setDate(date.getDate() + i + 1)
-        return date.toISOString().split('T')[0]
+        return toLocalDateISO(date)
     })
 
     return (
         <div className="max-w-3xl mx-auto space-y-6">
             {/* Progress Steps */}
             <div className="flex items-center justify-center gap-2 mb-8">
-                {[1, 2, 3, 4].map((s) => (
+                {[1, 2, 3, 4, 5].map((s) => (
                     <div key={s} className="flex items-center">
                         <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-medium transition-colors ${s === step ? 'bg-emerald-500 text-white' :
                             s < step ? 'bg-emerald-100 text-emerald-700' :
                                 'bg-slate-100 text-slate-400'
                             }`}>
-                            {s < step ? <CheckCircle className="w-5 h-5" /> : s}
+                            {s < step ? <CheckCircle className="w-5 h-5" /> : s === 5 ? <CreditCard className="w-4 h-4" /> : s}
                         </div>
-                        {s < 4 && <div className={`w-12 h-1 mx-2 ${s < step ? 'bg-emerald-500' : 'bg-slate-200'}`} />}
+                        {s < 5 && <div className={`w-10 h-1 mx-2 ${s < step ? 'bg-emerald-500' : 'bg-slate-200'}`} />}
                     </div>
                 ))}
             </div>
@@ -285,8 +337,7 @@ export default function BookingWizardPage() {
                 <Card>
                     <CardHeader>
                         <CardTitle className="flex items-center gap-2">
-                            <Home className="w-5 h-5 text-emerald-500" />
-                            Select Property
+                            <Home className="w-5 h-5 text-emerald-500" /> Select Property
                         </CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-4">
@@ -297,9 +348,7 @@ export default function BookingWizardPage() {
                         ) : properties.length === 0 ? (
                             <div className="text-center py-8">
                                 <p className="text-muted-foreground mb-4">No properties found</p>
-                                <Button onClick={() => router.push('/client/properties/new')}>
-                                    Add a Property
-                                </Button>
+                                <Button onClick={() => router.push('/client/properties/new')}>Add a Property</Button>
                             </div>
                         ) : (
                             <div className="grid gap-3">
@@ -320,9 +369,7 @@ export default function BookingWizardPage() {
                                                     {prop.bedrooms} bed • {prop.bathrooms} bath • {prop.sqft} sqft
                                                 </p>
                                             </div>
-                                            {selectedProperty === prop.id && (
-                                                <CheckCircle className="w-6 h-6 text-emerald-500" />
-                                            )}
+                                            {selectedProperty === prop.id && <CheckCircle className="w-6 h-6 text-emerald-500" />}
                                         </div>
                                     </div>
                                 ))}
@@ -337,8 +384,7 @@ export default function BookingWizardPage() {
                 <Card>
                     <CardHeader>
                         <CardTitle className="flex items-center gap-2">
-                            <Sparkles className="w-5 h-5 text-emerald-500" />
-                            Select Services
+                            <Sparkles className="w-5 h-5 text-emerald-500" /> Select Services
                         </CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-6">
@@ -357,18 +403,13 @@ export default function BookingWizardPage() {
                                             <span className="text-2xl">{service.icon}</span>
                                             <p className="font-medium mt-2">{service.name}</p>
                                             <p className="text-sm text-muted-foreground">{service.description}</p>
-                                            <p className="text-sm font-medium text-emerald-600 mt-1">
-                                                From ${service.price}
-                                            </p>
+                                            <p className="text-sm font-medium text-emerald-600 mt-1">From ${service.price}</p>
                                         </div>
-                                        {selectedServices.includes(service.id) && (
-                                            <CheckCircle className="w-5 h-5 text-emerald-500" />
-                                        )}
+                                        {selectedServices.includes(service.id) && <CheckCircle className="w-5 h-5 text-emerald-500" />}
                                     </div>
                                 </div>
                             ))}
                         </div>
-
                         <div>
                             <p className="text-sm font-medium mb-3">Add-ons (optional)</p>
                             <div className="flex flex-wrap gap-2">
@@ -395,8 +436,7 @@ export default function BookingWizardPage() {
                 <Card>
                     <CardHeader>
                         <CardTitle className="flex items-center gap-2">
-                            <Calendar className="w-5 h-5 text-emerald-500" />
-                            Select Date & Time
+                            <Calendar className="w-5 h-5 text-emerald-500" /> Select Date & Time
                         </CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-6">
@@ -404,7 +444,7 @@ export default function BookingWizardPage() {
                             <p className="text-sm font-medium mb-3">Select Date</p>
                             <div className="grid grid-cols-7 gap-2">
                                 {dates.map((date) => {
-                                    const d = new Date(date)
+                                    const d = parseLocalDate(date)
                                     const dayName = d.toLocaleDateString('en-US', { weekday: 'short' })
                                     const dayNum = d.getDate()
                                     return (
@@ -423,7 +463,6 @@ export default function BookingWizardPage() {
                                 })}
                             </div>
                         </div>
-
                         <div>
                             <p className="text-sm font-medium mb-3">Select Time</p>
                             <div className="grid grid-cols-5 gap-2">
@@ -450,12 +489,10 @@ export default function BookingWizardPage() {
                 <Card>
                     <CardHeader>
                         <CardTitle className="flex items-center gap-2">
-                            <CheckCircle className="w-5 h-5 text-emerald-500" />
-                            Confirm Booking
+                            <CheckCircle className="w-5 h-5 text-emerald-500" /> Confirm Booking
                         </CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-6">
-                        {/* Summary */}
                         <div className="bg-slate-50 dark:bg-slate-800 rounded-lg p-4 space-y-3">
                             <div className="flex justify-between">
                                 <span className="text-muted-foreground">Property</span>
@@ -463,24 +500,18 @@ export default function BookingWizardPage() {
                             </div>
                             <div className="flex justify-between">
                                 <span className="text-muted-foreground">Services</span>
-                                <span className="font-medium">{selectedServices.map(s =>
-                                    SERVICES.find(srv => srv.id === s)?.name
-                                ).join(', ')}</span>
+                                <span className="font-medium">{selectedServices.map(s => SERVICES.find(srv => srv.id === s)?.name).join(', ')}</span>
                             </div>
                             {selectedAddOns.length > 0 && (
                                 <div className="flex justify-between">
                                     <span className="text-muted-foreground">Add-ons</span>
-                                    <span className="font-medium">{selectedAddOns.map(s =>
-                                        ADD_ONS.find(a => a.id === s)?.name
-                                    ).join(', ')}</span>
+                                    <span className="font-medium">{selectedAddOns.map(s => ADD_ONS.find(a => a.id === s)?.name).join(', ')}</span>
                                 </div>
                             )}
                             <div className="flex justify-between">
                                 <span className="text-muted-foreground">Date & Time</span>
                                 <span className="font-medium">
-                                    {new Date(selectedDate).toLocaleDateString('en-US', {
-                                        weekday: 'long', month: 'short', day: 'numeric'
-                                    })} at {selectedTime}
+                                    {parseLocalDate(selectedDate).toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })} at {selectedTime}
                                 </span>
                             </div>
                             {estimate && (
@@ -497,14 +528,11 @@ export default function BookingWizardPage() {
                             )}
                         </div>
 
-                        {/* Escrow Explainer */}
                         <div className="p-4 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30">
                             <div className="flex items-start gap-3">
                                 <DollarSign className="w-5 h-5 text-emerald-600 mt-0.5 flex-shrink-0" />
                                 <div>
-                                    <p className="font-medium text-emerald-700 dark:text-emerald-400 text-sm">
-                                        Secure Escrow Payment
-                                    </p>
+                                    <p className="font-medium text-emerald-700 dark:text-emerald-400 text-sm">Secure Escrow Payment</p>
                                     <p className="text-xs text-emerald-600 dark:text-emerald-500 mt-1">
                                         Your payment is held securely until the job is confirmed as complete.
                                         You can request a refund if the service doesn&apos;t meet expectations.
@@ -523,11 +551,8 @@ export default function BookingWizardPage() {
                             />
                         </div>
 
-                        {/* Service Agreement */}
                         <div className="border-t pt-6">
-                            <p className="text-sm font-medium mb-3 flex items-center gap-2">
-                                📋 Service Agreement
-                            </p>
+                            <p className="text-sm font-medium mb-3 flex items-center gap-2">📋 Service Agreement</p>
                             {loadingAgreement ? (
                                 <div className="flex items-center justify-center py-4">
                                     <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
@@ -548,25 +573,26 @@ export default function BookingWizardPage() {
                                             I have read and accept the <strong>Service Agreement</strong>, <strong>Cancellation Policy</strong>, and <strong>Terms of Service</strong>.
                                         </span>
                                     </label>
+                                    {!agreementAccepted && error && (
+                                        <p className="mt-2 text-sm text-red-600 dark:text-red-400">
+                                            You must accept the service agreement to continue.
+                                        </p>
+                                    )}
                                 </>
                             )}
                         </div>
 
                         {error && (
-                            <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm">
-                                {error}
-                            </div>
+                            <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm">{error}</div>
                         )}
 
-                        {/* Contradiction Warnings */}
                         {contradictions.length > 0 && (
                             <div className="p-4 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30">
                                 <p className="text-sm font-medium text-amber-700 dark:text-amber-400 mb-2">⚠️ Booking Validation Warnings</p>
                                 <ul className="space-y-1">
                                     {contradictions.map((c, i) => (
                                         <li key={i} className="text-xs text-amber-600 dark:text-amber-400 flex items-start gap-2">
-                                            <span className="mt-0.5">•</span>
-                                            <span>{c}</span>
+                                            <span className="mt-0.5">•</span><span>{c}</span>
                                         </li>
                                     ))}
                                 </ul>
@@ -575,8 +601,29 @@ export default function BookingWizardPage() {
 
                         {validating && (
                             <div className="flex items-center justify-center gap-2 py-2 text-sm text-muted-foreground">
-                                <Loader2 className="w-4 h-4 animate-spin" />
-                                Validating booking...
+                                <Loader2 className="w-4 h-4 animate-spin" /> Validating booking...
+                            </div>
+                        )}
+                    </CardContent>
+                </Card>
+            )}
+
+            {/* Step 5: Payment */}
+            {step === 5 && (
+                <Card>
+                    <CardHeader>
+                        <CardTitle className="flex items-center gap-2">
+                            <CreditCard className="w-5 h-5 text-emerald-500" /> Payment
+                        </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                        {clientSecret && stripePromise ? (
+                            <Elements stripe={stripePromise} options={{ clientSecret, appearance: { theme: 'stripe' } }}>
+                                <CheckoutForm jobId={createdJobId} amount={payableAmount} />
+                            </Elements>
+                        ) : (
+                            <div className="flex items-center justify-center py-8 text-muted-foreground">
+                                <Loader2 className="w-6 h-6 animate-spin mr-2" /> Preparing payment...
                             </div>
                         )}
                     </CardContent>
@@ -584,37 +631,26 @@ export default function BookingWizardPage() {
             )}
 
             {/* Navigation */}
-            <div className="flex justify-between">
-                {step > 1 ? (
-                    <Button variant="outline" onClick={() => setStep(step - 1)}>
-                        <ArrowLeft className="w-4 h-4 mr-2" />
-                        Back
-                    </Button>
-                ) : <div />}
+            {step < 5 && (
+                <div className="flex justify-between">
+                    {step > 1 ? (
+                        <Button variant="outline" onClick={() => setStep(step - 1)}>
+                            <ArrowLeft className="w-4 h-4 mr-2" /> Back
+                        </Button>
+                    ) : <div />}
 
-                {step < 4 ? (
-                    <Button
-                        onClick={() => setStep(step + 1)}
-                        disabled={!canProceed()}
-                    >
-                        Continue
-                        <ArrowRight className="w-4 h-4 ml-2" />
-                    </Button>
-                ) : (
-                    <Button
-                        onClick={handleSubmit}
-                        disabled={submitting}
-                        className="bg-emerald-500 hover:bg-emerald-600"
-                    >
-                        {submitting ? (
-                            <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                        ) : (
-                            <DollarSign className="w-4 h-4 mr-2" />
-                        )}
-                        Confirm & Pay
-                    </Button>
-                )}
-            </div>
+                    {step < 4 ? (
+                        <Button onClick={() => setStep(step + 1)} disabled={!canProceed()}>
+                            Continue <ArrowRight className="w-4 h-4 ml-2" />
+                        </Button>
+                    ) : (
+                        <Button onClick={handleContinueToPayment} disabled={submitting} className="bg-emerald-500 hover:bg-emerald-600">
+                            {submitting ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <CreditCard className="w-4 h-4 mr-2" />}
+                            Continue to Payment
+                        </Button>
+                    )}
+                </div>
+            )}
         </div>
     )
 }
