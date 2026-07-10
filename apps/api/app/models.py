@@ -122,6 +122,13 @@ class User(Base):
     phone_verified_at = Column(DateTime, nullable=True)
     refresh_token = Column(String(255), nullable=True)
     refresh_token_expires_at = Column(DateTime, nullable=True)
+    # Bumped to revoke every outstanding access/refresh token for this user
+    # (ban, force-logout, password reset). Access tokens carry the value they
+    # were minted with; a mismatch means the session was revoked.
+    token_version = Column(Integer, default=0, nullable=False)
+    # Admin MFA (TOTP). Opt-in per admin; when enabled, login requires a code.
+    mfa_secret = Column(String(64), nullable=True)
+    mfa_enabled = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     
