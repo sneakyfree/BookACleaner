@@ -3,10 +3,11 @@ Bidding/RFQ API for BookACleaner.ai
 Allows cleaners to bid on marketplace jobs
 """
 from fastapi import APIRouter, HTTPException, Depends, Header, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional, List
 from datetime import datetime, timezone
 import logging
+import math
 
 from app.database import get_db
 from app.config import get_settings
@@ -21,16 +22,30 @@ logger = logging.getLogger(__name__)
 
 class CreateBidRequest(BaseModel):
     job_id: str
-    amount: float
+    amount: float = Field(gt=0, le=100000)
     message: Optional[str] = None
-    estimated_hours: Optional[float] = None
+    estimated_hours: Optional[float] = Field(default=None, gt=0, le=24)
     available_start_time: Optional[str] = None
+
+    @field_validator("amount")
+    @classmethod
+    def _finite_amount(cls, v: float) -> float:
+        if v is None or not math.isfinite(v):
+            raise ValueError("amount must be a finite positive number")
+        return v
 
 
 class UpdateBidRequest(BaseModel):
-    amount: Optional[float] = None
+    amount: Optional[float] = Field(default=None, gt=0, le=100000)
     message: Optional[str] = None
-    estimated_hours: Optional[float] = None
+    estimated_hours: Optional[float] = Field(default=None, gt=0, le=24)
+
+    @field_validator("amount")
+    @classmethod
+    def _finite_amount(cls, v):
+        if v is not None and not math.isfinite(v):
+            raise ValueError("amount must be a finite positive number")
+        return v
 
 
 # ==================== AUTH HELPER ====================
@@ -132,15 +147,30 @@ async def list_job_bids(
     user = Depends(get_current_user),
     db = Depends(get_db)
 ):
-    """List all bids for a job (client only)"""
-    
+    """List bids for a job.
+
+    Authorization: the job's owning client (and admins) see every bid; a
+    cleaner sees only their own bid on the job. Without this, any authenticated
+    user could enumerate competitors' bid amounts and undercut them.
+    """
+
     job = await db.job.find_unique(where={"id": job_id})
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
-    
-    # Fetch real bids from the database
+
+    is_admin = user.get("role") == "admin"
+    client = await db.client.find_first(where={"user_id": user["id"]})
+    is_owner = bool(client) and client["id"] == job.get("client_id")
+
     bids = await db.bid.find_many(where={"job_id": job_id})
-    
+
+    if not (is_admin or is_owner):
+        # Cleaners may only see their own bid; everyone else sees nothing.
+        cleaner = await db.cleaner.find_first(where={"user_id": user["id"]})
+        if not cleaner:
+            raise HTTPException(status_code=403, detail="Not authorized to view bids for this job")
+        bids = [b for b in bids if b.get("cleaner_id") == cleaner["id"]]
+
     return {
         "job_id": job_id,
         "bids": bids,
@@ -168,20 +198,42 @@ async def accept_bid(
     client = await db.client.find_first(where={"user_id": user["id"]})
     if not client or client["id"] != job.get("client_id"):
         raise HTTPException(status_code=403, detail="Only the job owner can accept bids")
-    
-    # Accept the bid
-    await db.bid.update(where={"id": bid_id}, data={
-        "status": "accepted",
-        "accepted_at": datetime.now(timezone.utc),
-    })
-    
-    # Assign cleaner to job and update price
-    await db.job.update(where={"id": bid["job_id"]}, data={
-        "cleaner_id": bid["cleaner_id"],
-        "total_price": bid["amount"],
-        "status": "confirmed",
-    })
-    
+
+    # The bid must still be open — you cannot accept a declined/withdrawn/already
+    # accepted bid.
+    if bid.get("status") != "pending":
+        raise HTTPException(status_code=409, detail=f"Bid is already {bid.get('status')}")
+
+    # Atomically claim the job only if it is still unassigned and pending. This
+    # compare-and-set prevents two concurrent accepts (or accepting a bid on an
+    # already-confirmed job) from reassigning/repricing a live booking.
+    claimed = await db.job.update_many(
+        where={"id": bid["job_id"], "status": "pending", "cleaner_id": None},
+        data={
+            "cleaner_id": bid["cleaner_id"],
+            "total_price": bid["amount"],
+            "status": "confirmed",
+        },
+    )
+    if not claimed:
+        raise HTTPException(
+            status_code=409,
+            detail="Job is no longer open for bids (already assigned or not pending)",
+        )
+
+    # Mark the winning bid accepted (only if still pending — guards double-accept).
+    accepted = await db.bid.update_many(
+        where={"id": bid_id, "status": "pending"},
+        data={"status": "accepted", "accepted_at": datetime.now(timezone.utc)},
+    )
+    if not accepted:
+        # Lost a race on the bid itself after claiming the job; roll the job back.
+        await db.job.update_many(
+            where={"id": bid["job_id"], "cleaner_id": bid["cleaner_id"]},
+            data={"cleaner_id": None, "status": "pending"},
+        )
+        raise HTTPException(status_code=409, detail=f"Bid is already {bid.get('status')}")
+
     # Decline all other pending bids on this job
     other_bids = await db.bid.find_many(where={"job_id": bid["job_id"]})
     for other in other_bids:
@@ -204,17 +256,28 @@ async def decline_bid(
     user = Depends(get_current_user),
     db = Depends(get_db)
 ):
-    """Decline a bid (client only)"""
-    
+    """Decline a bid (job's owning client only)"""
+
     bid = await db.bid.find_unique(where={"id": bid_id})
     if not bid:
         raise HTTPException(status_code=404, detail="Bid not found")
-    
+
+    job = await db.job.find_unique(where={"id": bid["job_id"]})
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    # Only the job's owning client (or an admin) may decline a bid. Without this
+    # any authenticated user could decline (sabotage) a rival cleaner's bid.
+    is_admin = user.get("role") == "admin"
+    client = await db.client.find_first(where={"user_id": user["id"]})
+    if not is_admin and (not client or client["id"] != job.get("client_id")):
+        raise HTTPException(status_code=403, detail="Only the job owner can decline bids")
+
     await db.bid.update(where={"id": bid_id}, data={
         "status": "declined",
         "declined_at": datetime.now(timezone.utc),
     })
-    
+
     return {
         "success": True,
         "message": "Bid declined."

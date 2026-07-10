@@ -44,18 +44,19 @@ async def list_conversations(
     user = Depends(get_current_user),
     db = Depends(get_db)
 ):
-    """List all conversations for current user"""
-    
-    # Get all conversations where user is a participant
+    """List conversations the current user participates in."""
+
     conversations = await db.conversation.find_many()
-    
+
     # Filter to user's conversations and enrich with data
     user_conversations = []
-    
+
     for conv in conversations:
-        # Check if user is a participant (would need ConversationParticipant check)
-        # For now, return all and let frontend filter
-        
+        # Only include conversations the caller is actually a participant in —
+        # otherwise the list leaks every conversation's last-message content.
+        if not await is_conversation_participant(db, conv["id"], user["id"]):
+            continue
+
         # Get last message
         messages = await db.message.find_many(where={"conversation_id": conv["id"]})
         last_message = messages[-1] if messages else None

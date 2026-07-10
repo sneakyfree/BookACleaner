@@ -1,9 +1,10 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 
 from app.services.ai import ai_service
 from app.core.feature_flags import flags
+from app.api.deps import get_current_user
 
 router = APIRouter()
 
@@ -40,7 +41,7 @@ class JobSummaryRequest(BaseModel):
 
 
 @router.post("/chat")
-async def chat(data: ChatRequest):
+async def chat(data: ChatRequest, user=Depends(get_current_user)):
     """
     AI chat assistant for booking help and support
     
@@ -72,7 +73,7 @@ async def chat(data: ChatRequest):
 
 
 @router.post("/parse-document")
-async def parse_document(data: ParseDocumentRequest):
+async def parse_document(data: ParseDocumentRequest, user=Depends(get_current_user)):
     """
     Parse verification documents using AI Vision
     
@@ -106,7 +107,7 @@ async def parse_document(data: ParseDocumentRequest):
 
 
 @router.post("/verify-document")
-async def verify_document(data: ParseDocumentRequest):
+async def verify_document(data: ParseDocumentRequest, user=Depends(get_current_user)):
     """
     Check document authenticity using AI analysis
     
@@ -131,7 +132,7 @@ async def verify_document(data: ParseDocumentRequest):
 
 
 @router.post("/estimate")
-async def generate_estimate(data: EstimateRequest):
+async def generate_estimate(data: EstimateRequest, user=Depends(get_current_user)):
     """
     Generate smart cleaning estimate based on property details
     
@@ -163,7 +164,7 @@ async def generate_estimate(data: EstimateRequest):
 
 
 @router.post("/detect-property")
-async def detect_property(data: PropertyDetectRequest):
+async def detect_property(data: PropertyDetectRequest, user=Depends(get_current_user)):
     """
     Detect property details from address using AI
     
@@ -179,7 +180,7 @@ async def detect_property(data: PropertyDetectRequest):
 
 
 @router.post("/job-summary")
-async def generate_job_summary(data: JobSummaryRequest):
+async def generate_job_summary(data: JobSummaryRequest, user=Depends(get_current_user)):
     """
     Generate professional job completion summary
     

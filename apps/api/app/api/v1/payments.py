@@ -53,9 +53,27 @@ async def create_payment_intent(data: CreatePaymentIntentRequest, user=Depends(g
     if not flags.stripe_payments_enabled:
         raise HTTPException(status_code=503, detail="Payment processing is temporarily disabled")
 
+    # Ownership: only the job's owning client (or an admin) may create a payment
+    # intent for it. Without this any user could stamp a payment intent onto an
+    # arbitrary job and flip its payment_status.
+    job = await db.job.find_unique(where={"id": data.jobId})
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if user.get("role") != "admin":
+        client = await db.client.find_first(where={"user_id": user["id"]})
+        if not client or client["id"] != job.get("client_id"):
+            raise HTTPException(status_code=403, detail="Not authorized to pay for this job")
+
+    # Never trust a client-supplied charge amount. Derive it server-side from the
+    # job's total_price (in cents). The request `amount` is ignored.
+    total_price = job.get("total_price")
+    if total_price is None or total_price <= 0:
+        raise HTTPException(status_code=400, detail="Job has no payable total")
+    charge_amount = int(round(float(total_price) * 100))
+
     try:
         intent = stripe.PaymentIntent.create(
-            amount=data.amount,
+            amount=charge_amount,
             currency="usd",
             customer=data.customerId,
             metadata={"jobId": data.jobId},
@@ -64,15 +82,13 @@ async def create_payment_intent(data: CreatePaymentIntentRequest, user=Depends(g
         )
 
         # Update job with payment intent ID
-        job = await db.job.find_unique(where={"id": data.jobId})
-        if job:
-            await db.job.update(
-                where={"id": data.jobId},
-                data={
-                    "stripe_payment_intent_id": intent.id,
-                    "payment_status": "authorized",
-                }
-            )
+        await db.job.update(
+            where={"id": data.jobId},
+            data={
+                "stripe_payment_intent_id": intent.id,
+                "payment_status": "authorized",
+            }
+        )
 
         logger.info(f"Created payment intent {intent.id} for job {data.jobId}")
         return {
@@ -131,17 +147,47 @@ async def refund_payment(payment_intent_id: str, amount: Optional[int] = None, u
 
 @router.post("/release/{job_id}")
 async def release_payment(job_id: str, user=Depends(get_current_user), db=Depends(get_db)):
-    """Release escrow: capture payment + transfer to cleaner (minus platform fee)."""
+    """Release escrow: capture payment + transfer to cleaner (minus platform fee).
+
+    Authorization: only the job's owning client or an admin may release escrow
+    (matches the admin gate on capture/refund). Idempotent: a job whose payment
+    has already been captured/transferred/refunded cannot be released again, so
+    retries or races cannot double-pay the cleaner.
+    """
     job = await db.job.find_unique(where={"id": job_id})
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
 
+    # Ownership / role gate
+    if user.get("role") != "admin":
+        client = await db.client.find_first(where={"user_id": user["id"]})
+        if not client or client["id"] != job.get("client_id"):
+            raise HTTPException(status_code=403, detail="Not authorized to release payment for this job")
+
     if job.get("status") != "completed":
         raise HTTPException(status_code=400, detail="Job must be completed before releasing payment")
+
+    # Idempotency guard — never re-capture/re-transfer an already-settled job.
+    if job.get("payment_status") in ("captured", "transferred", "released", "refunded"):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Payment already {job.get('payment_status')} for this job",
+        )
 
     payment_intent_id = job.get("stripe_payment_intent_id")
     if not payment_intent_id:
         raise HTTPException(status_code=400, detail="No payment intent found for this job")
+
+    # Atomically claim the release so two concurrent callers cannot both proceed
+    # to Stripe capture/transfer. Only one wins the transition out of the
+    # authorized/held state.
+    claimed = await db.job.update_many(
+        where={"id": job_id, "stripe_payment_intent_id": payment_intent_id,
+               "payment_status": job.get("payment_status")},
+        data={"payment_status": "releasing"},
+    )
+    if not claimed:
+        raise HTTPException(status_code=409, detail="Payment release already in progress")
 
     try:
         # Step 1: Capture the held payment
@@ -191,6 +237,11 @@ async def release_payment(job_id: str, user=Depends(get_current_user), db=Depend
         }
     except stripe.error.StripeError as e:
         logger.error(f"Error releasing payment for job {job_id}: {e}")
+        # Roll the claim back so the release can be retried after a Stripe error.
+        await db.job.update_many(
+            where={"id": job_id, "payment_status": "releasing"},
+            data={"payment_status": job.get("payment_status")},
+        )
         raise HTTPException(status_code=400, detail=str(e))
 
 
@@ -286,15 +337,33 @@ async def list_my_payouts(user=Depends(get_current_user), db=Depends(get_db)):
         if j.get("status") != "completed":
             continue
         when = _parse_dt(j.get("paid_out_at") or j.get("completed_at") or j.get("created_at"))
+        gross = float(j.get("total_price") or 0)
+        # Report the cleaner's NET payout (after the platform fee), matching the
+        # amount actually transferred by Stripe — not the gross job price.
+        net = round(gross * (100 - PLATFORM_FEE_PERCENT) / 100, 2)
         payouts.append({
             "id": j["id"],
-            "amount": j.get("total_price") or 0,
+            "amount": net,
+            "grossAmount": gross,
+            "platformFee": round(gross - net, 2),
             "status": "completed" if j.get("paid_out_at") else "pending",
             "createdAt": (when or datetime.now(timezone.utc)).isoformat(),
             "jobTitle": j.get("title") or "Cleaning Job",
         })
     payouts.sort(key=lambda p: p["createdAt"], reverse=True)
     return payouts
+
+
+async def _available_payout_balance(cleaner_id: str, db) -> float:
+    """Net (post-fee) balance a cleaner may withdraw: completed jobs not yet paid out."""
+    jobs = await db.job.find_many(where={"cleaner_id": cleaner_id}) or []
+    total = 0.0
+    for j in jobs:
+        if j.get("status") != "completed" or j.get("paid_out_at"):
+            continue
+        gross = float(j.get("total_price") or 0)
+        total += gross * (100 - PLATFORM_FEE_PERCENT) / 100
+    return round(total, 2)
 
 
 @router.get("/payment-methods")
@@ -322,7 +391,30 @@ async def request_payout(data: PayoutRequest, user=Depends(get_current_user), db
     # float that passes <= 0 and then fails JSON serialization with a 500.
     if data.amount is None or not math.isfinite(data.amount) or data.amount <= 0:
         raise HTTPException(status_code=400, detail="Invalid payout amount")
-    return {"status": "requested", "amount": data.amount, "message": "Payout requested"}
+
+    # Only cleaners have a payout balance — a client has nothing to withdraw.
+    if user.get("role") != "cleaner":
+        raise HTTPException(status_code=403, detail="Only cleaners can request payouts")
+
+    cleaner = await db.cleaner.find_first(where={"user_id": user["id"]})
+    if not cleaner:
+        raise HTTPException(status_code=403, detail="Cleaner profile not found")
+
+    # Never let a cleaner withdraw more than their actual available (post-fee)
+    # balance from completed, not-yet-paid-out jobs.
+    available = await _available_payout_balance(cleaner["id"], db)
+    if data.amount > available:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Requested amount exceeds available balance (${available:.2f})",
+        )
+
+    return {
+        "status": "requested",
+        "amount": data.amount,
+        "available_balance": available,
+        "message": "Payout requested",
+    }
 
 
 @router.post("/transfer")

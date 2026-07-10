@@ -374,28 +374,64 @@ async def update_job_status(
     user = Depends(get_current_user),
     db = Depends(get_db)
 ):
-    """Update job status"""
-    
+    """Update job status.
+
+    Enforces a state machine so this generic endpoint cannot be used to bypass
+    the guarded /start and /complete transitions (e.g. a client self-completing
+    a job to unlock reviews, or rewinding a completed/cancelled job).
+    """
+
     valid_statuses = ["pending", "confirmed", "in_progress", "completed", "cancelled", "disputed"]
     if data.status not in valid_statuses:
         raise HTTPException(status_code=400, detail=f"Invalid status. Must be one of: {valid_statuses}")
-    
+
     job = await db.job.find_unique(where={"id": job_id})
     await _verify_job_access(job, user, db)
-    
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    current = job.get("status")
+
+    # Allowed forward/side transitions. `completed` and `cancelled` are terminal.
+    ALLOWED_TRANSITIONS = {
+        "pending": {"confirmed", "cancelled"},
+        "confirmed": {"in_progress", "cancelled", "disputed"},
+        "in_progress": {"completed", "cancelled", "disputed"},
+        "disputed": {"completed", "cancelled"},
+        "completed": set(),
+        "cancelled": set(),
+    }
+
+    if data.status == current:
+        return {"id": job_id, "status": current}
+
+    if data.status not in ALLOWED_TRANSITIONS.get(current, set()):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Illegal status transition {current} -> {data.status}",
+        )
+
+    # Only the assigned cleaner may drive work-progress transitions; only the
+    # client (or admin) may confirm/cancel/dispute.
+    role = user.get("role")
+    if data.status in {"in_progress", "completed"} and role not in {"cleaner", "admin"}:
+        raise HTTPException(status_code=403, detail="Only the assigned cleaner can advance job work status")
+
     update_data = {"status": data.status}
-    
-    # Set timestamps
     if data.status == "in_progress":
         update_data["started_at"] = datetime.now(timezone.utc)
     elif data.status == "completed":
         update_data["completed_at"] = datetime.now(timezone.utc)
-    
-    job = await db.job.update(where={"id": job_id}, data=update_data)
-    
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
-    
+
+    # Atomic compare-and-set on the observed status to avoid races with the
+    # guarded transition endpoints.
+    changed = await db.job.update_many(
+        where={"id": job_id, "status": current},
+        data=update_data,
+    )
+    if not changed:
+        raise HTTPException(status_code=409, detail="Job status changed concurrently; retry")
+
     return {"id": job_id, "status": data.status}
 
 
@@ -586,10 +622,23 @@ async def cancel_job(
     
     job = await db.job.find_unique(where={"id": job_id})
     await _verify_job_access(job, user, db)
-    
+
     if job.get("status") in ["completed", "cancelled"]:
         raise HTTPException(status_code=400, detail=f"Cannot cancel a {job.get('status')} job")
-    
+
+    # Do not silently strand escrowed funds. If money has been authorized/held/
+    # captured against this job, it must be resolved (refund/void) before the
+    # job can be cancelled. Only an admin can override.
+    payment_status = job.get("payment_status")
+    if payment_status in ("authorized", "held", "captured") and user.get("role") != "admin":
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Job has an unresolved payment (status: "
+                f"{payment_status}). Refund or release the escrow before cancelling."
+            ),
+        )
+
     job = await db.job.update(where={"id": job_id}, data={"status": "cancelled"})
-    
+
     return {"id": job_id, "status": "cancelled"}
