@@ -109,6 +109,11 @@ async def list_users(
 ):
     """List all users (admin only)"""
     users = await db.user.find_many()
+    # Never expose credential material, even to admins.
+    for u in users:
+        u.pop("password_hash", None)
+        u.pop("refresh_token", None)
+        u.pop("refresh_token_expires_at", None)
     return {"users": users, "total": len(users)}
 
 
@@ -123,10 +128,14 @@ async def get_user(
     if not target:
         raise HTTPException(status_code=404, detail="User not found")
 
-    # Redact sensitive fields for non-admin users
+    # Credential material is never returned to anyone (not even self/admin).
+    for secret in ("password_hash", "refresh_token", "refresh_token_expires_at"):
+        target.pop(secret, None)
+
+    # For a third party (not self, not admin) return only a public-safe subset —
+    # no phone, email, or account-status/PII fields.
     if user.get("role") != "admin" and user.get("id") != user_id:
-        target.pop("password_hash", None)
-        target.pop("refresh_token", None)
-        target.pop("email", None)
+        public_fields = {"id", "role", "full_name", "avatar_url", "business_name", "created_at"}
+        target = {k: v for k, v in target.items() if k in public_fields}
 
     return target

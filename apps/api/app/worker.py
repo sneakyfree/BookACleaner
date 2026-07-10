@@ -279,9 +279,17 @@ def release_payment_task(self, job_id: str):
                 logger.error(f"Job {job_id} not found for payment release")
                 return
 
-            payment_id = job.get("stripe_payment_id")
+            # The model/writers use `stripe_payment_intent_id`; reading the
+            # non-existent `stripe_payment_id` made this auto-payout a silent
+            # no-op (cleaners were never paid on completion).
+            payment_id = job.get("stripe_payment_intent_id") or job.get("stripe_payment_id")
             if not payment_id:
                 logger.warning(f"Job {job_id} has no Stripe payment ID, skipping release")
+                return
+
+            # Idempotency: don't re-capture/re-transfer an already-settled job.
+            if job.get("payment_status") in ("captured", "transferred", "released", "refunded"):
+                logger.info(f"Job {job_id} payment already {job.get('payment_status')}, skipping release")
                 return
 
             # Get cleaner's Stripe account

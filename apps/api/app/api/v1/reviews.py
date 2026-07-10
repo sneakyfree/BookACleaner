@@ -3,7 +3,7 @@ Reviews API for BookACleaner.ai
 Handles review creation, retrieval, and responses
 """
 from fastapi import APIRouter, Depends, HTTPException, Header, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import List, Optional
 from datetime import datetime, timezone
 import logging
@@ -21,10 +21,10 @@ logger = logging.getLogger(__name__)
 
 class CreateReviewRequest(BaseModel):
     job_id: str
-    overall_rating: int  # 1-5
-    cleanliness_rating: Optional[int] = None
-    communication_rating: Optional[int] = None
-    timeliness_rating: Optional[int] = None
+    overall_rating: int = Field(ge=1, le=5)
+    cleanliness_rating: Optional[int] = Field(default=None, ge=1, le=5)
+    communication_rating: Optional[int] = Field(default=None, ge=1, le=5)
+    timeliness_rating: Optional[int] = Field(default=None, ge=1, le=5)
     text: Optional[str] = None
     tags: List[str] = []
     photos: List[str] = []
@@ -365,6 +365,11 @@ async def reveal_review(
         from datetime import timedelta
         if isinstance(created, str):
             created = datetime.fromisoformat(created)
+        # created_at is stored naive (no tz); assume UTC so subtracting an
+        # aware "now" doesn't raise "can't subtract offset-naive and
+        # offset-aware datetimes" and dead-lock the auto-reveal path.
+        if created.tzinfo is None:
+            created = created.replace(tzinfo=timezone.utc)
         if datetime.now(timezone.utc) - created > timedelta(hours=48):
             await db.review.update(
                 where={"id": review_id},

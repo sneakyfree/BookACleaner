@@ -225,7 +225,7 @@ async def send_email(data: SendEmailRequest, user = Depends(get_admin_user)):
 @router.post("/booking-confirmation")
 async def send_booking_confirmation(
     data: SendBookingNotificationRequest,
-    user = Depends(get_current_user)
+    user = Depends(get_admin_user)  # branded SMS/email dispatch — admin/internal only
 ):
     """Send booking confirmation via email and SMS"""
     results = {}
@@ -259,7 +259,7 @@ async def send_booking_confirmation(
 
 
 @router.post("/reminder")
-async def send_reminder(data: SendReminderRequest, user = Depends(get_current_user)):
+async def send_reminder(data: SendReminderRequest, user = Depends(get_admin_user)):
     """Send appointment reminder via email and SMS"""
     results = {}
     
@@ -283,7 +283,7 @@ async def notify_job_started(
     client_phone: str,
     client_email: str,
     cleaner_name: str,
-    user = Depends(get_current_user)
+    user = Depends(get_admin_user)
 ):
     """Notify client that job has started"""
     results = {}
@@ -302,7 +302,7 @@ async def notify_job_completed(
     cleaner_name: str,
     service: str,
     job_id: str,
-    user = Depends(get_current_user)
+    user = Depends(get_admin_user)
 ):
     """Notify client that job is completed and request review"""
     results = {}
@@ -332,7 +332,7 @@ async def notify_job_completed(
 async def notify_payment_received(
     cleaner_phone: str,
     amount: float,
-    user = Depends(get_current_user)
+    user = Depends(get_admin_user)
 ):
     """Notify cleaner of payment received"""
     result = await sms_service.send_payment_received(cleaner_phone, amount)

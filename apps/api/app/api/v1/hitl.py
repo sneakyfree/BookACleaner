@@ -111,7 +111,7 @@ async def get_approval_queue(
 
 
 @router.get("/queue/{approval_id}")
-async def get_approval_request(approval_id: str, db=Depends(get_db)):
+async def get_approval_request(approval_id: str, admin=Depends(get_admin_user), db=Depends(get_db)):
     """Get a specific approval request"""
     item = await db.approval_queue.find_unique(where={"id": approval_id})
     if not item:
@@ -173,7 +173,7 @@ async def decide_approval(
 
 
 @router.post("/request")
-async def create_approval_request(request: ApprovalRequestSchema, db=Depends(get_db)):
+async def create_approval_request(request: ApprovalRequestSchema, admin=Depends(get_admin_user), db=Depends(get_db)):
     """Create a new approval request (internal use)"""
     item = await db.approval_queue.create(data={
         "id": request.id or str(uuid.uuid4()),
@@ -197,7 +197,7 @@ async def create_approval_request(request: ApprovalRequestSchema, db=Depends(get
 
 
 @router.get("/stats")
-async def get_approval_stats(db=Depends(get_db)):
+async def get_approval_stats(admin=Depends(get_admin_user), db=Depends(get_db)):
     """Get statistics about the approval queue"""
     items = await db.approval_queue.find_many()
     

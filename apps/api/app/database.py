@@ -27,6 +27,10 @@ from app.models import (
 
 logger = logging.getLogger(__name__)
 
+# Whether we're running in development mode. Gates schema auto-create and demo
+# seeding so neither runs against a production database.
+_DEV_MODE = os.getenv("DEV_MODE", "true").lower() == "true"
+
 # Database configuration — PostgreSQL preferred, SQLite fallback for local dev
 # Override via DATABASE_URL env var; defaults to local docker-compose PostgreSQL
 DATABASE_URL = os.getenv(
@@ -72,6 +76,13 @@ if not _use_sqlite:
 
 engine = create_async_engine(DATABASE_URL, **_engine_kwargs)
 
+# NOTE (hardening backlog): SQLite does not enforce foreign keys unless asked
+# per-connection (`PRAGMA foreign_keys=ON`). Enabling it is desirable but
+# currently surfaces latent violations — the OTP pre-registration sentinel
+# (`phone_verifications.user_id='__otp__'`), and raw deletes that rely on ORM
+# cascade (privacy erasure) — that each need a schema/cascade fix and a
+# migration first. Enable this alongside those fixes, not on its own.
+
 # Create async session factory
 async_session_factory = async_sessionmaker(
     engine,
@@ -89,14 +100,24 @@ class Database:
         self._connected = False
     
     async def connect(self):
-        """Create all tables and mark as connected"""
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
+        """Create all tables and mark as connected.
+
+        Schema creation and demo seeding only run in development/test. In
+        production the schema is owned by Alembic migrations and the demo
+        accounts (which share a well-known password) must never be seeded —
+        otherwise a fresh prod boot would publish working admin credentials.
+        """
+        seed_ok = _DEV_MODE or os.getenv("TESTING", "").lower() == "true"
+
+        if seed_ok:
+            async with engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
         self._connected = True
-        logger.info("Database connected and tables created")
-        
-        # Seed demo data if empty
-        await self._seed_if_empty()
+        logger.info("Database connected%s", " and tables created" if seed_ok else "")
+
+        # Seed demo data only in dev/test, and only if empty
+        if seed_ok:
+            await self._seed_if_empty()
     
     async def disconnect(self):
         """Dispose of the engine"""
@@ -191,21 +212,43 @@ class Database:
                 is_verified=True,
                 email_verified_at=datetime.now(timezone.utc)
             ),
+            User(
+                id="user-cleaner-4",
+                email="cleaner@demo.com",
+                password_hash=demo_password,
+                role="cleaner",
+                full_name="Cleo Cleaner",
+                phone="+1555222333",
+                is_verified=True,
+                email_verified_at=datetime.now(timezone.utc)
+            ),
         ]
         for u in cleaner_users:
             session.add(u)
-        
-        # Admin user
-        admin_user = User(
-            id="user-admin-1",
-            email="admin@bookacleaner.ai",
-            password_hash=demo_password,
-            role="admin",
-            full_name="Admin User",
-            is_verified=True,
-            email_verified_at=datetime.now(timezone.utc)
-        )
-        session.add(admin_user)
+
+        # Admin users — admin@demo.com completes the client@/cleaner@/admin@ demo set
+        admin_users = [
+            User(
+                id="user-admin-1",
+                email="admin@bookacleaner.ai",
+                password_hash=demo_password,
+                role="admin",
+                full_name="Admin User",
+                is_verified=True,
+                email_verified_at=datetime.now(timezone.utc)
+            ),
+            User(
+                id="user-admin-2",
+                email="admin@demo.com",
+                password_hash=demo_password,
+                role="admin",
+                full_name="Demo Admin",
+                is_verified=True,
+                email_verified_at=datetime.now(timezone.utc)
+            ),
+        ]
+        for u in admin_users:
+            session.add(u)
         
         await session.flush()
         
@@ -258,6 +301,19 @@ class Database:
                 completed_jobs=156,
                 services=["airbnb", "vacation-rental", "deep"],
                 service_areas=["Santa Monica", "Venice", "Marina del Rey"]
+            ),
+            CleanerProfile(
+                id="cleaner-4",
+                user_id="user-cleaner-4",
+                business_name="Cleo's Demo Cleaning",
+                bio="Demo cleaner account for exploring the cleaner dashboard, jobs, earnings, and subscription flows.",
+                hourly_rate=50.00,
+                verification_tier=3,
+                rating=4.7,
+                review_count=48,
+                completed_jobs=97,
+                services=["standard", "deep", "office"],
+                service_areas=["Los Angeles", "Culver City"]
             ),
         ]
         for cp in cleaner_profiles:
@@ -561,24 +617,31 @@ class TableAccessor:
         Used for guarded transitions like atomic job-accept
         (where={"id": id, "status": "pending"}) — a 0 return means no row
         matched (already taken or absent), which the caller maps to a conflict.
+
+        This MUST compile the `where` predicate into a single SQL
+        `UPDATE ... WHERE ...` statement so the guard is enforced atomically by
+        the database. A prior fetch-then-setattr implementation emitted
+        `UPDATE ... WHERE id=?` (by primary key only), dropping the status
+        predicate — two concurrent callers could both read the still-`pending`
+        row and both "succeed", double-accepting the same job.
         """
         async with self._db.session() as session:
-            query = select(self._model)
             conditions = []
             for key, value in where.items():
                 if hasattr(self._model, key):
                     conditions.append(getattr(self._model, key) == value)
-            if conditions:
-                query = query.where(and_(*conditions))
 
-            result = await session.execute(query)
-            records = result.scalars().all()
-            for record in records:
-                for key, value in data.items():
-                    if hasattr(record, key):
-                        setattr(record, key, value)
-            await session.flush()
-            return len(records)
+            values = {k: v for k, v in data.items() if hasattr(self._model, k)}
+            if not values:
+                return 0
+
+            stmt = update(self._model)
+            if conditions:
+                stmt = stmt.where(and_(*conditions))
+            stmt = stmt.values(**values)
+
+            result = await session.execute(stmt)
+            return result.rowcount
 
     async def delete(self, where: Dict) -> bool:
         """Delete a record"""

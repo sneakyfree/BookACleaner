@@ -50,6 +50,17 @@ async def create_dispute(
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
 
+    # Only a party to the job (its client or assigned cleaner) — or an admin —
+    # may open a dispute. Otherwise any user could flip an arbitrary job to
+    # "disputed" and block its payment/flow (griefing).
+    if user.get("role") != "admin":
+        client = await db.client.find_first(where={"user_id": user["id"]})
+        cleaner = await db.cleaner.find_first(where={"user_id": user["id"]})
+        is_client = bool(client) and client["id"] == job.get("client_id")
+        is_cleaner = bool(cleaner) and cleaner["id"] == job.get("cleaner_id")
+        if not (is_client or is_cleaner):
+            raise HTTPException(status_code=403, detail="Only a party to the job can raise a dispute")
+
     # Create dispute using the Dispute model via TableAccessor
     dispute = await db.dispute.create(data={
         "job_id": data.job_id,
