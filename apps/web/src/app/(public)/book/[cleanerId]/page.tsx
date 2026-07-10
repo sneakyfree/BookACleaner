@@ -17,7 +17,6 @@ import {
   Home,
   Loader2,
   MapPin,
-  Sparkles,
   Star,
   CreditCard,
 } from 'lucide-react'
@@ -203,14 +202,12 @@ export default function BookCleanerPage() {
         method: 'POST',
         headers,
         body: JSON.stringify({
-          cleanerId: cleanerId,
-          propertyId: booking.propertyId,
+          cleaner_id: cleanerId,
+          property_id: booking.propertyId,
           services: booking.services,
-          scheduledDate: booking.date,
-          scheduledTime: booking.time,
+          scheduled_date: booking.date,
+          scheduled_time: booking.time,
           description: booking.instructions,
-          jobType: 'DIRECT',
-          totalPrice: total,
         }),
       })
 
@@ -496,51 +493,27 @@ export default function BookCleanerPage() {
                 <div>
                   <h2 className="mb-2 text-xl font-semibold">Payment</h2>
                   <p className="text-muted-foreground">
-                    Enter your payment details to complete the booking
+                    Review your total and confirm your booking
                   </p>
-                </div>
-
-                <div className="rounded-xl bg-slate-100 p-4 dark:bg-slate-800">
-                  <div className="mb-4 flex items-center gap-3">
-                    <CreditCard className="h-6 w-6" />
-                    <span className="font-medium">Credit or Debit Card</span>
-                  </div>
-
-                  <div className="space-y-4">
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium">Card Number</label>
-                      <Input placeholder="1234 5678 9012 3456" />
-                    </div>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-2">
-                        <label className="text-sm font-medium">Expiry</label>
-                        <Input placeholder="MM/YY" />
-                      </div>
-                      <div className="space-y-2">
-                        <label className="text-sm font-medium">CVC</label>
-                        <Input placeholder="123" />
-                      </div>
-                    </div>
-                  </div>
                 </div>
 
                 <div className="border-brand-200 bg-brand-50 dark:bg-brand-500/10 rounded-xl border p-4">
                   <div className="flex items-start gap-3">
-                    <Sparkles className="text-brand-600 mt-0.5 h-5 w-5" />
+                    <CreditCard className="text-brand-600 mt-0.5 h-5 w-5" />
                     <div>
                       <p className="text-brand-700 dark:text-brand-400 font-medium">
                         Secure Payment
                       </p>
                       <p className="text-brand-600/80 text-sm">
-                        Your payment is held securely until the job is completed. You can request a
-                        refund if not satisfied.
+                        You&apos;ll complete secure payment after your booking is confirmed. No
+                        charge is made now.
                       </p>
                     </div>
                   </div>
                 </div>
 
                 <div className="flex justify-between py-3 text-xl font-bold">
-                  <span>Total to Pay</span>
+                  <span>Total</span>
                   <span className="text-brand-600">${total}</span>
                 </div>
               </div>
@@ -567,7 +540,7 @@ export default function BookCleanerPage() {
                   ) : (
                     <>
                       <CheckCircle className="mr-2 h-4 w-4" />
-                      Confirm & Pay ${total}
+                      Confirm Booking
                     </>
                   )}
                 </Button>

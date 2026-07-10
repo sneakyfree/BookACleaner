@@ -8,6 +8,7 @@ from typing import Optional, List
 from datetime import datetime, timezone
 import logging
 import math
+from sqlalchemy.exc import IntegrityError
 
 from app.database import get_db
 from app.config import get_settings
@@ -122,16 +123,21 @@ async def submit_bid(
     if existing:
         raise HTTPException(status_code=409, detail="You already have a bid on this job")
     
-    # Create bid in the database
-    bid = await db.bid.create(data={
-        "job_id": job_id,
-        "cleaner_id": cleaner["id"],
-        "amount": data.amount,
-        "message": data.message,
-        "estimated_hours": data.estimated_hours,
-        "status": "pending",
-    })
-    
+    # Create bid in the database. The unique (job_id, cleaner_id) constraint is
+    # the real race guard — the find_first above can be raced by two concurrent
+    # submits, so catch the IntegrityError and map it to the same 409.
+    try:
+        bid = await db.bid.create(data={
+            "job_id": job_id,
+            "cleaner_id": cleaner["id"],
+            "amount": data.amount,
+            "message": data.message,
+            "estimated_hours": data.estimated_hours,
+            "status": "pending",
+        })
+    except IntegrityError:
+        raise HTTPException(status_code=409, detail="You already have a bid on this job")
+
     logger.info(f"Bid {bid['id']} created for job {job_id} by cleaner {cleaner['id']}")
     
     return {

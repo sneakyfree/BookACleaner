@@ -113,7 +113,10 @@ async def export_ics(cleaner_id: str, db=Depends(get_db)):
                 continue
         ev = IEvent()
         ev.add("uid", f"job-{job.get('id')}@bookacleaner.ai")
-        ev.add("summary", job.get("title") or "Cleaning job")
+        # This .ics feed is fetched unauthenticated by calendar apps, so don't
+        # leak the client's property name / job specifics (a physical-security
+        # signal about when a home is occupied). Keep the busy block generic.
+        ev.add("summary", "Booked — BookACleaner")
         ev.add("dtstart", sched)
         ev.add("dtstamp", datetime.now(timezone.utc))
         cal.add_component(ev)

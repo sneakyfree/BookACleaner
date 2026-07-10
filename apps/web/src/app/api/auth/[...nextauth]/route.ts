@@ -33,11 +33,17 @@ const handler = NextAuth({
           })
 
           if (!res.ok) {
-            // Surface the MFA-required signal so the login page can
-            // prompt for a code instead of showing "invalid".
+            // Surface specific signals so the login page can show an
+            // accurate message instead of a generic "invalid".
             const body = await res.json().catch(() => ({}))
             if (res.status === 401 && body?.detail === 'MFA_REQUIRED') {
               throw new Error('MFA_REQUIRED')
+            }
+            if (res.status === 429) {
+              throw new Error('RATE_LIMITED')
+            }
+            if (res.status === 403) {
+              throw new Error('ACCOUNT_SUSPENDED')
             }
             throw new Error('Invalid credentials')
           }
@@ -52,8 +58,11 @@ const handler = NextAuth({
             accessTokenExpires: Date.now() + data.expires_in * 1000,
           }
         } catch (error) {
-          // Preserve the MFA_REQUIRED signal; collapse everything else.
-          if (error instanceof Error && error.message === 'MFA_REQUIRED') {
+          // Preserve specific signals; collapse everything else.
+          if (
+            error instanceof Error &&
+            ['MFA_REQUIRED', 'RATE_LIMITED', 'ACCOUNT_SUSPENDED'].includes(error.message)
+          ) {
             throw error
           }
           throw new Error('Invalid credentials')

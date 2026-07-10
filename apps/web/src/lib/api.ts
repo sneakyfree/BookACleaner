@@ -324,7 +324,7 @@ class ApiClient {
     list: (page = 1, limit = 20) =>
       this.request<any>(`/api/v1/notifications?page=${page}&limit=${limit}`),
 
-    unreadCount: () => this.request<{ count: number }>('/api/v1/notifications/unread-count'),
+    unreadCount: () => this.request<{ unread_count: number }>('/api/v1/notifications/unread-count'),
 
     markAsRead: (id: string) =>
       this.request<void>(`/api/v1/notifications/${id}/read`, { method: 'POST' }),

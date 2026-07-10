@@ -7,6 +7,7 @@ import { useSession, signOut } from 'next-auth/react'
 import { requestPushPermission, setupForegroundListener } from '@/lib/push'
 import { cn } from '@/lib/utils'
 import { apiFetch } from '@/lib/auth/api-client'
+import { useUnreadCount } from '@/hooks/use-api'
 import { Button } from '@/components/ui/button'
 import {
   Sparkles,
@@ -83,6 +84,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const pathname = usePathname()
   const { data: session } = useSession()
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const { data: unreadData } = useUnreadCount()
+  const unreadCount = unreadData?.unread_count ?? 0
 
   const isCleaner = session?.user?.role?.toLowerCase() === 'cleaner'
   const isAdmin = session?.user?.role?.toLowerCase() === 'admin'
@@ -209,7 +212,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               className="relative rounded-lg p-2 hover:bg-slate-100 dark:hover:bg-slate-700"
             >
               <Bell className="h-5 w-5" />
-              <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-red-500" />
+              {unreadCount > 0 && (
+                <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-semibold leading-none text-white">
+                  {unreadCount > 9 ? '9+' : unreadCount}
+                </span>
+              )}
             </Link>
             <Link
               href={`${basePath}/settings`}

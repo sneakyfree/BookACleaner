@@ -365,7 +365,12 @@ async def verify_email(data: VerifyEmailRequest, db = Depends(get_db)):
     expires_at = verification.get("expires_at")
     if isinstance(expires_at, str):
         expires_at = datetime.fromisoformat(expires_at)
-    
+    # Coerce naive DB datetimes to UTC-aware before comparing, else this 500s
+    # with "can't compare offset-naive and offset-aware datetimes" on the happy
+    # path (verify-email / reset-password were fully broken).
+    if expires_at is not None and expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+
     if expires_at and expires_at < datetime.now(timezone.utc):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -484,7 +489,12 @@ async def reset_password(data: ResetPasswordRequest, db = Depends(get_db)):
     expires_at = reset.get("expires_at")
     if isinstance(expires_at, str):
         expires_at = datetime.fromisoformat(expires_at)
-    
+    # Coerce naive DB datetimes to UTC-aware before comparing, else this 500s
+    # with "can't compare offset-naive and offset-aware datetimes" on the happy
+    # path (verify-email / reset-password were fully broken).
+    if expires_at is not None and expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+
     if expires_at and expires_at < datetime.now(timezone.utc):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

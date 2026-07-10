@@ -302,7 +302,9 @@ class Review(Base):
     
     response = Column(Text, nullable=True)
     responded_at = Column(DateTime, nullable=True)
-    
+    # Moderation/admin flags (e.g. rating-vs-text contradiction detection).
+    review_metadata = Column(JSON, nullable=True)
+
     revealed = Column(Boolean, default=False)
     is_public = Column(Boolean, default=True)
     moderated_at = Column(DateTime, nullable=True)
@@ -443,6 +445,8 @@ class PhoneVerification(Base):
     code = Column(String(6), nullable=False)
     expires_at = Column(DateTime, nullable=False)
     verified_at = Column(DateTime, nullable=True)
+    # Wrong-guess counter for brute-force protection on the 6-digit code.
+    attempts = Column(Integer, default=0, nullable=False)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
@@ -468,7 +472,10 @@ class Notification(Base):
 
 class Bid(Base):
     __tablename__ = "bids"
-    
+    # One bid per cleaner per job — enforced at the DB level so a check-then-act
+    # race in submit_bid can't create duplicates.
+    __table_args__ = (UniqueConstraint('job_id', 'cleaner_id', name='uq_bid_job_cleaner'),)
+
     id = Column(String(36), primary_key=True, default=generate_uuid)
     job_id = Column(String(36), ForeignKey("jobs.id"), nullable=False)
     cleaner_id = Column(String(36), ForeignKey("cleaner_profiles.id"), nullable=False)

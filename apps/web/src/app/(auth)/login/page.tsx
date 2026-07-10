@@ -55,6 +55,10 @@ export default function LoginPage() {
         if (result.error === 'MFA_REQUIRED') {
           setMfaRequired(true)
           setError(mfaCode ? 'Invalid authentication code' : null)
+        } else if (result.error === 'RATE_LIMITED') {
+          setError('Too many attempts, please wait a moment.')
+        } else if (result.error === 'ACCOUNT_SUSPENDED') {
+          setError('This account is suspended. Contact support.')
         } else {
           setError('Invalid email or password')
         }

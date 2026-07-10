@@ -63,14 +63,26 @@ async def list_conversations(
         
         # Count unread
         unread_count = sum(1 for m in messages if not m.get("read_at") and m.get("sender_id") != user["id"])
-        
-        # Get other participant
+
+        # Resolve the OTHER participant so the UI can show their name/avatar
+        # instead of a hardcoded "Conversation"/"C". Prefer the participants
+        # table; fall back to the sender of any message that isn't the caller.
         other_user = None
-        # In production, query ConversationParticipant table
-        
+        parts = await db.conversation_participant.find_many(where={"conversation_id": conv["id"]})
+        other_ids = [p.get("user_id") for p in parts if p.get("user_id") != user["id"]]
+        if not other_ids:
+            other_ids = [m.get("sender_id") for m in messages if m.get("sender_id") != user["id"]]
+        if other_ids:
+            other_user = await db.user.find_unique(where={"id": other_ids[0]})
+
         user_conversations.append({
             "id": conv["id"],
             "job_id": conv.get("job_id"),
+            "other_participant": {
+                "id": other_user["id"],
+                "name": other_user.get("full_name") or other_user.get("email"),
+                "avatar_url": other_user.get("avatar_url"),
+            } if other_user else None,
             "last_message": {
                 "content": last_message.get("content") if last_message else None,
                 "sent_at": last_message.get("created_at") if last_message else None,

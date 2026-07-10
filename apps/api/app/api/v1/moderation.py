@@ -5,7 +5,7 @@ Closes gaps F-ADM-3 from implementation plan.
 """
 from fastapi import APIRouter, HTTPException, Depends, Header, Query
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, Literal
 from datetime import datetime, timezone
 import logging
 
@@ -78,11 +78,15 @@ async def list_flagged_content(
 @router.post("/flagged/{flag_id}/review")
 async def review_flagged_content(
     flag_id: str,
-    action: str,  # dismiss, remove
+    action: Literal["dismiss", "remove"],
     user=Depends(get_admin_user),
     db=Depends(get_db)
 ):
-    """Review flagged content — dismiss or remove (admin only)."""
+    """Review flagged content — dismiss or remove (admin only).
+
+    `action` is constrained so a typo/unexpected value can't fall through to the
+    destructive "remove" branch and delete content.
+    """
     now = datetime.now(timezone.utc)
     new_status = "dismissed" if action == "dismiss" else "removed"
     await db.execute(

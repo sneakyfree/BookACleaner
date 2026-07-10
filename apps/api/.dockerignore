@@ -1,0 +1,15 @@
+# Keep the dev virtualenv, caches, tests, and the local SQLite dev DB out of the
+# build context/image (they were being shipped into the prod image).
+.venv
+venv
+__pycache__
+*.pyc
+.pytest_cache
+.mypy_cache
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+tests
+.env
+.env.*

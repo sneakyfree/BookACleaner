@@ -1,0 +1,8 @@
+# Keep host node_modules and prior build output out of the build context so the
+# in-image `npm ci` isn't clobbered and ~220MB of .next isn't uploaded.
+node_modules
+.next
+.turbo
+npm-debug.log*
+.env
+.env.*
