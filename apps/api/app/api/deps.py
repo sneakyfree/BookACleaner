@@ -33,6 +33,17 @@ async def get_current_user(authorization: str = Header(None), db=Depends(get_db)
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
 
+    # A suspended/banned account is denied immediately on every request — not
+    # only at login/refresh — so moderation takes effect within the access
+    # token's lifetime instead of lagging up to 15 minutes.
+    if user.get("status") in ("banned", "suspended"):
+        raise HTTPException(status_code=403, detail=f"Account is {user.get('status')}.")
+
+    # Reject tokens minted before a session revocation (force-logout, ban,
+    # password reset). Missing claim == version 0 for backward compatibility.
+    if int(payload.get("tv", 0)) != int(user.get("token_version", 0) or 0):
+        raise HTTPException(status_code=401, detail="Session revoked. Please log in again.")
+
     return user
 
 

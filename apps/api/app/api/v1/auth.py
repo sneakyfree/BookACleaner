@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Header
 from pydantic import BaseModel, EmailStr, Field, field_validator
+from typing import Optional
 import bcrypt
 from datetime import datetime, timedelta, timezone
 from jose import jwt, JWTError
@@ -10,10 +11,16 @@ import logging
 from app.database import get_db
 from app.config import get_settings
 from app.services.email import email_service
+from app.core import totp
 
 router = APIRouter()
 settings = get_settings()
 logger = logging.getLogger(__name__)
+
+
+def _verify_totp(secret: str | None, code: str | None) -> bool:
+    """Verify a TOTP code (wrapper so the login flow stays readable)."""
+    return totp.verify(secret, code)
 
 
 def hash_password(password: str) -> str:
@@ -46,6 +53,7 @@ class RegisterRequest(BaseModel):
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str
+    mfa_code: Optional[str] = None
 
 
 class TokenResponse(BaseModel):
@@ -178,8 +186,10 @@ async def register(data: RegisterRequest, db = Depends(get_db)):
         logger.warning(f"Failed to send verification email: {e}")
     
     # Create access token
-    access_token = create_access_token({"sub": user["id"], "role": user["role"]})
-    
+    access_token = create_access_token({
+        "sub": user["id"], "role": user["role"], "tv": user.get("token_version", 0)
+    })
+
     return TokenResponse(
         access_token=access_token,
         expires_in=settings.access_token_expire_minutes * 60,
@@ -220,8 +230,25 @@ async def login(data: LoginRequest, db = Depends(get_db)):
             detail=f"Account is {user_status}. Contact support.",
         )
 
+    # Admin MFA gate: when an admin has TOTP enabled, a valid 6-digit code is
+    # required. Non-admins and un-enrolled admins are unaffected.
+    if user.get("mfa_enabled"):
+        code = (data.mfa_code or "").strip()
+        if not code:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="MFA_REQUIRED",
+            )
+        if not _verify_totp(user.get("mfa_secret"), code):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid MFA code",
+            )
+
     # Create access token
-    access_token = create_access_token({"sub": user["id"], "role": user["role"]})
+    access_token = create_access_token({
+        "sub": user["id"], "role": user["role"], "tv": user.get("token_version", 0)
+    })
 
     return TokenResponse(
         access_token=access_token,
@@ -292,8 +319,18 @@ async def refresh_token(data: RefreshTokenRequest, db = Depends(get_db)):
             detail=f"Account is {user_status}. Contact support.",
         )
 
+    # Reject tokens minted before a session revocation (force-logout, ban,
+    # password reset). An absent claim is treated as version 0 for back-compat.
+    if int(payload.get("tv", 0)) != int(user.get("token_version", 0) or 0):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Session revoked. Please log in again.",
+        )
+
     # Issue fresh access token
-    new_access_token = create_access_token({"sub": user["id"], "role": user["role"]})
+    new_access_token = create_access_token({
+        "sub": user["id"], "role": user["role"], "tv": user.get("token_version", 0)
+    })
 
     return {
         "access_token": new_access_token,
@@ -456,19 +493,24 @@ async def reset_password(data: ResetPasswordRequest, db = Depends(get_db)):
     
     # Hash new password
     password_hash = hash_password(data.password)
-    
-    # Update user password
+
+    # Update password and revoke every outstanding session (bump token_version)
+    # so a compromised token can't outlive the reset.
+    target = await db.user.find_unique(where={"id": reset["user_id"]})
     await db.user.update(
         where={"id": reset["user_id"]},
-        data={"password_hash": password_hash}
+        data={
+            "password_hash": password_hash,
+            "token_version": int((target or {}).get("token_version", 0) or 0) + 1,
+        }
     )
-    
+
     # Mark token as used
     await db.password_reset.update(
         where={"id": reset["id"]},
         data={"used_at": datetime.now(timezone.utc)}
     )
-    
+
     return {"message": "Password reset successfully"}
 
 
@@ -562,7 +604,7 @@ async def oauth_google(
         )
     
     # Create access token
-    access_token = create_access_token({"sub": user["id"], "role": user["role"]})
+    access_token = create_access_token({"sub": user["id"], "role": user["role"], "tv": user.get("token_version", 0)})
     
     return TokenResponse(
         access_token=access_token,
@@ -675,7 +717,7 @@ async def otp_verify(data: OTPVerifyRequest, db=Depends(get_db)):
             )
 
     # Issue JWT
-    access_token = create_access_token({"sub": user["id"], "role": user["role"]})
+    access_token = create_access_token({"sub": user["id"], "role": user["role"], "tv": user.get("token_version", 0)})
 
     return TokenResponse(
         access_token=access_token,

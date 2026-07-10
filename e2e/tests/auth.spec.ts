@@ -120,6 +120,16 @@ test.describe('Authentication', () => {
       await page.click('button[type="submit"]')
 
       await expect(page).toHaveURL(/client|dashboard/, { timeout: 10000 })
+      // Login lands on /dashboard then role-redirects to /client; wait for that
+      // hop to settle so the logout click isn't aborted mid-navigation.
+      await page.waitForURL(/\/(client|cleaner|admin)(\/|$)/, { timeout: 10000 }).catch(() => {})
+
+      // Dismiss the cookie-consent banner — it's fixed at the bottom and would
+      // otherwise intercept the pointer events for the sign-out button.
+      const cookieAccept = page.getByRole('button', { name: /accept all/i })
+      if (await cookieAccept.isVisible({ timeout: 3000 }).catch(() => false)) {
+        await cookieAccept.click()
+      }
 
       // Find and click logout - look for user menu or logout button
       const logoutButton = page.getByText(/log out|sign out|logout/i).first()
