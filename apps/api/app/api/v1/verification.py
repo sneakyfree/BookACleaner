@@ -218,23 +218,36 @@ async def verify_phone(
     if not verifications:
         raise HTTPException(status_code=400, detail="No verification in progress")
     
-    # Get most recent (they're returned in order)
-    latest = verifications[-1]
-    
+    # Get most recent (sort explicitly rather than trusting find_many order)
+    latest = max(verifications, key=lambda v: str(v.get("created_at") or ""))
+
     # Check if already verified
     if latest.get("verified_at"):
         raise HTTPException(status_code=400, detail="Already verified")
-    
-    # Check expiration
+
+    # Lock out after too many wrong guesses (6-digit code is brute-forceable).
+    if int(latest.get("attempts", 0) or 0) >= 5:
+        raise HTTPException(status_code=429, detail="Too many attempts. Request a new code.")
+
+    # Check expiration. DB datetimes come back naive (aiosqlite); coerce to
+    # UTC-aware before comparing so this doesn't raise
+    # "can't compare offset-naive and offset-aware datetimes" (500 on every
+    # verify — the whole phone/tier ladder was blocked).
     expires_at = latest.get("expires_at")
     if isinstance(expires_at, str):
         expires_at = datetime.fromisoformat(expires_at)
-    
+    if expires_at is not None and expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+
     if expires_at and expires_at < datetime.now(timezone.utc):
         raise HTTPException(status_code=400, detail="Code expired")
-    
+
     # Check code
     if latest["code"] != data.code:
+        await db.phone_verification.update(
+            where={"id": latest["id"]},
+            data={"attempts": int(latest.get("attempts", 0) or 0) + 1},
+        )
         raise HTTPException(status_code=400, detail="Invalid code")
     
     # Update user

@@ -13,7 +13,9 @@ services:
       POSTGRES_PASSWORD: ${DB_PASS:?ERROR DB_PASS must be set for production}
       POSTGRES_DB: ${DB_NAME:-bookacleaner}
     ports:
-      - "${DB_PORT:-5432}:5432"
+      # Bind to loopback only — never expose Postgres on the public interface
+      # (published ports bypass ufw/firewalld).
+      - "127.0.0.1:${DB_PORT:-5432}:5432"
     volumes:
       - postgres_data_prod:/var/lib/postgresql/data
     healthcheck:
@@ -27,7 +29,7 @@ services:
     container_name: bookacleaner-redis-prod
     restart: always
     ports:
-      - "${REDIS_PORT:-6379}:6379"
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
     volumes:
       - redis_data_prod:/data
     command: redis-server --appendonly yes --requirepass ${REDIS_PASS:?ERROR REDIS_PASS must be set for production}
@@ -62,7 +64,8 @@ services:
     container_name: bookacleaner-api-prod
     restart: always
     ports:
-      - "${API_PORT:-8000}:8000"
+      # nginx proxies to this — keep it off the public interface.
+      - "127.0.0.1:${API_PORT:-8000}:8000"
     environment:
       - DEV_MODE=false
       - DATABASE_URL=postgresql+asyncpg://${DB_USER:-bookacleaner}:${DB_PASS:?ERROR DB_PASS must be set}@db:5432/${DB_NAME:-bookacleaner}
@@ -103,7 +106,9 @@ services:
       migrate:
         condition: service_completed_successfully
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health/live"]
+      # The image is python:slim with no curl; use urllib so the healthcheck
+      # can actually pass instead of leaving the container permanently unhealthy.
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/live')"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -168,16 +173,22 @@ services:
       context: ./apps/web
       dockerfile: Dockerfile
       args:
-        NEXT_PUBLIC_API_URL: ${API_URL:-http://api:8000}
+        # Baked into the browser bundle — must be a host the BROWSER can reach
+        # (nginx proxies /api to the backend), not the internal compose hostname.
+        NEXT_PUBLIC_API_URL: ${API_URL:-https://bookacleaner.ai}
         NEXT_PUBLIC_STRIPE_KEY: ${STRIPE_PUBLISHABLE_KEY}
     container_name: bookacleaner-web-prod
     restart: always
     ports:
-      - "${WEB_PORT:-3000}:3000"
+      - "127.0.0.1:${WEB_PORT:-3000}:3000"
     environment:
-      - NEXTAUTH_URL=${FRONTEND_URL:-https://bookacleaner.com}
+      - NEXTAUTH_URL=${FRONTEND_URL:-https://bookacleaner.ai}
       - NEXTAUTH_SECRET=${NEXTAUTH_SECRET}
-      - NEXT_PUBLIC_API_URL=${API_URL:-http://api:8000}
+      - NEXT_PUBLIC_API_URL=${API_URL:-https://bookacleaner.ai}
+      # Google sign-in needs these at runtime (NextAuth route reads them).
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
+      - INTERNAL_API_KEY=${INTERNAL_API_KEY}
       - SENTRY_DSN=${SENTRY_DSN_FRONTEND}
     depends_on:
       - api

@@ -203,17 +203,32 @@ async def get_job_agreements(
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
 
+    # Only a party to the job (its client or assigned cleaner) or an admin may
+    # read its agreements — otherwise any user could pull a counterparty's
+    # signed agreement (name/email/IP) by guessing sequential job ids.
+    is_admin = user.get("role") == "admin"
+    client = await db.client.find_first(where={"user_id": user["id"]})
+    cleaner = await db.cleaner.find_first(where={"user_id": user["id"]})
+    is_party = (bool(client) and client["id"] == job.get("client_id")) or \
+               (bool(cleaner) and cleaner["id"] == job.get("cleaner_id"))
+    if not (is_admin or is_party):
+        raise HTTPException(status_code=403, detail="Not authorized to view this job's agreements")
+
     agreements = await db.service_agreement.find_many(where={"job_id": job_id})
 
-    # Enrich with user info
+    # Enrich with signer name. Email/IP are only exposed to the signer themselves
+    # or an admin — a counterparty doesn't need the other party's contact/IP.
     enriched = []
     for a in agreements:
         u = await db.user.find_unique(where={"id": a.get("user_id")})
-        enriched.append({
-            **a,
-            "user_name": u.get("full_name") if u else "Unknown",
-            "user_email": u.get("email") if u else None,
-        })
+        row = {**a, "user_name": u.get("full_name") if u else "Unknown"}
+        if not (is_admin or a.get("user_id") == user["id"]):
+            row.pop("user_email", None)
+            row.pop("ip_address", None)
+            row["user_email"] = None
+        else:
+            row["user_email"] = u.get("email") if u else None
+        enriched.append(row)
 
     # Check if both parties have signed
     roles_signed = {a.get("role") for a in agreements}

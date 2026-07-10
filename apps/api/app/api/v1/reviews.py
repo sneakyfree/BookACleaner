@@ -193,10 +193,13 @@ async def create_review(
             
             if contradictions:
                 logger.info(f"Review contradictions detected for review {review.get('id')}: {contradictions}")
-                # Store in review metadata for admin visibility
+                # Store in review metadata for admin visibility. Column is
+                # `review_metadata` (SQLAlchemy reserves `metadata` on Base), and
+                # the previous `metadata` key was silently dropped by the
+                # hasattr filter in the DB wrapper.
                 await db.review.update(
                     where={"id": review["id"]},
-                    data={"metadata": {"contradictions": contradictions}}
+                    data={"review_metadata": {"contradictions": contradictions}}
                 )
         except Exception as e:
             logger.warning(f"Contradiction detection failed: {e}")
@@ -474,10 +477,13 @@ async def get_review_stats(cleaner_id: str, db=Depends(get_db)):
     satisfied = len([r for r in ratings if r >= 4])
     satisfaction_rate = round((satisfied / len(ratings)) * 100, 1)
 
-    # Sub-ratings
-    clean_ratings = [r.get("cleanliness_rating") for r in reviews if r.get("cleanliness_rating")]
-    comm_ratings = [r.get("communication_rating") for r in reviews if r.get("communication_rating")]
-    time_ratings = [r.get("timeliness_rating") for r in reviews if r.get("timeliness_rating")]
+    # Sub-ratings live in the category_ratings JSON column (create_review stores
+    # them there); reading flat *_rating keys off the row always yielded 0.
+    def _cat(r, key):
+        return (r.get("category_ratings") or {}).get(key)
+    clean_ratings = [_cat(r, "cleanliness") for r in reviews if _cat(r, "cleanliness")]
+    comm_ratings = [_cat(r, "communication") for r in reviews if _cat(r, "communication")]
+    time_ratings = [_cat(r, "timeliness") for r in reviews if _cat(r, "timeliness")]
 
     return {
         "cleaner_id": cleaner_id,

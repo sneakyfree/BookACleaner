@@ -4,7 +4,7 @@ Cleaners can boost their visibility via paid sponsored placements.
 Persists all data to the database via SponsoredListing model.
 """
 from fastapi import APIRouter, Depends, HTTPException, Header, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 import logging
@@ -40,8 +40,11 @@ class CreateSponsoredRequest(BaseModel):
     # client need not (and the cleaner page does not) send it. Was required,
     # which 422'd every purchase.
     cleaner_id: Optional[str] = None
-    duration_days: int = 30  # default 30-day boost
-    priority: int = 1  # 1=standard, 2=premium, 3=featured
+    # Bounded so a huge duration doesn't OverflowError on timedelta, and a
+    # negative/oversized priority can't create an expired listing or rank above
+    # legitimately-paid boosts.
+    duration_days: int = Field(30, ge=1, le=365)  # default 30-day boost
+    priority: int = Field(1, ge=1, le=3)  # 1=standard, 2=premium, 3=featured
 
 
 class SponsoredListingResponse(BaseModel):
@@ -114,6 +117,8 @@ async def get_my_listing(
         if exp:
             try:
                 exp_dt = datetime.fromisoformat(str(exp)) if isinstance(exp, str) else exp
+                if exp_dt is not None and exp_dt.tzinfo is None:
+                    exp_dt = exp_dt.replace(tzinfo=timezone.utc)
                 if exp_dt > now:
                     active = l
                     break
@@ -173,6 +178,8 @@ async def get_active_sponsored(db=Depends(get_db)):
         if expires_at:
             try:
                 exp = datetime.fromisoformat(str(expires_at)) if isinstance(expires_at, str) else expires_at
+                if exp is not None and exp.tzinfo is None:
+                    exp = exp.replace(tzinfo=timezone.utc)
                 if exp > now:
                     active.append(listing)
             except (ValueError, TypeError):

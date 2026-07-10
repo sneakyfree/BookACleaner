@@ -103,15 +103,19 @@ async def mark_notification_read(
     db = Depends(get_db)
 ):
     """Mark notification as read"""
-    
-    notification = await db.notification.update(
+
+    # Ownership check — a user may only mark their own notifications read.
+    existing = await db.notification.find_unique(where={"id": notification_id})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Notification not found")
+    if existing.get("user_id") != user["id"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    await db.notification.update(
         where={"id": notification_id},
         data={"read": True, "read_at": datetime.now(timezone.utc)}
     )
-    
-    if not notification:
-        raise HTTPException(status_code=404, detail="Notification not found")
-    
+
     return {"marked_read": True}
 
 
