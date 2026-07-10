@@ -191,21 +191,43 @@ class Database:
                 is_verified=True,
                 email_verified_at=datetime.now(timezone.utc)
             ),
+            User(
+                id="user-cleaner-4",
+                email="cleaner@demo.com",
+                password_hash=demo_password,
+                role="cleaner",
+                full_name="Cleo Cleaner",
+                phone="+1555222333",
+                is_verified=True,
+                email_verified_at=datetime.now(timezone.utc)
+            ),
         ]
         for u in cleaner_users:
             session.add(u)
-        
-        # Admin user
-        admin_user = User(
-            id="user-admin-1",
-            email="admin@bookacleaner.ai",
-            password_hash=demo_password,
-            role="admin",
-            full_name="Admin User",
-            is_verified=True,
-            email_verified_at=datetime.now(timezone.utc)
-        )
-        session.add(admin_user)
+
+        # Admin users — admin@demo.com completes the client@/cleaner@/admin@ demo set
+        admin_users = [
+            User(
+                id="user-admin-1",
+                email="admin@bookacleaner.ai",
+                password_hash=demo_password,
+                role="admin",
+                full_name="Admin User",
+                is_verified=True,
+                email_verified_at=datetime.now(timezone.utc)
+            ),
+            User(
+                id="user-admin-2",
+                email="admin@demo.com",
+                password_hash=demo_password,
+                role="admin",
+                full_name="Demo Admin",
+                is_verified=True,
+                email_verified_at=datetime.now(timezone.utc)
+            ),
+        ]
+        for u in admin_users:
+            session.add(u)
         
         await session.flush()
         
@@ -258,6 +280,19 @@ class Database:
                 completed_jobs=156,
                 services=["airbnb", "vacation-rental", "deep"],
                 service_areas=["Santa Monica", "Venice", "Marina del Rey"]
+            ),
+            CleanerProfile(
+                id="cleaner-4",
+                user_id="user-cleaner-4",
+                business_name="Cleo's Demo Cleaning",
+                bio="Demo cleaner account for exploring the cleaner dashboard, jobs, earnings, and subscription flows.",
+                hourly_rate=50.00,
+                verification_tier=3,
+                rating=4.7,
+                review_count=48,
+                completed_jobs=97,
+                services=["standard", "deep", "office"],
+                service_areas=["Los Angeles", "Culver City"]
             ),
         ]
         for cp in cleaner_profiles:
