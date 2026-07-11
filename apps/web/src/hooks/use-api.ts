@@ -368,6 +368,65 @@ export function useAdminTimeseries(range = '30d') {
   })
 }
 
+// ---- Owner console: billing / support / traffic ----
+
+export function useBillingOverview() {
+  return useQuery({
+    queryKey: ['admin', 'billing', 'overview'],
+    queryFn: () => api.admin.billingOverview(),
+  })
+}
+
+export function useBillingTransactions(page = 1, paymentStatus?: string) {
+  return useQuery({
+    queryKey: ['admin', 'billing', 'transactions', page, paymentStatus],
+    queryFn: () => api.admin.billingTransactions(page, paymentStatus),
+  })
+}
+
+export function useBillingSubscriptions(page = 1, plan?: string, status?: string) {
+  return useQuery({
+    queryKey: ['admin', 'billing', 'subs', page, plan, status],
+    queryFn: () => api.admin.billingSubscriptions(page, plan, status),
+  })
+}
+
+export function useSupportTickets(page = 1, status?: string, q?: string) {
+  return useQuery({
+    queryKey: ['admin', 'support', page, status, q],
+    queryFn: () => api.admin.supportTickets(page, status, q),
+  })
+}
+
+export function useSupportTicket(id: string) {
+  return useQuery({
+    queryKey: ['admin', 'support', 'ticket', id],
+    queryFn: () => api.admin.supportTicket(id),
+    enabled: !!id,
+  })
+}
+
+export function useAdminTraffic(range = '30d') {
+  return useQuery({
+    queryKey: ['admin', 'traffic', range],
+    queryFn: () => api.admin.traffic(range),
+  })
+}
+
+export function useAdminGeography(range = '90d') {
+  return useQuery({
+    queryKey: ['admin', 'geography', range],
+    queryFn: () => api.admin.geography(range),
+  })
+}
+
+export function useMyTickets(status?: string) {
+  return useQuery({
+    queryKey: ['support', 'mine', status],
+    queryFn: () => api.support.myTickets(status),
+  })
+}
+
 export function useAdminJobs(page = 1, status?: string) {
   return useQuery({
     queryKey: ['admin', 'jobs', page, status],

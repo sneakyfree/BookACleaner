@@ -515,6 +515,78 @@ class ApiClient {
         method: 'POST',
         body: JSON.stringify({ code }),
       }),
+
+    // --- billing / payments ---
+    billingOverview: () => this.request<any>('/api/v1/admin/billing/overview'),
+    billingTransactions: (page = 1, paymentStatus?: string) => {
+      const p = new URLSearchParams({ page: String(page) })
+      if (paymentStatus) p.set('payment_status', paymentStatus)
+      return this.request<any>(`/api/v1/admin/billing/transactions?${p}`)
+    },
+    billingForUser: (userId: string) => this.request<any>(`/api/v1/admin/billing/user/${userId}`),
+    billingRefund: (jobId: string) =>
+      this.request<any>(`/api/v1/admin/billing/refund/${jobId}`, { method: 'POST' }),
+    billingSubscriptions: (page = 1, plan?: string, status?: string) => {
+      const p = new URLSearchParams({ page: String(page) })
+      if (plan) p.set('plan', plan)
+      if (status) p.set('status', status)
+      return this.request<any>(`/api/v1/admin/billing/subscriptions?${p}`)
+    },
+
+    // --- support queue ---
+    supportTickets: (page = 1, status?: string, q?: string) => {
+      const p = new URLSearchParams({ page: String(page) })
+      if (status) p.set('status', status)
+      if (q) p.set('q', q)
+      return this.request<any>(`/api/v1/admin/support/tickets?${p}`)
+    },
+    supportTicket: (id: string) => this.request<any>(`/api/v1/admin/support/tickets/${id}`),
+    supportReply: (id: string, body: string) =>
+      this.request<any>(`/api/v1/admin/support/tickets/${id}/reply`, {
+        method: 'POST',
+        body: JSON.stringify({ body }),
+      }),
+    supportUpdate: (
+      id: string,
+      data: { status?: string; priority?: string; assigned_to?: string }
+    ) =>
+      this.request<any>(`/api/v1/admin/support/tickets/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(data),
+      }),
+
+    // --- traffic + geography ---
+    traffic: (range = '30d') => this.request<any>(`/api/v1/admin/analytics/traffic?range=${range}`),
+    geography: (range = '90d') =>
+      this.request<any>(`/api/v1/admin/analytics/geography?range=${range}`),
+  }
+
+  // User-facing help desk
+  support = {
+    createTicket: (data: { subject: string; message: string; category?: string }) =>
+      this.request<any>('/api/v1/support/tickets', { method: 'POST', body: JSON.stringify(data) }),
+    myTickets: (status?: string) =>
+      this.request<any>(`/api/v1/support/tickets${status ? `?status=${status}` : ''}`),
+    ticket: (id: string) => this.request<any>(`/api/v1/support/tickets/${id}`),
+    reply: (id: string, body: string) =>
+      this.request<any>(`/api/v1/support/tickets/${id}/reply`, {
+        method: 'POST',
+        body: JSON.stringify({ body }),
+      }),
+  }
+
+  // Privacy-friendly page-view beacon (fire-and-forget, no auth)
+  trackPageView(path: string, referrer?: string) {
+    try {
+      fetch(`${this.baseUrl}/api/v1/analytics/track`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path, referrer }),
+        keepalive: true,
+      }).catch(() => {})
+    } catch {
+      /* analytics must never throw into a page */
+    }
   }
 
   // Verification endpoints

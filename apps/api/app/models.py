@@ -772,3 +772,49 @@ class AuditLog(Base):
     target = Column(String(255), nullable=True)        # what was acted on
     details = Column(Text, nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
+
+
+class SupportTicket(Base):
+    """Help-desk ticket raised by a user (or anonymously) for the admin queue."""
+    __tablename__ = "support_tickets"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    user_id = Column(String(36), ForeignKey("users.id"), nullable=True)  # null = anonymous
+    email = Column(String(255), nullable=False)          # reply-to; captured even for logged-in users
+    subject = Column(String(255), nullable=False)
+    category = Column(String(40), default="general")     # billing, account, technical, other
+    priority = Column(String(20), default="normal")      # low, normal, high, urgent
+    status = Column(String(20), default="open", index=True)  # open, pending, resolved, closed
+    assigned_to = Column(String(36), ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+
+class SupportMessage(Base):
+    """A message in a support ticket thread (from the requester or an admin)."""
+    __tablename__ = "support_messages"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    ticket_id = Column(String(36), ForeignKey("support_tickets.id"), nullable=False, index=True)
+    author_id = Column(String(36), ForeignKey("users.id"), nullable=True)
+    author_role = Column(String(20), nullable=True)      # client, cleaner, admin, system
+    body = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
+class PageView(Base):
+    """First-party, privacy-friendly page-view event (no IP, no cookie stored).
+
+    `country` is best-effort from the CF-IPCountry edge header; `visitor_hash`
+    is a coarse daily-rotating hash for unique-visitor counts and cannot be
+    reversed to an IP.
+    """
+    __tablename__ = "page_views"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    path = Column(String(255), nullable=False, index=True)
+    referrer_host = Column(String(255), nullable=True)
+    country = Column(String(2), nullable=True, index=True)
+    device = Column(String(20), nullable=True)           # mobile, tablet, desktop
+    visitor_hash = Column(String(64), nullable=True, index=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
