@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from app.api.v1 import auth, users, cleaners, clients, properties, jobs, reviews, messages, payments, uploads, notifications, ai, verification, admin, bids, feed, hitl, explain, disputes, moderation, route, sponsored, ws, services, agreements, privacy, calendar
+from app.api.v1 import auth, users, cleaners, clients, properties, jobs, reviews, messages, payments, uploads, notifications, ai, verification, admin, bids, feed, hitl, explain, disputes, moderation, route, sponsored, ws, services, agreements, privacy, calendar, admin_ops, support, traffic
 
 api_router = APIRouter()
 
@@ -18,6 +18,9 @@ api_router.include_router(notifications.router, prefix="/notifications", tags=["
 api_router.include_router(ai.router, prefix="/ai", tags=["AI Features"])
 api_router.include_router(verification.router, prefix="/verification", tags=["Verification"])
 api_router.include_router(admin.router, prefix="/admin", tags=["Admin"])
+api_router.include_router(admin_ops.router, prefix="/admin", tags=["Admin — Billing/Support/Traffic"])
+api_router.include_router(support.router, prefix="/support", tags=["Support"])
+api_router.include_router(traffic.router, prefix="/analytics", tags=["Traffic Analytics"])
 api_router.include_router(bids.router, prefix="/bids", tags=["Marketplace Bidding"])
 api_router.include_router(feed.router, prefix="/feed", tags=["Newsfeed"])
 # Native WebSocket endpoint the frontend connects to (ws://…/api/v1/ws?token=…).

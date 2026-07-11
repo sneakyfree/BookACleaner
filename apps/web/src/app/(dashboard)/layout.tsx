@@ -35,6 +35,8 @@ import {
   ShoppingBag,
   Clock,
   CreditCard,
+  Globe,
+  LifeBuoy,
 } from 'lucide-react'
 
 interface NavItem {
@@ -55,6 +57,7 @@ const cleanerNavItems: NavItem[] = [
   { label: 'Reviews', href: '/cleaner/reviews', icon: Star },
   { label: 'Subscription', href: '/cleaner/subscription', icon: CreditCard },
   { label: 'Verification', href: '/cleaner/verification', icon: Shield },
+  { label: 'Support', href: '/support', icon: LifeBuoy },
   { label: 'Settings', href: '/cleaner/settings', icon: Settings },
 ]
 
@@ -66,16 +69,22 @@ const clientNavItems: NavItem[] = [
   { label: 'Messages', href: '/client/messages', icon: MessageSquare },
   { label: 'Reviews', href: '/client/reviews', icon: Star },
   { label: 'Agreements', href: '/client/agreements', icon: FileText },
+  { label: 'Support', href: '/support', icon: LifeBuoy },
   { label: 'Settings', href: '/client/settings', icon: Settings },
 ]
 
 const adminNavItems: NavItem[] = [
   { label: 'Dashboard', href: '/admin', icon: LayoutDashboard },
   { label: 'Analytics', href: '/admin/analytics', icon: BarChart3 },
+  { label: 'Traffic', href: '/admin/traffic', icon: Globe },
+  { label: 'Billing', href: '/admin/billing', icon: CreditCard },
+  { label: 'Support', href: '/admin/support', icon: LifeBuoy },
   { label: 'Users', href: '/admin/users', icon: Users },
   { label: 'Verifications', href: '/admin/verifications', icon: ClipboardCheck },
   { label: 'Jobs', href: '/admin/jobs', icon: Briefcase },
   { label: 'Disputes', href: '/admin/disputes', icon: AlertTriangle },
+  { label: 'Moderation', href: '/admin/moderation', icon: Shield },
+  { label: 'Approvals', href: '/admin/approvals', icon: ClipboardCheck },
   { label: 'Audit Trail', href: '/admin/audit', icon: FileText },
   { label: 'Feed Manager', href: '/admin/feed-manager', icon: Rss },
 ]

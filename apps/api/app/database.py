@@ -22,7 +22,8 @@ from app.models import (
     UserBadge, Subscription, FlaggedContent, FeedItem,
     ApprovalQueueItem, SponsoredListing, ServiceAgreement,
     Availability, PortfolioPhoto, PropertyPlaybook,
-    ServiceCategory, Service, CleanerService, FeedLike, AuditLog
+    ServiceCategory, Service, CleanerService, FeedLike, AuditLog,
+    SupportTicket, SupportMessage, PageView
 )
 
 logger = logging.getLogger(__name__)
@@ -526,6 +527,18 @@ class Database:
     @property
     def conversation_participant(self):
         return TableAccessor(self, ConversationParticipant)
+
+    @property
+    def support_ticket(self):
+        return TableAccessor(self, SupportTicket)
+
+    @property
+    def support_message(self):
+        return TableAccessor(self, SupportMessage)
+
+    @property
+    def page_view(self):
+        return TableAccessor(self, PageView)
 
 
 class TableAccessor:
