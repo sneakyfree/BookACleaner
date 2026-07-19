@@ -68,3 +68,7 @@ apps/api/*.db-journal
 .cache/
 tmp/
 temp/
+
+# test/build artifacts (tidy 2026-07-19)
+e2e/test-results/
+*.tsbuildinfo
