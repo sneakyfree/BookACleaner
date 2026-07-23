@@ -17,9 +17,11 @@ on:
 jobs:
   test:
     name: Backend tests (pytest)
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64]
     steps:
       - uses: actions/checkout@v4
+      - name: runner-lint (hosted runners are billing-locked)
+        run: bash "$GITHUB_WORKSPACE/.github/lint/lint-runner-labels.sh" "$GITHUB_WORKSPACE/.github/workflows"
 
       - uses: actions/setup-python@v5
         with:
@@ -31,13 +33,19 @@ jobs:
         run: pip install -r apps/api/requirements.txt
 
       - name: Run pytest (sqlite, TESTING mode)
-        # conftest.py sets TESTING=true and creates the schema on sqlite via an
-        # autouse fixture; no postgres/redis needed. 136 tests.
+        # conftest.py sets TESTING=true; no postgres/redis needed.
+        # DATABASE_URL is pinned to sqlite explicitly: app/database.py's
+        # auto-fallback probes localhost:5432 and on the self-hosted Kit 0
+        # runner a resident postgres container answers on that host port, so
+        # without the pin the suite connects to the wrong database and dies
+        # with "password authentication failed for user bookacleaner".
         run: cd apps/api && TESTING=true pytest -q
+        env:
+          DATABASE_URL: sqlite+aiosqlite:///./ci_test.db
 
   build:
     name: Web build (Next.js production)
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64]
     steps:
       - uses: actions/checkout@v4
 
@@ -58,14 +66,12 @@ jobs:
 
   lint:
     name: Lint (advisory)
-    runs-on: ubuntu-latest
-    # Advisory / non-blocking. The repo's root .eslintrc.js declares the
-    # @typescript-eslint plugin in an override, but that plugin only resolves
-    # from apps/web, so `next lint` currently exits 1 on a config-load error
-    # that predates and is unrelated to app code. Surfaced for visibility but
-    # kept out of the hard gate (test + build + the e2e link-crawl are the
-    # gates). Fix the eslint config to promote this back to blocking.
-    continue-on-error: true
+    runs-on: [self-hosted, linux, x64]
+    # Promoted back to blocking: apps/web now ships its own root:true
+    # .eslintrc.js whose plugins all resolve from apps/web/node_modules, so
+    # the old "Cannot find module '@typescript-eslint/eslint-plugin'"
+    # config-load failure (root .eslintrc.js plugins only resolve from a
+    # repo-root install) is gone.
     steps:
       - uses: actions/checkout@v4
 
@@ -83,7 +89,7 @@ jobs:
 
   deploy-staging:
     name: Deploy to Staging
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64]
     needs: [test, build]
     if: github.ref == 'refs/heads/develop'
     environment: staging
@@ -95,7 +101,7 @@ jobs:
 
   deploy-production:
     name: Deploy to Production
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64]
     needs: [test, build]
     if: github.ref == 'refs/heads/main'
     environment: production

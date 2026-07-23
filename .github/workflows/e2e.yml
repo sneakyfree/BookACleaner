@@ -20,14 +20,10 @@ on:
 jobs:
   link-crawl:
     name: Link-crawl (nav 404 / dead-link guard)
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64]
     timeout-minutes: 30
 
     env:
-      API_PORT: '8020'
-      WEB_PORT: '3030'
-      NEXT_PUBLIC_API_URL: http://localhost:8020
-      NEXTAUTH_URL: http://localhost:3030
       NEXTAUTH_SECRET: ci-nextauth-secret-not-for-production
       INTERNAL_API_KEY: ci-internal-api-key
       NEXT_TELEMETRY_DISABLED: '1'
@@ -35,6 +31,23 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Pick free ports (avoid resident-container collisions)
+        # The self-hosted Kit 0 box runs resident containers, so fixed host
+        # ports (previously 8020/3030) can collide with — or silently point
+        # the crawl at — a foreign service. Bind port 0 twice to get two
+        # genuinely free ephemeral ports.
+        run: |
+          python3 - <<'EOF' >> "$GITHUB_ENV"
+          import socket
+          a, b = socket.socket(), socket.socket()
+          a.bind(("127.0.0.1", 0)); b.bind(("127.0.0.1", 0))
+          api, web = a.getsockname()[1], b.getsockname()[1]
+          print(f"API_PORT={api}")
+          print(f"WEB_PORT={web}")
+          print(f"NEXT_PUBLIC_API_URL=http://localhost:{api}")
+          print(f"NEXTAUTH_URL=http://localhost:{web}")
+          EOF
 
       - name: Setup Node.js 20
         uses: actions/setup-node@v4
@@ -61,8 +74,21 @@ jobs:
       - name: Install E2E dependencies
         run: cd e2e && npm ci
 
+      - name: Install Chromium OS dependencies
+        # `playwright install --with-deps` shells out via `sudo sh -c ...`,
+        # which the runner's sudoers (passwordless for apt-get ONLY) rejects.
+        # Install the Ubuntu 24.04 chromium dependency set with plain apt-get.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libasound2t64 libatk-bridge2.0-0t64 libatk1.0-0t64 libatspi2.0-0t64 \
+            libcairo2 libcups2t64 libdbus-1-3 libdrm2 libgbm1 libglib2.0-0t64 \
+            libnspr4 libnss3 libpango-1.0-0 libx11-6 libxcb1 libxcomposite1 \
+            libxdamage1 libxext6 libxfixes3 libxkbcommon0 libxrandr2 \
+            fonts-liberation fonts-noto-color-emoji
+
       - name: Install Playwright browser (chromium)
-        run: cd e2e && npx playwright install --with-deps chromium
+        run: cd e2e && npx playwright install chromium
 
       # ---- Backend: sqlite, TESTING mode. connect_db() creates the schema and
       # auto-seeds the demo users (client@demo.com / maria@demo.com /
@@ -134,17 +160,14 @@ jobs:
         run: cd e2e && npm run test:crawl
         env:
           CI: 'true'
-          BASE_URL: http://localhost:3030
+          BASE_URL: http://localhost:${{ env.WEB_PORT }}
 
-      - name: Upload crawl report and failure screenshots
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: link-crawl-report
-          path: |
-            e2e/playwright-report/
-            e2e/test-results/
-          retention-days: 7
+      # NOTE: the link-crawl-report upload-artifact step was removed for now:
+      # GitHub artifact storage is billing-blocked account-wide, so any
+      # actions/upload-artifact call fails with "Artifact storage quota has
+      # been hit" — and this one ran `if: always()`, so it reddened even green
+      # runs. Failure details remain in the job log + the log dump below.
+      # Restore the upload once billing is unblocked.
 
       - name: Dump server logs on failure
         if: failure()
