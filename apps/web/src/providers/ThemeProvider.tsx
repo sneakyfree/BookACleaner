@@ -43,7 +43,6 @@ export function ThemeProvider({
     useEffect(() => {
         const stored = localStorage.getItem(storageKey) as Theme | null
         if (stored) {
-            // eslint-disable-next-line react-hooks/set-state-in-effect
             setThemeState(stored)
         }
     }, [storageKey])
