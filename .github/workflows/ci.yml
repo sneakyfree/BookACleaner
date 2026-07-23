@@ -17,9 +17,11 @@ on:
 jobs:
   test:
     name: Backend tests (pytest)
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64]
     steps:
       - uses: actions/checkout@v4
+      - name: runner-lint (hosted runners are billing-locked)
+        run: bash "$GITHUB_WORKSPACE/.github/lint/lint-runner-labels.sh" "$GITHUB_WORKSPACE/.github/workflows"
 
       - uses: actions/setup-python@v5
         with:
@@ -37,7 +39,7 @@ jobs:
 
   build:
     name: Web build (Next.js production)
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64]
     steps:
       - uses: actions/checkout@v4
 
@@ -58,7 +60,7 @@ jobs:
 
   lint:
     name: Lint (advisory)
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64]
     # Advisory / non-blocking. The repo's root .eslintrc.js declares the
     # @typescript-eslint plugin in an override, but that plugin only resolves
     # from apps/web, so `next lint` currently exits 1 on a config-load error
@@ -83,7 +85,7 @@ jobs:
 
   deploy-staging:
     name: Deploy to Staging
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64]
     needs: [test, build]
     if: github.ref == 'refs/heads/develop'
     environment: staging
@@ -95,7 +97,7 @@ jobs:
 
   deploy-production:
     name: Deploy to Production
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64]
     needs: [test, build]
     if: github.ref == 'refs/heads/main'
     environment: production
