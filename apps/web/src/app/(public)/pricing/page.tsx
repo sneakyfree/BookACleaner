@@ -1,4 +1,14 @@
+import type { Metadata } from 'next'
 import PricingPage from '@/components/PricingPage'
+
+// Pricing is a high-intent landing page and was inheriting the site-wide
+// title/description, so it competed with the homepage for the same terms.
+export const metadata: Metadata = {
+  title: 'Pricing — Cleaning Plans & Rates',
+  description:
+    'Transparent cleaning prices: pay as you go, weekly plans, or Host Pro for Airbnb turnovers. No hidden fees, verified professionals, instant booking.',
+  alternates: { canonical: '/pricing' },
+}
 
 /**
  * Public /pricing route.
@@ -10,5 +20,5 @@ import PricingPage from '@/components/PricingPage'
  * sent `Bearer null` with wrong slugs (pro/premium) and silently 401'd.
  */
 export default function PricingRoute() {
-    return <PricingPage />
+  return <PricingPage />
 }

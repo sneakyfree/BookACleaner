@@ -1,388 +1,166 @@
-'use client'
+import type { Metadata } from 'next'
+import CleanerProfileClient from './CleanerProfileClient'
 
-import { useState, useEffect } from 'react'
-import Link from 'next/link'
-import { useParams } from 'next/navigation'
-import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import AdSlot from '@/components/ads/AdSlot'
-import {
-    Star,
-    Shield,
-    MapPin,
-    Clock,
-    CheckCircle,
-    Calendar,
-    MessageSquare,
-    ChevronRight,
-    Award,
-    TrendingUp,
-    ThumbsUp,
-    ArrowLeft,
-    Loader2,
-    AlertCircle,
-} from 'lucide-react'
+/**
+ * Server wrapper for the public cleaner profile.
+ *
+ * The page itself is a client component (it fetches and renders interactively),
+ * and a client component cannot export generateMetadata — so every cleaner
+ * profile used to serve the root layout's generic title and description:
+ *
+ *   "BookACleaner.ai | AI-Powered Cleaning Marketplace"
+ *
+ * Identical for every professional on the platform, with no per-cleaner
+ * description, no Open Graph image, and no structured data. For a marketplace
+ * whose organic growth depends on individual profiles ranking, that is the
+ * single most valuable page on the site rendering as a duplicate of every
+ * other one.
+ *
+ * This wrapper adds per-cleaner metadata and LocalBusiness JSON-LD without
+ * touching the interactive component, which is re-exported unchanged.
+ */
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+const SITE_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://bookacleaner.ai'
 
-const tierColors: Record<number, string> = {
-    1: 'bg-gray-500',
-    2: 'bg-blue-500',
-    3: 'bg-green-500',
-    4: 'bg-amber-500',
-    5: 'bg-purple-500',
+interface CleanerSummary {
+  id: string
+  name?: string | null
+  businessName?: string | null
+  bio?: string | null
+  profilePhoto?: string | null
+  verificationTier?: number
+  overallRating?: number
+  totalReviews?: number
+  completedJobs?: number
+  serviceAreas?: string[]
+  services?: string[]
 }
 
-const tierNames: Record<number, string> = {
-    1: 'Starter',
-    2: 'Verified',
-    3: 'Professional',
-    4: 'Certified',
-    5: 'Elite',
+async function fetchCleaner(cleanerId: string): Promise<CleanerSummary | null> {
+  try {
+    const res = await fetch(`${API_URL}/api/v1/cleaners/${cleanerId}`, {
+      // Profiles change rarely; a short revalidate keeps crawlers and
+      // repeat visitors off the origin without serving stale ratings.
+      next: { revalidate: 300 },
+    })
+    if (!res.ok) return null
+    return (await res.json()) as CleanerSummary
+  } catch {
+    // Metadata must never break the page. A failed lookup falls back to
+    // the generic title rather than throwing during render.
+    return null
+  }
 }
 
-interface CleanerProfile {
-    id: string
-    businessName: string
-    name?: string
-    bio?: string
-    profilePhoto?: string | null
-    verificationTier: number
-    overallRating: number
-    totalReviews: number
-    completedJobs: number
-    hourlyRate?: number
-    services: string[]
-    serviceAreas: string[]
-    onTimeRate: number
-    repeatClientRate: number
+function displayName(cleaner: CleanerSummary): string {
+  return cleaner.businessName || cleaner.name || 'Cleaning Professional'
 }
 
-interface ReviewItem {
-    id: string
-    overall_rating: number
-    text?: string
-    created_at?: string
-    author?: { name: string; avatar?: string } | null
-}
-
-export default function CleanerProfilePage() {
-    const params = useParams()
-    const cleanerId = params.cleanerId as string
-
-    const [cleaner, setCleaner] = useState<CleanerProfile | null>(null)
-    const [reviews, setReviews] = useState<ReviewItem[]>([])
-    const [loading, setLoading] = useState(true)
-    const [error, setError] = useState<string | null>(null)
-
-    useEffect(() => {
-        async function fetchProfile() {
-            try {
-                setError(null)
-
-                // Fetch cleaner profile
-                const profileRes = await fetch(`${API_URL}/api/v1/cleaners/${cleanerId}`)
-                if (!profileRes.ok) throw new Error(`Cleaner not found (${profileRes.status})`)
-                const profileData = await profileRes.json()
-                setCleaner(profileData)
-
-                // Fetch reviews
-                const reviewsRes = await fetch(`${API_URL}/api/v1/cleaners/${cleanerId}/reviews?limit=5`)
-                if (reviewsRes.ok) {
-                    const reviewsData = await reviewsRes.json()
-                    setReviews(reviewsData.reviews || [])
-                }
-            } catch (err) {
-                console.error('Failed to fetch cleaner:', err)
-                setError(err instanceof Error ? err.message : 'Failed to load cleaner profile')
-            } finally {
-                setLoading(false)
-            }
-        }
-
-        if (cleanerId) fetchProfile()
-    }, [cleanerId])
-
-    if (loading) {
-        return (
-            <div className="min-h-screen bg-slate-50 dark:bg-slate-900 flex items-center justify-center">
-                <Loader2 className="w-8 h-8 animate-spin text-brand-600" />
-            </div>
-        )
+export async function generateMetadata({
+  params,
+}: {
+  params: { cleanerId: string }
+}): Promise<Metadata> {
+  const cleaner = await fetchCleaner(params.cleanerId)
+  if (!cleaner) {
+    return {
+      title: 'Cleaning Professional',
+      description:
+        'View verified cleaning professionals on BookACleaner.ai — ratings, services, availability and instant booking.',
     }
+  }
 
-    if (error || !cleaner) {
-        return (
-            <div className="min-h-screen bg-slate-50 dark:bg-slate-900 flex items-center justify-center">
-                <Card className="max-w-md w-full">
-                    <CardContent className="py-12 text-center">
-                        <AlertCircle className="w-12 h-12 mx-auto text-red-500 mb-4" />
-                        <p className="text-lg font-medium text-red-600">{error || 'Cleaner not found'}</p>
-                        <Link href="/cleaners">
-                            <Button className="mt-4">
-                                <ArrowLeft className="w-4 h-4 mr-2" />
-                                Back to search
-                            </Button>
-                        </Link>
-                    </CardContent>
-                </Card>
-            </div>
-        )
+  const name = displayName(cleaner)
+  const areas = (cleaner.serviceAreas || []).slice(0, 3).join(', ')
+  const rating = cleaner.overallRating
+    ? `Rated ${cleaner.overallRating.toFixed(1)}/5`
+    : 'Verified professional'
+  const reviews = cleaner.totalReviews
+    ? ` from ${cleaner.totalReviews} review${cleaner.totalReviews === 1 ? '' : 's'}`
+    : ''
+
+  const description =
+    cleaner.bio?.slice(0, 155) ||
+    `${rating}${reviews}. ${
+      areas ? `Serving ${areas}. ` : ''
+    }Book a verified cleaner on BookACleaner.ai.`
+
+  const canonical = `${SITE_URL}/cleaners/${cleaner.id}`
+
+  return {
+    // Feeds the root layout's "%s | BookACleaner.ai" template, which no
+    // page was supplying a value for.
+    title: areas ? `${name} — Cleaning Services in ${areas}` : name,
+    description,
+    alternates: { canonical },
+    openGraph: {
+      title: `${name} | BookACleaner.ai`,
+      description,
+      url: canonical,
+      type: 'profile',
+      images: cleaner.profilePhoto ? [{ url: cleaner.profilePhoto }] : undefined,
+    },
+    twitter: {
+      card: 'summary_large_image',
+      title: `${name} | BookACleaner.ai`,
+      description,
+    },
+  }
+}
+
+/**
+ * LocalBusiness structured data. Local search results lean heavily on this,
+ * and it is what surfaces the star rating in a result snippet.
+ */
+function structuredData(cleaner: CleanerSummary) {
+  const data: Record<string, unknown> = {
+    '@context': 'https://schema.org',
+    '@type': 'LocalBusiness',
+    '@id': `${SITE_URL}/cleaners/${cleaner.id}`,
+    name: displayName(cleaner),
+    url: `${SITE_URL}/cleaners/${cleaner.id}`,
+    description: cleaner.bio || undefined,
+    image: cleaner.profilePhoto || undefined,
+    areaServed: (cleaner.serviceAreas || []).map((a) => ({
+      '@type': 'Place',
+      name: a,
+    })),
+    makesOffer: (cleaner.services || []).map((s) => ({
+      '@type': 'Offer',
+      itemOffered: { '@type': 'Service', name: s },
+    })),
+  }
+
+  // Only emit a rating when one genuinely exists — an aggregateRating with
+  // zero reviews is invalid structured data and can trigger a penalty.
+  if (cleaner.overallRating && cleaner.totalReviews) {
+    data.aggregateRating = {
+      '@type': 'AggregateRating',
+      ratingValue: cleaner.overallRating,
+      reviewCount: cleaner.totalReviews,
+      bestRating: 5,
+      worstRating: 1,
     }
+  }
 
-    const displayName = cleaner.businessName || cleaner.name || 'Cleaner'
-    const tier = cleaner.verificationTier || 1
-    const startingPrice = cleaner.hourlyRate || 100
+  return data
+}
 
-    return (
-        <div className="min-h-screen bg-slate-50 dark:bg-slate-900">
-            {/* Header */}
-            <div className="bg-gradient-to-r from-slate-800 to-slate-700 py-6">
-                <div className="container mx-auto px-4">
-                    <Link href="/cleaners" className="inline-flex items-center text-white/80 hover:text-white mb-4">
-                        <ArrowLeft className="w-4 h-4 mr-2" />
-                        Back to search
-                    </Link>
-                </div>
-            </div>
+export default async function CleanerProfilePage({ params }: { params: { cleanerId: string } }) {
+  const cleaner = await fetchCleaner(params.cleanerId)
 
-            <div className="container mx-auto px-4 -mt-8">
-                <div className="grid lg:grid-cols-3 gap-8">
-                    {/* Main Content */}
-                    <div className="lg:col-span-2 space-y-6">
-                        {/* Profile Card */}
-                        <Card>
-                            <CardContent className="p-6">
-                                <div className="flex flex-col md:flex-row gap-6">
-                                    <div className="w-32 h-32 rounded-2xl bg-brand-100 dark:bg-brand-500/20 flex items-center justify-center flex-shrink-0 overflow-hidden">
-                                        {cleaner.profilePhoto ? (
-                                            <img src={cleaner.profilePhoto} alt={displayName} className="w-full h-full object-cover" />
-                                        ) : (
-                                            <span className="text-4xl font-bold text-brand-600">
-                                                {displayName[0]}
-                                            </span>
-                                        )}
-                                    </div>
-                                    <div className="flex-1">
-                                        <div className="flex items-start justify-between">
-                                            <div>
-                                                <div className="flex items-center gap-3">
-                                                    <h1 className="text-2xl font-bold">{displayName}</h1>
-                                                    <span className={`px-3 py-1 rounded-full text-sm font-medium text-white ${tierColors[tier] || tierColors[1]}`}>
-                                                        {tierNames[tier] || tierNames[1]}
-                                                    </span>
-                                                </div>
-                                                <div className="flex items-center gap-4 mt-2">
-                                                    <span className="flex items-center text-amber-500">
-                                                        <Star className="w-5 h-5 fill-current mr-1" />
-                                                        <span className="font-semibold">{cleaner.overallRating || '—'}</span>
-                                                    </span>
-                                                    <span className="text-muted-foreground">
-                                                        {cleaner.totalReviews} review{cleaner.totalReviews !== 1 ? 's' : ''}
-                                                    </span>
-                                                    <span className="text-muted-foreground">
-                                                        {cleaner.completedJobs} jobs
-                                                    </span>
-                                                </div>
-                                            </div>
-                                        </div>
-
-                                        {cleaner.bio && <p className="mt-4 text-muted-foreground">{cleaner.bio}</p>}
-                                    </div>
-                                </div>
-                            </CardContent>
-                        </Card>
-
-                        {/* Stats */}
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                            <Card>
-                                <CardContent className="p-4 text-center">
-                                    <Star className="w-6 h-6 mx-auto text-amber-500 mb-2" />
-                                    <p className="text-2xl font-bold">{cleaner.overallRating || '—'}</p>
-                                    <p className="text-xs text-muted-foreground">Rating</p>
-                                </CardContent>
-                            </Card>
-                            <Card>
-                                <CardContent className="p-4 text-center">
-                                    <TrendingUp className="w-6 h-6 mx-auto text-green-500 mb-2" />
-                                    <p className="text-2xl font-bold">{cleaner.onTimeRate}%</p>
-                                    <p className="text-xs text-muted-foreground">On-Time Rate</p>
-                                </CardContent>
-                            </Card>
-                            <Card>
-                                <CardContent className="p-4 text-center">
-                                    <ThumbsUp className="w-6 h-6 mx-auto text-amber-500 mb-2" />
-                                    <p className="text-2xl font-bold">{cleaner.repeatClientRate}%</p>
-                                    <p className="text-xs text-muted-foreground">Repeat Clients</p>
-                                </CardContent>
-                            </Card>
-                            <Card>
-                                <CardContent className="p-4 text-center">
-                                    <Calendar className="w-6 h-6 mx-auto text-purple-500 mb-2" />
-                                    <p className="text-2xl font-bold">{cleaner.completedJobs}</p>
-                                    <p className="text-xs text-muted-foreground">Jobs Done</p>
-                                </CardContent>
-                            </Card>
-                        </div>
-
-                        {/* Services */}
-                        {cleaner.services.length > 0 && (
-                            <Card>
-                                <CardHeader>
-                                    <CardTitle>Services Offered</CardTitle>
-                                </CardHeader>
-                                <CardContent>
-                                    <div className="flex flex-wrap gap-2">
-                                        {cleaner.services.map((service) => (
-                                            <span
-                                                key={service}
-                                                className="px-3 py-2 rounded-lg bg-slate-50 dark:bg-slate-800/50 border text-sm font-medium"
-                                            >
-                                                {service}
-                                            </span>
-                                        ))}
-                                    </div>
-                                </CardContent>
-                            </Card>
-                        )}
-
-                        {/* Reviews */}
-                        <Card>
-                            <CardHeader className="flex flex-row items-center justify-between">
-                                <CardTitle>Reviews ({cleaner.totalReviews})</CardTitle>
-                            </CardHeader>
-                            <CardContent>
-                                {reviews.length === 0 ? (
-                                    <p className="text-muted-foreground text-center py-6">No reviews yet</p>
-                                ) : (
-                                    <div className="space-y-6">
-                                        {reviews.map((review) => (
-                                            <div key={review.id} className="border-b pb-6 last:border-0 last:pb-0">
-                                                <div className="flex items-center justify-between mb-2">
-                                                    <div className="flex items-center gap-2">
-                                                        <div className="w-10 h-10 rounded-full bg-slate-200 dark:bg-slate-700 flex items-center justify-center">
-                                                            {(review.author?.name || 'A')[0]}
-                                                        </div>
-                                                        <div>
-                                                            <p className="font-medium">{review.author?.name || 'Anonymous'}</p>
-                                                            <p className="text-xs text-muted-foreground">
-                                                                {review.created_at
-                                                                    ? new Date(review.created_at).toLocaleDateString('en-US', {
-                                                                        month: 'short',
-                                                                        day: 'numeric',
-                                                                        year: 'numeric',
-                                                                    })
-                                                                    : ''}
-                                                            </p>
-                                                        </div>
-                                                    </div>
-                                                    <div className="flex items-center text-amber-500">
-                                                        {[...Array(5)].map((_, i) => (
-                                                            <Star
-                                                                key={i}
-                                                                className={`w-4 h-4 ${i < review.overall_rating ? 'fill-current' : 'text-slate-200'}`}
-                                                            />
-                                                        ))}
-                                                    </div>
-                                                </div>
-                                                {review.text && <p className="text-muted-foreground">{review.text}</p>}
-                                            </div>
-                                        ))}
-                                    </div>
-                                )}
-                            </CardContent>
-                        </Card>
-                    </div>
-
-                    {/* Sidebar */}
-                    <div className="space-y-6">
-                        {/* Booking Card */}
-                        <Card className="sticky top-4">
-                            <CardContent className="p-6">
-                                <div className="text-center mb-6">
-                                    <p className="text-3xl font-bold">${startingPrice}</p>
-                                    <p className="text-muted-foreground">
-                                        {cleaner.hourlyRate ? 'per hour' : 'starting price'}
-                                    </p>
-                                </div>
-
-                                <Link href={`/book/${cleaner.id}`}>
-                                    <Button className="w-full bg-brand-500 hover:bg-brand-600 h-12 text-lg mb-4">
-                                        <Calendar className="w-5 h-5 mr-2" />
-                                        Book Now
-                                    </Button>
-                                </Link>
-
-                                <Button variant="outline" className="w-full h-12">
-                                    <MessageSquare className="w-5 h-5 mr-2" />
-                                    Message
-                                </Button>
-                            </CardContent>
-                        </Card>
-
-                        {/* Verification */}
-                        <Card>
-                            <CardHeader>
-                                <CardTitle className="text-base flex items-center gap-2">
-                                    <Shield className="w-5 h-5 text-brand-500" />
-                                    Verification
-                                </CardTitle>
-                            </CardHeader>
-                            <CardContent className="space-y-3">
-                                <div className="flex items-center justify-between">
-                                    <span className="text-sm">Verification Tier</span>
-                                    <span className={`px-2 py-0.5 rounded-full text-xs text-white ${tierColors[tier]}`}>
-                                        {tierNames[tier]}
-                                    </span>
-                                </div>
-                                {tier >= 2 && (
-                                    <div className="flex items-center justify-between">
-                                        <span className="text-sm">Identity Verified</span>
-                                        <CheckCircle className="w-5 h-5 text-green-500" />
-                                    </div>
-                                )}
-                                {tier >= 3 && (
-                                    <div className="flex items-center justify-between">
-                                        <span className="text-sm">Background Check</span>
-                                        <CheckCircle className="w-5 h-5 text-green-500" />
-                                    </div>
-                                )}
-                                {tier >= 4 && (
-                                    <div className="flex items-center justify-between">
-                                        <span className="text-sm">Licensed & Insured</span>
-                                        <CheckCircle className="w-5 h-5 text-green-500" />
-                                    </div>
-                                )}
-                            </CardContent>
-                        </Card>
-
-                        {/* Service Areas */}
-                        {cleaner.serviceAreas.length > 0 && (
-                            <Card>
-                                <CardHeader>
-                                    <CardTitle className="text-base flex items-center gap-2">
-                                        <MapPin className="w-5 h-5 text-brand-500" />
-                                        Service Areas
-                                    </CardTitle>
-                                </CardHeader>
-                                <CardContent>
-                                    <div className="space-y-2">
-                                        {cleaner.serviceAreas.map((area) => (
-                                            <div key={area} className="flex items-center gap-2 text-sm">
-                                                <CheckCircle className="w-4 h-4 text-brand-500" />
-                                                {area}
-                                            </div>
-                                        ))}
-                                    </div>
-                                </CardContent>
-                            </Card>
-                        )}
-
-                        {/* Ad Slot */}
-                        <AdSlot format="rectangle" demo />
-                    </div>
-                </div>
-            </div>
-        </div>
-    )
+  return (
+    <>
+      {cleaner && (
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{
+            __html: JSON.stringify(structuredData(cleaner)),
+          }}
+        />
+      )}
+      <CleanerProfileClient />
+    </>
+  )
 }
