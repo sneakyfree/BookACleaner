@@ -46,6 +46,11 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             "/api/v1/auth/oauth": 10,
             "/api/v1/payments": 30,
             "/api/v1/uploads": 20,
+            # Defence in depth. The real spend control is the per-user daily
+            # quota in app/core/ai_quota.py — this only catches an unauthenticated
+            # flood before it reaches the auth dependency. The default 60/min
+            # here would have allowed 86,400 GPT-4o calls a day per client.
+            "/api/v1/ai": 15,
         }
     
     def _get_client_key(self, request: Request) -> str:

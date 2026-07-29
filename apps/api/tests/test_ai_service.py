@@ -43,10 +43,10 @@ def service_with(response=None, error=None):
 @pytest.mark.parametrize(
     "path,payload",
     [
-        ("/api/v1/ai/chat", {"message": "hi"}),
+        ("/api/v1/ai/chat", {"messages": [{"role": "user", "content": "hi"}]}),
         ("/api/v1/ai/parse-document", {"image_url": "http://x/y.png", "document_type": "id"}),
         ("/api/v1/ai/verify-document", {"image_url": "http://x/y.png", "document_type": "id"}),
-        ("/api/v1/ai/estimate", {"property_details": {}, "services_requested": []}),
+        ("/api/v1/ai/estimate", {"property_details": {}, "services": []}),
         ("/api/v1/ai/detect-property", {"address": "1 Test St"}),
         ("/api/v1/ai/job-summary", {"job_details": {}}),
     ],
@@ -164,13 +164,21 @@ async def test_estimate_endpoint_does_not_500_when_the_model_fails(client):
     ):
         resp = await client.post(
             "/api/v1/ai/estimate",
-            json={"property_details": {"sqft": 1500}, "services_requested": ["standard"]},
+            json={"property_details": {"sqft": 1500}, "services": ["standard"]},
             headers=headers,
         )
 
-    assert resp.status_code < 500, (
-        f"AI failure surfaced as {resp.status_code}; it must be handled, not a 500"
+    # 503, not 500: an upstream provider outage is not our crash. Asserting a
+    # specific code matters — the original "< 500" was satisfied by a 422 from a
+    # malformed payload, so it never exercised this path at all.
+    assert resp.status_code == 503, (
+        f"AI failure surfaced as {resp.status_code}; expected 503 Service Unavailable"
     )
+    detail = resp.json()["detail"]
+    assert detail["error"] == "AI_UNAVAILABLE"
+    # The provider's raw error must not reach the client — those strings quote
+    # the credential back ("Incorrect API key provided: sk-...").
+    assert "provider down" not in str(detail)
 
 
 @pytest.mark.asyncio
@@ -184,10 +192,14 @@ async def test_chat_endpoint_does_not_500_when_the_model_fails(client):
         new=AsyncMock(return_value={"success": False, "error": "provider down"}),
     ):
         resp = await client.post(
-            "/api/v1/ai/chat", json={"message": "hello"}, headers=headers
+            "/api/v1/ai/chat",
+            json={"messages": [{"role": "user", "content": "hello"}]},
+            headers=headers,
         )
 
-    assert resp.status_code < 500, f"AI chat failure surfaced as {resp.status_code}"
+    assert resp.status_code == 503, f"AI chat failure surfaced as {resp.status_code}"
+    assert resp.json()["detail"]["error"] == "AI_UNAVAILABLE"
+    assert "provider down" not in str(resp.json()["detail"])
 
 
 @pytest.mark.asyncio
