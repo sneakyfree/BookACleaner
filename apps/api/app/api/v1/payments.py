@@ -243,7 +243,6 @@ async def release_payment(job_id: str, user=Depends(get_current_user), db=Depend
             transfer_result = {"transferId": transfer.id, "amount": cleaner_amount}
 
             # Update job status
-            from datetime import datetime, timezone
             await db.job.update(
                 where={"id": job_id},
                 data={
@@ -641,7 +640,7 @@ async def handle_webhook(request: Request):
             # Create notification for client
             job = await db.job.find_unique(where={"id": job_id})
             if job and job.get("client_id"):
-                client = await db.clientprofile.find_unique(where={"id": job["client_id"]})
+                client = await db.client.find_unique(where={"id": job["client_id"]})
                 if client:
                     from app.models import generate_uuid
                     await db.notification.create(data={
@@ -664,7 +663,7 @@ async def handle_webhook(request: Request):
             )
             job = await db.job.find_unique(where={"id": job_id})
             if job and job.get("client_id"):
-                client = await db.clientprofile.find_unique(where={"id": job["client_id"]})
+                client = await db.client.find_unique(where={"id": job["client_id"]})
                 if client:
                     from app.models import generate_uuid
                     await db.notification.create(data={
@@ -699,7 +698,6 @@ async def handle_webhook(request: Request):
         plan = sub.metadata.get("plan", "pro")
         if user_id:
             from app.models import generate_uuid
-            from datetime import datetime, timezone
             await db.execute(
                 """INSERT INTO subscriptions (id, user_id, stripe_subscription_id, stripe_customer_id, plan, status, current_period_start, current_period_end, created_at, updated_at)
                    VALUES (:id, :uid, :sid, :cid, :plan, :status, :ps, :pe, :now, :now)""",
@@ -774,7 +772,6 @@ async def handle_webhook(request: Request):
         invoice = event.data.object
         sub_id = invoice.subscription
         if sub_id:
-            from datetime import datetime, timezone
             await db.execute(
                 "UPDATE subscriptions SET status = 'past_due', updated_at = :now WHERE stripe_subscription_id = :sid",
                 {"now": datetime.now(timezone.utc), "sid": sub_id}
