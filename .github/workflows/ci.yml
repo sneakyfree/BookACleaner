@@ -88,14 +88,20 @@ jobs:
     name: Backend tests (sqlite compatibility)
     runs-on: [self-hosted, linux, x64]
     timeout-minutes: 25
+    # Sequential, not parallel: both backend jobs share one self-hosted runner,
+    # and running them concurrently made actions/setup-python's pip cache
+    # restore hang until the job was cancelled ("The operation cannot be
+    # completed in timeout"). Gating on the PostgreSQL job also means the
+    # secondary check only runs once the real one is green.
+    needs: [test]
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-          cache: 'pip'
-          cache-dependency-path: apps/api/requirements.txt
+          # No pip cache here — restoring it on this runner is the step that
+          # hung. The dependencies are already warm from the job above.
 
       - name: Install backend dependencies
         run: pip install -r apps/api/requirements.txt
