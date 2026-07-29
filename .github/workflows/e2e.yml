@@ -53,17 +53,17 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
-          cache-dependency-path: |
-            apps/web/package-lock.json
-            e2e/package-lock.json
+          # No dependency cache here. Restoring it on the self-hosted runner
+          # is the step that hangs ("Failed to restore: The operation cannot be
+          # completed in timeout") until the job is cancelled at ~10m, turning
+          # a passing suite into a red X. Installing cold is faster and, more
+          # importantly, deterministic.
 
       - name: Setup Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-          cache: 'pip'
-          cache-dependency-path: apps/api/requirements.txt
+          # Same as above: the cache restore is the flaky step, not the install.
 
       - name: Install backend dependencies
         run: pip install -r apps/api/requirements.txt
