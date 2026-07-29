@@ -611,10 +611,21 @@ class TableAccessor:
                 if conditions:
                     query = query.where(and_(*conditions))
 
+            # `take`/`limit` used to be accepted and silently discarded, so
+            # find_many(take=100) quietly returned the WHOLE table. The
+            # early-adopter badge relied on it and so compared against every
+            # user in the system.
+            take = kwargs.get("take", kwargs.get("limit"))
+            if take is not None:
+                query = query.limit(int(take))
+            skip = kwargs.get("skip", kwargs.get("offset"))
+            if skip is not None:
+                query = query.offset(int(skip))
+
             result = await session.execute(query)
             records = result.scalars().all()
             return [self._to_dict(r) for r in records]
-    
+
     async def find_unique(self, where: Dict) -> Optional[Dict]:
         """Find a single record by unique constraint"""
         async with self._db.session() as session:
