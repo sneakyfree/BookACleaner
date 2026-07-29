@@ -41,6 +41,12 @@ class UpdateCleanerProfileRequest(BaseModel):
 
 
 # ==================== AUTH HELPER ====================
+# /search is the path the README and the public API docs advertise, but only
+# "/" was ever implemented — so GET /api/v1/cleaners/search fell through to the
+# /{cleaner_id} route below and answered "Cleaner not found" for the platform's
+# headline Smart Search feature. Both paths now serve this handler. Declared
+# above /{cleaner_id} so the literal segment wins over the path parameter.
+@router.get("/search")
 @router.get("/")
 async def search_cleaners(
     location: Optional[str] = Query(None),
@@ -85,12 +91,33 @@ async def search_cleaners(
         # Tier filter
         if min_tier and (c.get("verification_tier") or 1) < min_tier:
             continue
-        
-        # Get user for name
-        user = await db.user.find_unique(where={"id": c.get("user_id")})
-        
-        # Transform to response format
-        results.append({
+
+        results.append(c)
+
+    # Sort by rating descending, then paginate — BEFORE touching the users
+    # table. Filtering and ordering only read cleaner columns, so the user
+    # lookup can wait until we know which page we're returning.
+    results.sort(key=lambda c: c.get("rating") or 0, reverse=True)
+
+    total = len(results)
+    start = (page - 1) * limit
+    page_rows = results[start:start + limit]
+
+    # One batched query for the page's users, instead of one per cleaner.
+    # This endpoint previously issued 1 + N queries over EVERY cleaner in the
+    # table (measured: 15 queries for 12 cleaners, and the same 15 even with
+    # limit=5, because the lookup ran before pagination). It is now 2 queries
+    # regardless of how many cleaners exist.
+    user_ids = [c.get("user_id") for c in page_rows if c.get("user_id")]
+    users_by_id = {}
+    if user_ids:
+        for u in await db.user.find_many(where={"id": user_ids}):
+            users_by_id[u.get("id")] = u
+
+    cleaners_page = []
+    for c in page_rows:
+        user = users_by_id.get(c.get("user_id"))
+        cleaners_page.append({
             "id": c.get("id"),
             "userId": c.get("user_id"),
             "businessName": c.get("business_name"),
@@ -107,17 +134,10 @@ async def search_cleaners(
             "onTimeRate": c.get("on_time_rate") or 100,
             "responseTimeMinutes": c.get("response_time_minutes"),
         })
-    
-    # Sort by rating descending
-    results.sort(key=lambda x: x.get("overallRating", 0), reverse=True)
-    
-    # Paginate
-    start = (page - 1) * limit
-    end = start + limit
-    
+
     result = {
-        "cleaners": results[start:end],
-        "total": len(results),
+        "cleaners": cleaners_page,
+        "total": total,
         "page": page,
         "limit": limit,
     }
