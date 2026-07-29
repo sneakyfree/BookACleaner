@@ -1,12 +1,18 @@
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
+import logging
 
 from app.services.ai import ai_service
 from app.core.feature_flags import flags
 from app.api.deps import get_current_user
+# Every route below spends money at OpenAI, so they depend on the quota guard
+# rather than on get_current_user directly. enforce_ai_quota itself depends on
+# get_current_user and returns the same user object, so handlers are unchanged.
+from app.core.ai_quota import enforce_ai_quota
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 class ChatMessage(BaseModel):
@@ -40,8 +46,38 @@ class JobSummaryRequest(BaseModel):
     after_photos: List[str] = []
 
 
+def _ai_unavailable(result: dict, operation: str) -> HTTPException:
+    """Turn a failed AI call into an honest, non-leaky HTTP error.
+
+    Two problems with the previous `HTTPException(500, detail=result["error"])`:
+
+    1. 500 says WE crashed. An OpenAI outage or rate limit is an upstream
+       dependency failure — 503 is the accurate code, it tells the client the
+       request is worth retrying, and it stops third-party downtime showing up
+       in our error budget as application faults.
+    2. It returned the provider's raw error string to the caller. Those messages
+       quote the credential back, e.g.
+       "Incorrect API key provided: sk-audit********lder" — so a misconfigured
+       key was disclosed to any authenticated user who triggered it.
+
+    The detail is logged server-side and a generic message is returned.
+    """
+    logger.warning("AI %s failed: %s", operation, result.get("error"))
+    return HTTPException(
+        status_code=503,
+        detail={
+            "error": "AI_UNAVAILABLE",
+            "operation": operation,
+            "message": (
+                "The AI service is temporarily unavailable. "
+                "Please try again in a moment."
+            ),
+        },
+    )
+
+
 @router.post("/chat")
-async def chat(data: ChatRequest, user=Depends(get_current_user)):
+async def chat(data: ChatRequest, user=Depends(enforce_ai_quota)):
     """
     AI chat assistant for booking help and support
     
@@ -67,13 +103,13 @@ async def chat(data: ChatRequest, user=Depends(get_current_user)):
     )
     
     if not result["success"]:
-        raise HTTPException(status_code=500, detail=result.get("error", "Chat failed"))
+        raise _ai_unavailable(result, "chat")
     
     return result
 
 
 @router.post("/parse-document")
-async def parse_document(data: ParseDocumentRequest, user=Depends(get_current_user)):
+async def parse_document(data: ParseDocumentRequest, user=Depends(enforce_ai_quota)):
     """
     Parse verification documents using AI Vision
     
@@ -101,13 +137,13 @@ async def parse_document(data: ParseDocumentRequest, user=Depends(get_current_us
     )
     
     if not result["success"]:
-        raise HTTPException(status_code=500, detail=result.get("error", "Parsing failed"))
+        raise _ai_unavailable(result, "document_parse")
     
     return result
 
 
 @router.post("/verify-document")
-async def verify_document(data: ParseDocumentRequest, user=Depends(get_current_user)):
+async def verify_document(data: ParseDocumentRequest, user=Depends(enforce_ai_quota)):
     """
     Check document authenticity using AI analysis
     
@@ -126,13 +162,13 @@ async def verify_document(data: ParseDocumentRequest, user=Depends(get_current_u
     )
     
     if not result["success"]:
-        raise HTTPException(status_code=500, detail=result.get("error", "Verification failed"))
+        raise _ai_unavailable(result, "document_verify")
     
     return result
 
 
 @router.post("/estimate")
-async def generate_estimate(data: EstimateRequest, user=Depends(get_current_user)):
+async def generate_estimate(data: EstimateRequest, user=Depends(enforce_ai_quota)):
     """
     Generate smart cleaning estimate based on property details
     
@@ -158,13 +194,13 @@ async def generate_estimate(data: EstimateRequest, user=Depends(get_current_user
     )
     
     if not result["success"]:
-        raise HTTPException(status_code=500, detail=result.get("error", "Estimate failed"))
+        raise _ai_unavailable(result, "estimate")
     
     return result
 
 
 @router.post("/detect-property")
-async def detect_property(data: PropertyDetectRequest, user=Depends(get_current_user)):
+async def detect_property(data: PropertyDetectRequest, user=Depends(enforce_ai_quota)):
     """
     Detect property details from address using AI
     
@@ -174,13 +210,13 @@ async def detect_property(data: PropertyDetectRequest, user=Depends(get_current_
     result = await ai_service.detect_property_details(data.address)
     
     if not result["success"]:
-        raise HTTPException(status_code=500, detail=result.get("error", "Detection failed"))
+        raise _ai_unavailable(result, "property_detect")
     
     return result
 
 
 @router.post("/job-summary")
-async def generate_job_summary(data: JobSummaryRequest, user=Depends(get_current_user)):
+async def generate_job_summary(data: JobSummaryRequest, user=Depends(enforce_ai_quota)):
     """
     Generate professional job completion summary
     
@@ -194,6 +230,6 @@ async def generate_job_summary(data: JobSummaryRequest, user=Depends(get_current
     )
     
     if not result["success"]:
-        raise HTTPException(status_code=500, detail=result.get("error", "Summary failed"))
+        raise _ai_unavailable(result, "job_summary")
     
     return result
