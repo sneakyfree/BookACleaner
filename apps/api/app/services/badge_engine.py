@@ -63,10 +63,16 @@ class BadgeEngine:
         if not badges:
             return awarded
 
-        # Get already awarded badges
+        # Get already awarded badges.
+        # NOTE: the bind key must match the ':uid' placeholder. It said
+        # "user_id", so every call raised
+        #   InvalidRequestError: A value is required for bind parameter 'uid'
+        # — which meant the badge engine had never awarded a badge to anyone.
+        # reviews.py swallowed the exception into a log line, so the failure
+        # was invisible; the /verification/badges endpoints just 500'd.
         existing_badges = await db.execute(
             "SELECT badge_id FROM user_badges WHERE user_id = :uid",
-            {"user_id": user_id}
+            {"uid": user_id}
         )
         awarded_ids = {b["badge_id"] for b in (existing_badges or [])}
 
@@ -132,19 +138,64 @@ class BadgeEngine:
             return repeats >= criteria_value
 
         elif criteria_type == "early_adopter":
-            users = await db.user.find_many(take=int(criteria_value))
-            user_ids = [u["id"] for u in (users or [])]
-            return user["id"] in user_ids
+            # "Among the first N users to sign up" needs an ORDER BY and a
+            # LIMIT. This used to call find_many(take=N) — but find_many
+            # ignored unknown kwargs, so it fetched EVERY user unordered and
+            # the membership test was trivially true for everyone. The badge
+            # would have gone to the entire user base (had the engine run).
+            rows = await db.execute(
+                "SELECT id FROM users ORDER BY created_at ASC LIMIT :n",
+                {"n": int(criteria_value)},
+            )
+            return user["id"] in {r["id"] for r in (rows or [])}
+
+        elif criteria_type == "top_percentile":
+            # Top X% of cleaners by rating. Only rated cleaners are ranked —
+            # otherwise a field of unrated profiles makes any rating "top".
+            if not cleaner:
+                return False
+            my_rating = cleaner.get("rating") or 0
+            if my_rating <= 0:
+                return False
+            rows = await db.execute(
+                "SELECT rating FROM cleaner_profiles WHERE rating > 0"
+            )
+            ratings = sorted(
+                (r["rating"] or 0 for r in (rows or [])), reverse=True
+            )
+            if not ratings:
+                return False
+            cutoff_index = max(1, int(len(ratings) * (float(criteria_value) / 100.0)))
+            cutoff_rating = ratings[min(cutoff_index, len(ratings)) - 1]
+            return my_rating >= cutoff_rating
+
+        elif criteria_type == "feed_likes":
+            # NOT IMPLEMENTABLE against the current schema, and saying so
+            # loudly beats returning False forever.
+            #
+            # The badge reads "Received 10+ likes on community posts", but
+            # feed_items has no author column — feed items are platform
+            # announcements, not user posts. There is nothing to attribute a
+            # received like to. This needs a product decision (add authored
+            # posts, or retire the badge), not a silent no-op.
+            logger.warning(
+                "Badge '%s' uses criteria_type 'feed_likes', which cannot be "
+                "evaluated: feed_items has no author. Nobody can earn it.",
+                badge.get("name"),
+            )
+            return False
 
         return False
 
     async def get_user_badges(self, user_id: str, db) -> List[Dict]:
         """Get all badges for a user."""
+        # Bind key must match ':uid' — see evaluate_user. This raised on every
+        # call, so GET /verification/badges/{user_id} was a hard 500.
         results = await db.execute(
             """SELECT ub.awarded_at, ub.awarded_reason, b.name, b.description, b.icon_url
                FROM user_badges ub JOIN badges b ON ub.badge_id = b.id
                WHERE ub.user_id = :uid ORDER BY ub.awarded_at DESC""",
-            {"user_id": user_id}
+            {"uid": user_id}
         )
         return results or []
 

@@ -155,7 +155,18 @@ class RouteOptimizer:
         Returns: Optimized job order with travel times
         """
         if not jobs:
-            return {"optimized_jobs": [], "total_distance": 0, "total_travel_time": 0}
+            # Must return the SAME keys as the populated path below. This used
+            # to answer total_distance / total_travel_time while every other
+            # path returns total_distance_km / total_travel_minutes, so a
+            # caller reading the documented field got nothing for a cleaner
+            # with an empty day (route.py reads total_travel_minutes).
+            return {
+                "optimized_jobs": [],
+                "total_distance_km": 0,
+                "total_travel_minutes": 0,
+                "travel_segments": [],
+                "optimization_method": "2-opt TSP",
+            }
         
         # Build locations list
         locations = []
