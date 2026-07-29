@@ -55,34 +55,70 @@ async def list_conversations(
 ):
     """List conversations the current user participates in."""
 
-    conversations = await db.conversation.find_many()
+    # Start from the caller's OWN participation instead of the whole table.
+    #
+    # This previously loaded every conversation on the platform and then ran
+    # ~5 queries against each one (participant check, messages, participants
+    # again, the other user) just to discard the ones the caller isn't in — so
+    # a user with two threads paid for every thread in the system. Everything
+    # below is now scoped to the caller and batched: a constant number of
+    # queries regardless of how large the tables get.
+    my_parts = await db.conversation_participant.find_many(where={"user_id": user["id"]})
+    my_conv_ids = {p["conversation_id"] for p in my_parts if p.get("conversation_id")}
 
-    # Filter to user's conversations and enrich with data
-    user_conversations = []
+    # Legacy threads predate the participants table; membership there is
+    # implied by having sent a message. Preserved from is_conversation_participant.
+    my_messages = await db.message.find_many(where={"sender_id": user["id"]})
+    my_conv_ids |= {m["conversation_id"] for m in my_messages if m.get("conversation_id")}
 
+    if not my_conv_ids:
+        return []
+
+    conv_ids = list(my_conv_ids)
+    conversations = await db.conversation.find_many(where={"id": conv_ids})
+    all_messages = await db.message.find_many(where={"conversation_id": conv_ids})
+    all_parts = await db.conversation_participant.find_many(
+        where={"conversation_id": conv_ids}
+    )
+
+    messages_by_conv: dict = {}
+    for m in all_messages:
+        messages_by_conv.setdefault(m.get("conversation_id"), []).append(m)
+    parts_by_conv: dict = {}
+    for p in all_parts:
+        parts_by_conv.setdefault(p.get("conversation_id"), []).append(p)
+
+    # Resolve every "other participant" in one query rather than one per thread.
+    other_id_by_conv: dict = {}
     for conv in conversations:
-        # Only include conversations the caller is actually a participant in —
-        # otherwise the list leaks every conversation's last-message content.
-        if not await is_conversation_participant(db, conv["id"], user["id"]):
-            continue
+        msgs = messages_by_conv.get(conv["id"], [])
+        candidates = [
+            p.get("user_id")
+            for p in parts_by_conv.get(conv["id"], [])
+            if p.get("user_id") != user["id"]
+        ]
+        if not candidates:
+            candidates = [
+                m.get("sender_id") for m in msgs if m.get("sender_id") != user["id"]
+            ]
+        if candidates:
+            other_id_by_conv[conv["id"]] = candidates[0]
 
-        # Get last message
-        messages = await db.message.find_many(where={"conversation_id": conv["id"]})
+    users_by_id: dict = {}
+    if other_id_by_conv:
+        for u in await db.user.find_many(where={"id": list(set(other_id_by_conv.values()))}):
+            users_by_id[u.get("id")] = u
+
+    user_conversations = []
+    for conv in conversations:
+        messages = messages_by_conv.get(conv["id"], [])
         last_message = messages[-1] if messages else None
-        
-        # Count unread
-        unread_count = sum(1 for m in messages if not m.get("read_at") and m.get("sender_id") != user["id"])
-
-        # Resolve the OTHER participant so the UI can show their name/avatar
-        # instead of a hardcoded "Conversation"/"C". Prefer the participants
-        # table; fall back to the sender of any message that isn't the caller.
-        other_user = None
-        parts = await db.conversation_participant.find_many(where={"conversation_id": conv["id"]})
-        other_ids = [p.get("user_id") for p in parts if p.get("user_id") != user["id"]]
-        if not other_ids:
-            other_ids = [m.get("sender_id") for m in messages if m.get("sender_id") != user["id"]]
-        if other_ids:
-            other_user = await db.user.find_unique(where={"id": other_ids[0]})
+        unread_count = sum(
+            1
+            for m in messages
+            if not m.get("read_at") and m.get("sender_id") != user["id"]
+        )
+        other_user = users_by_id.get(other_id_by_conv.get(conv["id"]))
 
         user_conversations.append({
             "id": conv["id"],

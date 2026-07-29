@@ -584,18 +584,33 @@ class TableAccessor:
         self._model = model
     
     async def find_many(self, where: Dict = None, **kwargs) -> List[Dict]:
-        """Find multiple records"""
+        """Find multiple records.
+
+        A list/tuple/set value becomes an ``IN`` clause, so related rows can be
+        fetched in ONE query instead of one-per-item. Endpoints that looped
+        calling ``find_unique`` per row (the marketplace listing did a user
+        lookup per cleaner) can batch instead.
+        """
         async with self._db.session() as session:
             query = select(self._model)
-            
+
             if where:
                 conditions = []
                 for key, value in where.items():
-                    if hasattr(self._model, key):
-                        conditions.append(getattr(self._model, key) == value)
+                    if not hasattr(self._model, key):
+                        continue
+                    column = getattr(self._model, key)
+                    if isinstance(value, (list, tuple, set)):
+                        if not value:
+                            # An empty IN () matches nothing; short-circuit
+                            # rather than emitting invalid/always-false SQL.
+                            return []
+                        conditions.append(column.in_(list(value)))
+                    else:
+                        conditions.append(column == value)
                 if conditions:
                     query = query.where(and_(*conditions))
-            
+
             result = await session.execute(query)
             records = result.scalars().all()
             return [self._to_dict(r) for r in records]
