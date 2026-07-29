@@ -4,9 +4,15 @@ name: CI
 # postgres/redis stack that no longer exists, so lint/test/build failed in ~1s
 # on every PR and the 136 backend pytest tests never actually ran.
 #
-# Stack today: npm (not pnpm), FastAPI + SQLAlchemy (not Prisma), sqlite for
-# tests (the F1 fix drops pool kwargs for sqlite and conftest forces
-# TESTING=true, so no DB service is needed), Next.js 14 web app.
+# Stack today: npm (not pnpm), FastAPI + SQLAlchemy (not Prisma), Next.js 14.
+#
+# Tests run against PostgreSQL FIRST, because that is what we deploy. The suite
+# used to run only on sqlite, which silently accepted data PostgreSQL rejects —
+# every DateTime column was naive while the app writes timezone-aware values,
+# and sqlite does not enforce foreign keys by default. The result was 177 green
+# tests on a database nobody runs, hiding an API that could not boot, register
+# a user, send a message, or complete a GDPR erasure against real PostgreSQL.
+# The sqlite job is kept as a secondary compatibility check only.
 
 on:
   push:
@@ -16,8 +22,9 @@ on:
 
 jobs:
   test:
-    name: Backend tests (pytest)
+    name: Backend tests (pytest, PostgreSQL)
     runs-on: [self-hosted, linux, x64]
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - name: runner-lint (hosted runners are billing-locked)
@@ -32,13 +39,78 @@ jobs:
       - name: Install backend dependencies
         run: pip install -r apps/api/requirements.txt
 
-      - name: Run pytest (sqlite, TESTING mode)
-        # conftest.py sets TESTING=true; no postgres/redis needed.
-        # DATABASE_URL is pinned to sqlite explicitly: app/database.py's
-        # auto-fallback probes localhost:5432 and on the self-hosted Kit 0
-        # runner a resident postgres container answers on that host port, so
-        # without the pin the suite connects to the wrong database and dies
-        # with "password authentication failed for user bookacleaner".
+      - name: Pick a free port for PostgreSQL
+        # The self-hosted Kit 0 box runs a resident postgres on 5432, so a
+        # fixed host port would either collide or silently point the suite at
+        # a foreign database ("password authentication failed for user
+        # bookacleaner"). Same ephemeral-port trick e2e.yml uses.
+        run: |
+          python3 - <<'EOF' >> "$GITHUB_ENV"
+          import socket
+          s = socket.socket(); s.bind(("127.0.0.1", 0))
+          port = s.getsockname()[1]
+          print(f"PGPORT_CI={port}")
+          print(f"DATABASE_URL=postgresql+asyncpg://bookacleaner:password@localhost:{port}/bookacleaner")
+          EOF
+
+      - name: Start PostgreSQL
+        run: |
+          docker run -d --name bac-ci-pg-${{ github.run_id }} \
+            -e POSTGRES_USER=bookacleaner \
+            -e POSTGRES_PASSWORD=password \
+            -e POSTGRES_DB=bookacleaner \
+            -p "${PGPORT_CI}:5432" \
+            postgres:16-alpine
+
+      - name: Wait for PostgreSQL
+        run: |
+          for i in $(seq 1 60); do
+            if docker exec bac-ci-pg-${{ github.run_id }} pg_isready -U bookacleaner 2>/dev/null | grep -q accepting; then
+              echo "postgres ready after ${i}s"; exit 0
+            fi
+            sleep 1
+          done
+          echo "postgres did not become ready"; docker logs bac-ci-pg-${{ github.run_id }}; exit 1
+
+      - name: Verify migrations apply from scratch
+        # Catches drift between models.py and alembic/versions/ before any test
+        # masks it with the metadata create_all path.
+        run: cd apps/api && python -m alembic upgrade head
+
+      - name: Run pytest (PostgreSQL)
+        run: cd apps/api && TESTING=true pytest -q
+
+      - name: Stop PostgreSQL
+        if: always()
+        run: docker rm -f bac-ci-pg-${{ github.run_id }} || true
+
+  test-sqlite:
+    name: Backend tests (sqlite compatibility)
+    runs-on: [self-hosted, linux, x64]
+    timeout-minutes: 25
+    # Sequential, not parallel: both backend jobs share one self-hosted runner,
+    # and running them concurrently made actions/setup-python's pip cache
+    # restore hang until the job was cancelled ("The operation cannot be
+    # completed in timeout"). Gating on the PostgreSQL job also means the
+    # secondary check only runs once the real one is green.
+    needs: [test]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          # No pip cache here — restoring it on this runner is the step that
+          # hung. The dependencies are already warm from the job above.
+
+      - name: Install backend dependencies
+        run: pip install -r apps/api/requirements.txt
+
+      - name: Run pytest (sqlite)
+        # Secondary only — sqlite is permissive where PostgreSQL is strict, so
+        # a green run here proves nothing about production. DATABASE_URL is
+        # pinned explicitly so database.py never probes localhost:5432 and
+        # finds the runner's resident postgres.
         run: cd apps/api && TESTING=true pytest -q
         env:
           DATABASE_URL: sqlite+aiosqlite:///./ci_test.db

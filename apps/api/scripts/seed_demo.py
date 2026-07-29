@@ -8,7 +8,7 @@ import random
 from datetime import datetime, timedelta
 from typing import List, Dict, Any
 import uuid
-import hashlib
+import bcrypt
 
 # Demo user data
 DEMO_CLIENTS = [
@@ -77,8 +77,13 @@ def generate_id() -> str:
 
 
 def generate_password_hash(password: str) -> str:
-    """Generate a simple password hash for demo"""
-    return hashlib.sha256(password.encode()).hexdigest()
+    """Hash exactly the way auth does, so seeded users can actually log in.
+
+    This used to be unsalted sha256, while app/api/v1/auth.py verifies with
+    bcrypt — so every account this script created was unloggable, and the
+    password differed from the other seeder's too (demo123 vs demo1234).
+    """
+    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
 
 
 def random_date(start_days_ago: int = 90, end_days_ago: int = 0) -> datetime:
@@ -255,7 +260,7 @@ def seed_demo_data() -> Dict[str, Any]:
             "id": generate_id(),
             "email": client_data["email"],
             "name": client_data["name"],
-            "password_hash": generate_password_hash("demo123"),
+            "password_hash": generate_password_hash("demo1234"),
             "role": "client",
             "phone": f"+1555{random.randint(1000000, 9999999)}",
             "location": client_data["location"],
@@ -270,7 +275,7 @@ def seed_demo_data() -> Dict[str, Any]:
             "id": generate_id(),
             "email": cleaner_data["email"],
             "name": cleaner_data["name"],
-            "password_hash": generate_password_hash("demo123"),
+            "password_hash": generate_password_hash("demo1234"),
             "role": "cleaner",
             "phone": f"+1555{random.randint(1000000, 9999999)}",
             "verification_tier": cleaner_data["tier"],

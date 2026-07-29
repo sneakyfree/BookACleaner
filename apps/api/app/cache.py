@@ -59,6 +59,25 @@ class CacheClient:
         except Exception:
             pass
 
+    async def claim(self, key: str, ttl: int = 86400) -> Optional[bool]:
+        """Atomically claim a key. Returns True if this caller won the claim,
+        False if it was already claimed, None if Redis is unavailable.
+
+        This is SET NX — the check and the write are a single Redis operation,
+        so concurrent workers cannot both win. Used for webhook idempotency,
+        where a non-atomic get-then-set would let two simultaneous deliveries
+        of the same event both pass the check and double-process.
+
+        The None return is deliberately distinct from False: callers must be
+        able to tell "already handled" from "dedup store is down".
+        """
+        if not self._client:
+            return None
+        try:
+            return bool(await self._client.set(key, "1", ex=ttl, nx=True))
+        except Exception:
+            return None
+
     async def get_json(self, key: str) -> Optional[Any]:
         raw = await self.get(key)
         if raw:

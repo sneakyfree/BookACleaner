@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Request, HTTPException, Depends, Header
 from pydantic import BaseModel, Field
 from typing import Optional
+from collections import deque
 from datetime import datetime, timezone
 import stripe
 import os
@@ -8,6 +9,7 @@ import math
 import logging
 
 from app.config import get_settings
+from app.cache import cache
 from app.database import get_db
 from app.api.deps import get_current_user, get_admin_user
 from app.core.feature_flags import flags
@@ -17,8 +19,29 @@ router = APIRouter()
 settings = get_settings()
 logger = logging.getLogger(__name__)
 
-# In-memory webhook idempotency set (use Redis in multi-instance deployments)
+# Webhook idempotency fallback, used only when Redis is unavailable.
+#
+# A bounded FIFO, NOT a set that clears itself. The previous implementation
+# wiped the whole set on reaching 10k, so every duplicate delivered just after
+# a wipe was reprocessed — for payment events that means double-crediting.
+# Evicting oldest-first keeps the newest N ids protected at all times.
+#
+# This is still per-process and lost on restart; Redis (see cache.claim) is the
+# real store and is preferred whenever it is reachable.
+_MAX_TRACKED_EVENTS = 10_000
 _processed_webhook_events: set = set()
+_processed_webhook_order: deque = deque()
+
+
+def _remember_event_locally(event_id: str) -> bool:
+    """Return True if this event is new (and record it), False if seen."""
+    if event_id in _processed_webhook_events:
+        return False
+    _processed_webhook_events.add(event_id)
+    _processed_webhook_order.append(event_id)
+    while len(_processed_webhook_order) > _MAX_TRACKED_EVENTS:
+        _processed_webhook_events.discard(_processed_webhook_order.popleft())
+    return True
 
 # Configure Stripe
 stripe.api_key = settings.stripe_secret_key
@@ -189,10 +212,18 @@ async def release_payment(job_id: str, user=Depends(get_current_user), db=Depend
     if not claimed:
         raise HTTPException(status_code=409, detail="Payment release already in progress")
 
+    captured_ok = False
     try:
-        # Step 1: Capture the held payment
-        intent = stripe.PaymentIntent.capture(payment_intent_id)
+        # Step 1: Capture the held payment.
+        # Idempotency keys are derived from the job so a retried release can
+        # never capture or transfer twice: Stripe returns the ORIGINAL result
+        # for a repeated key instead of moving money again.
+        intent = stripe.PaymentIntent.capture(
+            payment_intent_id,
+            idempotency_key=f"capture:{job_id}:{payment_intent_id}",
+        )
         amount = intent.amount
+        captured_ok = True
 
         # Step 2: Calculate platform fee and cleaner payout
         platform_fee = int(amount * PLATFORM_FEE_PERCENT / 100)
@@ -207,6 +238,7 @@ async def release_payment(job_id: str, user=Depends(get_current_user), db=Depend
                 currency="usd",
                 destination=cleaner["stripe_account_id"],
                 metadata={"jobId": job_id},
+                idempotency_key=f"transfer:{job_id}:{payment_intent_id}",
             )
             transfer_result = {"transferId": transfer.id, "amount": cleaner_amount}
 
@@ -237,7 +269,31 @@ async def release_payment(job_id: str, user=Depends(get_current_user), db=Depend
         }
     except stripe.error.StripeError as e:
         logger.error(f"Error releasing payment for job {job_id}: {e}")
-        # Roll the claim back so the release can be retried after a Stripe error.
+        # The DB state must reflect what actually happened at Stripe. Blindly
+        # rewinding to the pre-release status was wrong when the capture had
+        # already succeeded and only the transfer failed: money was captured
+        # from the client while the job claimed to be merely "held", and the
+        # retry then died on "already captured" — leaving the cleaner unpaid
+        # with nothing in the record to show it.
+        if captured_ok:
+            # Funds ARE captured. Record that, and flag the outstanding payout
+            # so a retry (or an operator) resumes at the transfer step.
+            await db.job.update_many(
+                where={"id": job_id, "payment_status": "releasing"},
+                data={"payment_status": "captured", "paid_at": datetime.now(timezone.utc)},
+            )
+            logger.error(
+                "Job %s: capture SUCCEEDED but transfer failed — funds captured, "
+                "cleaner NOT yet paid. Status set to 'captured' for retry.",
+                job_id,
+            )
+            raise HTTPException(
+                status_code=502,
+                detail="Payment was captured but the payout to the cleaner failed. "
+                       "This has been recorded and will be retried; no double charge will occur.",
+            )
+        # Capture itself failed — nothing moved, so restoring the prior status
+        # is correct and the release can be retried cleanly.
         await db.job.update_many(
             where={"id": job_id, "payment_status": "releasing"},
             data={"payment_status": job.get("payment_status")},
@@ -556,14 +612,20 @@ async def handle_webhook(request: Request):
     except stripe.error.SignatureVerificationError:
         raise HTTPException(status_code=400, detail="Invalid signature")
 
-    # Idempotency: skip already-processed events
-    if event.id in _processed_webhook_events:
+    # Idempotency: skip already-processed events.
+    #
+    # Redis first (atomic SET NX — shared across workers, survives restarts).
+    # Falls back to the bounded per-process FIFO only if Redis is unreachable,
+    # so a cache outage degrades to the old behaviour rather than dropping
+    # dedup entirely.
+    claimed = await cache.claim(f"stripe:webhook:{event.id}", ttl=86400)
+    if claimed is None:
+        is_new = _remember_event_locally(event.id)
+    else:
+        is_new = claimed
+    if not is_new:
         logger.info(f"Stripe webhook duplicate skipped: {event.id}")
         return {"received": True, "duplicate": True}
-    _processed_webhook_events.add(event.id)
-    # Cap set size to prevent memory leak (keep last 10k events)
-    if len(_processed_webhook_events) > 10000:
-        _processed_webhook_events.clear()
 
     db = await get_db()
     logger.info(f"Stripe webhook received: {event.type}")
@@ -643,8 +705,12 @@ async def handle_webhook(request: Request):
                    VALUES (:id, :uid, :sid, :cid, :plan, :status, :ps, :pe, :now, :now)""",
                 {"id": generate_uuid(), "uid": user_id, "sid": sub.id, "cid": sub.customer,
                  "plan": plan, "status": "active",
-                 "ps": datetime.fromtimestamp(sub.current_period_start),
-                 "pe": datetime.fromtimestamp(sub.current_period_end),
+                 # tz=utc: Stripe timestamps are epoch-UTC. Without it these
+                 # were converted using the SERVER's local timezone, so billing
+                 # periods landed hours off (and the column is TIMESTAMPTZ).
+                 # Line 840 below already did this correctly — these two did not.
+                 "ps": datetime.fromtimestamp(sub.current_period_start, tz=timezone.utc),
+                 "pe": datetime.fromtimestamp(sub.current_period_end, tz=timezone.utc),
                  "now": datetime.now(timezone.utc)}
             )
             logger.info(f"Subscription created for user {user_id}: {plan}")

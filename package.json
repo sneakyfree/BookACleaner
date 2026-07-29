@@ -10,10 +10,6 @@
     "lint": "turbo run lint",
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md}\"",
     "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,md}\"",
-    "db:migrate": "cd prisma && npx prisma migrate dev",
-    "db:generate": "cd prisma && npx prisma generate",
-    "db:studio": "cd prisma && npx prisma studio",
-    "db:push": "cd prisma && npx prisma db push",
     "clean": "turbo run clean && rm -rf node_modules",
     "prepare": "husky install"
   },
