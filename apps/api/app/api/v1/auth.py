@@ -646,12 +646,18 @@ async def otp_send(data: OTPSendRequest, db=Depends(get_db)):
 
     # Generate 6-digit code
     code = "".join([str(secrets.randbelow(10)) for _ in range(6)])
-    expires_at = datetime.utcnow() + timedelta(minutes=10)
+    expires_at = datetime.now(timezone.utc) + timedelta(minutes=10)
 
     # Store OTP in database (reuse phone_verification table)
     await db.phone_verification.create(
         data={
-            "user_id": "__otp__",  # Sentinel — not tied to a specific user yet
+            # NULL, not a sentinel string: user_id is a FK to users.id and a
+            # passwordless OTP is issued before any user exists. The old
+            # '__otp__' sentinel violated the FK on any engine that actually
+            # enforces one (PostgreSQL does; SQLite does not by default), which
+            # made passwordless phone login fail with a 500 in production while
+            # passing every test.
+            "user_id": None,
             "phone": data.phone,
             "code": code,
             "expires_at": expires_at,
@@ -688,7 +694,12 @@ async def otp_verify(data: OTPVerifyRequest, db=Depends(get_db)):
     expires_at = latest.get("expires_at")
     if isinstance(expires_at, str):
         expires_at = datetime.fromisoformat(expires_at)
-    if expires_at and expires_at < datetime.utcnow():
+    # Values can come back naive (sqlite, or an ISO string without an offset).
+    # Treat those as UTC — everything written here is UTC — so the comparison
+    # below never raises "can't compare offset-naive and offset-aware".
+    if expires_at is not None and expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    if expires_at and expires_at < datetime.now(timezone.utc):
         raise HTTPException(status_code=400, detail="OTP expired")
 
     # Check code
@@ -698,7 +709,7 @@ async def otp_verify(data: OTPVerifyRequest, db=Depends(get_db)):
     # Mark OTP as used
     await db.phone_verification.update(
         where={"id": latest["id"]},
-        data={"verified_at": datetime.utcnow()}
+        data={"verified_at": datetime.now(timezone.utc)}
     )
 
     # Find or create user by phone
@@ -713,7 +724,7 @@ async def otp_verify(data: OTPVerifyRequest, db=Depends(get_db)):
                 "role": "client",
                 "full_name": "New User",
                 "phone": data.phone,
-                "phone_verified_at": datetime.utcnow(),
+                "phone_verified_at": datetime.now(timezone.utc),
                 "is_verified": True,
             }
         )
@@ -723,7 +734,7 @@ async def otp_verify(data: OTPVerifyRequest, db=Depends(get_db)):
         if not user.get("phone_verified_at"):
             await db.user.update(
                 where={"id": user["id"]},
-                data={"phone_verified_at": datetime.utcnow()}
+                data={"phone_verified_at": datetime.now(timezone.utc)}
             )
 
     # Issue JWT

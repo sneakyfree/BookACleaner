@@ -54,12 +54,22 @@ async def lifespan(app: FastAPI):
     logger.info("Database disconnected")
 
 
+# Interactive API docs enumerate every endpoint and schema. Useful in dev,
+# unnecessary attack surface in production — expose them only outside prod.
+# Override with EXPOSE_API_DOCS=true if they are genuinely wanted there.
+_expose_docs = (
+    settings.dev_mode
+    or os.getenv("ENVIRONMENT", "development").lower() != "production"
+    or os.getenv("EXPOSE_API_DOCS", "false").lower() == "true"
+)
+
 app = FastAPI(
     title="BookACleaner API",
     description="AI-native operating system for the cleaning industry",
     version="0.1.0",
-    docs_url="/docs",
-    redoc_url="/redoc",
+    docs_url="/docs" if _expose_docs else None,
+    redoc_url="/redoc" if _expose_docs else None,
+    openapi_url="/openapi.json" if _expose_docs else None,
     lifespan=lifespan,
 )
 

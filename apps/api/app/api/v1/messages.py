@@ -3,7 +3,7 @@ Messaging API for BookACleaner.ai
 Handles conversations and messages between clients and cleaners
 """
 from fastapi import APIRouter, Depends, HTTPException, Header, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 from typing import List, Optional
 from datetime import datetime, timezone
 import logging
@@ -25,9 +25,18 @@ class SendMessageRequest(BaseModel):
     # existing conversation_id don't carry it — required-but-unused here 422'd
     # every in-conversation send.
     recipient_id: Optional[str] = None
-    content: str
+    # Non-empty after trimming: blank/whitespace-only sends previously created
+    # a real message row and returned 200.
+    content: str = Field(min_length=1)
     job_id: Optional[str] = None
     attachments: List[str] = []
+
+    @field_validator("content")
+    @classmethod
+    def _content_not_blank(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("content must not be empty")
+        return v
 
 
 class CreateConversationRequest(BaseModel):
@@ -229,6 +238,14 @@ async def send_message(
         conversation_id = conv["id"]
         member_ids = {user["id"]}
         if data.recipient_id:
+            # Validate the recipient exists before recording them as a
+            # participant — user_id is a FK to users.id. Unvalidated, a bogus
+            # id silently created a dangling participant row on SQLite and
+            # raised a 500 FK violation on PostgreSQL. Mirrors the same check
+            # in create_conversation above.
+            recipient = await db.user.find_unique(where={"id": data.recipient_id})
+            if not recipient:
+                raise HTTPException(status_code=404, detail="Recipient not found")
             member_ids.add(data.recipient_id)
         for member_id in member_ids:
             await db.conversation_participant.create(data={

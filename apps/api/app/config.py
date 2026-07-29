@@ -20,8 +20,17 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_production_secrets(self):
-        """Fail-fast: prevent startup with dev secrets in production"""
-        if not self.dev_mode:
+        """Fail-fast: prevent startup with dev secrets in production.
+
+        Gated on ``dev_mode`` OR ``ENVIRONMENT=production``, deliberately.
+        ``DEV_MODE`` defaults to *true*, so gating on it alone made this guard
+        fail OPEN: a deploy that simply forgot to set ``DEV_MODE=false`` would
+        boot happily and sign tokens with the default secret — which is public,
+        in this repo's git history. Keying off ENVIRONMENT as well means
+        production is protected even when DEV_MODE was never set.
+        """
+        in_production = os.getenv("ENVIRONMENT", "").lower() == "production"
+        if not self.dev_mode or in_production:
             if self.jwt_secret == "dev-secret-key-change-in-production-abc123xyz789":
                 raise ValueError(
                     "FATAL: JWT_SECRET must be set to a secure value in production. "

@@ -39,7 +39,18 @@ DATABASE_URL = os.getenv(
     "postgresql+asyncpg://bookacleaner:password@localhost:5432/bookacleaner"
 )
 
-# Auto-fallback to SQLite if PostgreSQL is not reachable
+# SQLite fallback when PostgreSQL is unreachable.
+#
+# This used to be SILENT and automatic, and it is precisely why a fatal
+# PostgreSQL incompatibility (naive DateTime columns vs timezone-aware writes)
+# survived in main for months: every local run and every CI run quietly
+# degraded to SQLite, which tolerates the mix, so "tests pass" only ever meant
+# "passes on a database we do not deploy".
+#
+# It is now opt-in. Set ALLOW_SQLITE_FALLBACK=true to keep the old behaviour
+# for offline local dev; otherwise an unreachable PostgreSQL is a hard, loud
+# failure. Explicitly setting DATABASE_URL (including to a sqlite:// URL, as
+# CI does) bypasses this block entirely and is always honoured.
 _use_sqlite = False
 if "postgresql" in DATABASE_URL and not os.getenv("DATABASE_URL"):
     try:
@@ -49,10 +60,24 @@ if "postgresql" in DATABASE_URL and not os.getenv("DATABASE_URL"):
         sock.connect(("localhost", 5432))
         sock.close()
     except (socket.error, OSError):
-        _db_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "bookacleaner.db")
-        DATABASE_URL = f"sqlite+aiosqlite:///{_db_path}"
-        _use_sqlite = True
-        logger.warning(f"⚠️  PostgreSQL not available — falling back to SQLite: {_db_path}")
+        if os.getenv("ALLOW_SQLITE_FALLBACK", "false").lower() == "true":
+            _db_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "bookacleaner.db")
+            DATABASE_URL = f"sqlite+aiosqlite:///{_db_path}"
+            _use_sqlite = True
+            logger.warning(
+                "⚠️  PostgreSQL unreachable — ALLOW_SQLITE_FALLBACK=true, using SQLite: %s. "
+                "SQLite accepts data PostgreSQL rejects; do not treat a green run here as "
+                "proof the app works in production.",
+                _db_path,
+            )
+        else:
+            raise RuntimeError(
+                "PostgreSQL is not reachable at localhost:5432 and no DATABASE_URL was set.\n"
+                "  Start it with:  docker compose up -d db redis\n"
+                "  Or point elsewhere:  export DATABASE_URL=postgresql+asyncpg://...\n"
+                "  Or (local dev only, NOT a substitute for testing on PostgreSQL):\n"
+                "      export ALLOW_SQLITE_FALLBACK=true"
+            )
 
 # Honor an explicit sqlite DATABASE_URL (not only the auto-fallback path) so
 # pool kwargs are skipped for ANY sqlite engine, avoiding a boot-time
@@ -67,13 +92,23 @@ _engine_kwargs = {
 
 # Only add pool settings for PostgreSQL (SQLite doesn't support them)
 if not _use_sqlite:
-    _engine_kwargs.update({
-        "pool_size": int(os.getenv("DB_POOL_SIZE", "20")),
-        "max_overflow": int(os.getenv("DB_MAX_OVERFLOW", "10")),
-        "pool_timeout": 30,
-        "pool_recycle": 1800,  # Recycle connections every 30 min
-        "pool_pre_ping": True,  # Verify connections before use
-    })
+    if os.getenv("TESTING", "").lower() == "true":
+        # pytest-asyncio gives each test its own event loop, but asyncpg
+        # connections are bound to the loop that opened them. A pooled
+        # connection carried into the next test is already dead, surfacing as
+        # "Exception terminating connection" and a 500 on the first query.
+        # NullPool opens/closes per checkout, so no connection ever crosses a
+        # loop boundary. Test-only: production keeps the real pool below.
+        from sqlalchemy.pool import NullPool
+        _engine_kwargs["poolclass"] = NullPool
+    else:
+        _engine_kwargs.update({
+            "pool_size": int(os.getenv("DB_POOL_SIZE", "20")),
+            "max_overflow": int(os.getenv("DB_MAX_OVERFLOW", "10")),
+            "pool_timeout": 30,
+            "pool_recycle": 1800,  # Recycle connections every 30 min
+            "pool_pre_ping": True,  # Verify connections before use
+        })
 
 engine = create_async_engine(DATABASE_URL, **_engine_kwargs)
 

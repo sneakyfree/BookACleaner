@@ -158,6 +158,53 @@ async def delete_user_data(
             await db.client.delete(where={"id": client["id"]})
             deleted["entities_deleted"].append("client_profile")
 
+        # Sever every remaining reference to this user before deleting the row.
+        #
+        # The explicit passes above cover the entities we deliberately anonymize
+        # (messages, reviews) or cascade by hand (profiles, properties). But
+        # ~22 columns across the schema carry a FK to users.id — email/phone
+        # verifications, password resets, subscriptions, badges, feed likes,
+        # dispute and moderation actors, support tickets. Any one left behind
+        # made the final DELETE raise a FK violation, so "delete my account"
+        # returned 500 and erased NOTHING. SQLite does not enforce FKs by
+        # default, so the whole class of failure was invisible in tests.
+        #
+        # Introspecting the FK graph (rather than hand-listing tables) means a
+        # newly added table referencing users is handled automatically instead
+        # of silently reintroducing this bug.
+        from app.models import Base
+
+        severed = []
+        for table in reversed(Base.metadata.sorted_tables):
+            if table.name == "users":
+                continue
+            for column in table.columns:
+                refs_users = any(
+                    fk.column.table.name == "users" for fk in column.foreign_keys
+                )
+                if not refs_users:
+                    continue
+                if column.nullable:
+                    # Keep the record (it may belong to the counterparty or be
+                    # needed for audit), but unlink it from the erased user.
+                    result = await db.execute(
+                        f"UPDATE {table.name} SET {column.name} = NULL "
+                        f"WHERE {column.name} = :uid",
+                        {"uid": user_id},
+                    )
+                else:
+                    # The row cannot exist without its user — remove it.
+                    result = await db.execute(
+                        f"DELETE FROM {table.name} WHERE {column.name} = :uid",
+                        {"uid": user_id},
+                    )
+                rows = getattr(result, "rowcount", None) or 0
+                if rows:
+                    verb = "unlinked" if column.nullable else "deleted"
+                    severed.append(f"{table.name}.{column.name} {verb}: {rows}")
+        if severed:
+            deleted["entities_deleted"].extend(severed)
+
         # Delete user account
         await db.user.delete(where={"id": user_id})
         deleted["entities_deleted"].append("user_account")
