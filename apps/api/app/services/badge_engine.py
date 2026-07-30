@@ -6,6 +6,8 @@ Closes Gap C-REV-4 from implementation plan.
 import logging
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
+from sqlalchemy.exc import IntegrityError
+
 from app.database import get_db
 from app.config import get_settings
 
@@ -110,12 +112,28 @@ class BadgeEngine:
             earned = await self._check_criteria(badge, user, cleaner, db)
             if earned:
                 from app.models import generate_uuid
-                await db.execute(
-                    """INSERT INTO user_badges (id, user_id, badge_id, awarded_at, awarded_reason)
-                       VALUES (:id, :uid, :bid, :now, :reason)""",
-                    {"id": generate_uuid(), "uid": user_id, "bid": badge["id"],
-                     "now": datetime.now(timezone.utc), "reason": f"Earned: {badge['name']}"}
-                )
+
+                try:
+                    await db.execute(
+                        """INSERT INTO user_badges (id, user_id, badge_id, awarded_at, awarded_reason)
+                           VALUES (:id, :uid, :bid, :now, :reason)""",
+                        {"id": generate_uuid(), "uid": user_id, "bid": badge["id"],
+                         "now": datetime.now(timezone.utc), "reason": f"Earned: {badge['name']}"}
+                    )
+                except IntegrityError:
+                    # Lost a race against a concurrent evaluation. The unique
+                    # constraint (uq_user_badge) is what actually guarantees one
+                    # badge per user; the awarded_ids check above is only an
+                    # optimisation, and check-then-insert is not atomic. Losing
+                    # here means the badge IS awarded, so carry on rather than
+                    # aborting the remaining criteria.
+                    logger.debug(
+                        "Badge '%s' already awarded to %s concurrently",
+                        badge["name"],
+                        user_id,
+                    )
+                    continue
+
                 awarded.append({"badge_id": badge["id"], "name": badge["name"]})
                 logger.info(f"Awarded badge '{badge['name']}' to user {user_id}")
 
