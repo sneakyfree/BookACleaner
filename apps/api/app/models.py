@@ -508,7 +508,15 @@ class Badge(Base):
 
 class UserBadge(Base):
     __tablename__ = "user_badges"
-    
+    # A user holds a given badge once. Without this the award path was a
+    # read-then-write race: two concurrent evaluations both saw "not awarded yet"
+    # and both inserted. Observed live — parallel requests produced FOUR copies
+    # of every badge, which the profile rendered as a wall of duplicate icons.
+    # The app-level check is now an optimisation; this is the guarantee.
+    __table_args__ = (
+        UniqueConstraint("user_id", "badge_id", name="uq_user_badge"),
+    )
+
     id = Column(String(36), primary_key=True, default=generate_uuid)
     user_id = Column(String(36), ForeignKey("users.id"), nullable=False)
     badge_id = Column(String(36), ForeignKey("badges.id"), nullable=False)

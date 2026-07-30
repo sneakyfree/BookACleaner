@@ -421,6 +421,10 @@ async def get_cleaner(cleaner_id: str, db = Depends(get_db)):
     
     return {
         "id": cleaner.get("id"),
+        # The listing already returns userId; this endpoint did not, so the
+        # profile page had no way to look up the cleaner's badges (which are
+        # keyed by USER id, not cleaner-profile id).
+        "userId": cleaner.get("user_id"),
         "businessName": cleaner.get("business_name"),
         "name": user.get("full_name") if user else None,
         "bio": cleaner.get("bio"),

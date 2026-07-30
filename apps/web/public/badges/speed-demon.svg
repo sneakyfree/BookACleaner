@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48" role="img">
+  <defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0%" stop-color="#38bdf8"/><stop offset="100%" stop-color="#0369a1"/>
+  </linearGradient></defs>
+  <circle cx="24" cy="24" r="23" fill="url(#g)"/>
+  <circle cx="24" cy="24" r="23" fill="none" stroke="rgba(255,255,255,.35)" stroke-width="1.5"/>
+  <g fill="#fff" fill-rule="evenodd"><path d="M26.5 10l-9.5 15h6l-2 13 10.5-16h-6.2z"/></g>
+</svg>

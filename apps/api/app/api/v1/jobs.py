@@ -75,6 +75,69 @@ def calculate_price(services: List[str], sqft: int = 1500) -> float:
 # Auth imported from app.api.deps (canonical source)
 
 
+# ==================== COMPLETION SIDE EFFECTS ====================
+
+async def _on_job_completed(db, job: dict, cleaner_user_id: Optional[str]) -> None:
+    """Bring a cleaner's stats up to date and re-evaluate their badges.
+
+    Two things were broken here, and they compounded:
+
+    1. `cleaner_profiles.completed_jobs` was NEVER incremented anywhere — it was
+       only ever set by the demo seeder. So the "First Job" badge ("Completed
+       your first cleaning job") could not fire for a real cleaner no matter how
+       many jobs they finished, and neither could any other count-based
+       criterion. The counter is RECOUNTED rather than incremented: a recount is
+       idempotent (a retried request cannot double-count) and it self-heals rows
+       that drifted while nothing maintained them.
+
+    2. Badge evaluation was dispatched via `award_badges_task.delay(...)`, whose
+       task body called `evaluate_user(user_id)` while the signature is
+       `(user_id, db)` — a TypeError swallowed by the task's own except block.
+       And it only ran at all if Celery happened to be up. Evaluation is a
+       handful of queries, so it now runs inline: fewer moving parts, and it
+       works whether or not a broker is running.
+
+    Deliberately fail-safe. A badge is a nice-to-have; finishing a job is not.
+    Nothing in here may turn a completed job into an error for the cleaner.
+    """
+    cleaner_id = job.get("cleaner_id")
+    if not cleaner_id:
+        return
+
+    try:
+        jobs = await db.job.find_many(where={"cleaner_id": cleaner_id}) or []
+        completed = sum(1 for j in jobs if j.get("status") == "completed")
+        await db.cleaner.update(
+            where={"id": cleaner_id}, data={"completed_jobs": completed}
+        )
+    except Exception as exc:
+        logger.warning("Could not sync completed_jobs for cleaner %s: %s", cleaner_id, exc)
+        return
+
+    if not cleaner_user_id:
+        try:
+            cleaner = await db.cleaner.find_unique(where={"id": cleaner_id})
+            cleaner_user_id = (cleaner or {}).get("user_id")
+        except Exception:
+            return
+    if not cleaner_user_id:
+        return
+
+    try:
+        from app.services.badge_engine import badge_engine
+
+        awarded = await badge_engine.evaluate_user(cleaner_user_id, db)
+        if awarded:
+            logger.info(
+                "Awarded %d badge(s) to %s: %s",
+                len(awarded),
+                cleaner_user_id,
+                [a["name"] for a in awarded],
+            )
+    except Exception as exc:
+        logger.warning("Badge evaluation failed for %s: %s", cleaner_user_id, exc)
+
+
 # ==================== OWNERSHIP HELPERS ====================
 
 async def _verify_job_access(job, user, db, require_role=None):
@@ -432,6 +495,12 @@ async def update_job_status(
     if not changed:
         raise HTTPException(status_code=409, detail="Job status changed concurrently; retry")
 
+    # Admins can complete a job through this generic route too, so the same
+    # stats/badge sync has to happen here — otherwise a cleaner's counters
+    # depend on which endpoint the completion happened to come through.
+    if data.status == "completed":
+        await _on_job_completed(db, job, None)
+
     return {"id": job_id, "status": data.status}
 
 
@@ -602,12 +671,9 @@ async def complete_job(
     except Exception as e:
         logger.warning(f"Failed to queue payment release for job {job_id}: {e}")
 
-    # Evaluate badges for the cleaner
-    try:
-        from app.worker import award_badges_task
-        award_badges_task.delay(user["id"])
-    except Exception as e:
-        logger.warning(f"Failed to queue badge evaluation: {e}")
+    # Sync completed_jobs and evaluate badges. Inline rather than via Celery —
+    # see _on_job_completed for why the queued version never worked.
+    await _on_job_completed(db, job, user["id"])
 
     return {"id": job_id, "status": "completed"}
 

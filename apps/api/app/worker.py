@@ -193,16 +193,33 @@ def recalculate_all_ratings():
 
 @celery_app.task(name="app.worker.award_badges_task")
 def award_badges_task(user_id: str):
-    """Evaluate and award badges for a user"""
+    """Evaluate and award badges for a user.
+
+    Called `engine.evaluate_user(user_id)` while the signature is
+    `(user_id, db)`, so every invocation raised TypeError straight into the
+    except block below and logged a failure nobody was reading. The db handle
+    also has to be connected inside the worker process — a Celery worker does
+    not inherit the API's lifespan.
+
+    The primary path is now inline in jobs.py (_on_job_completed); this remains
+    for the periodic sweep and for backfilling.
+    """
     try:
         import asyncio
-        from app.services.badge_engine import BadgeEngine
-        
-        engine = BadgeEngine()
-        asyncio.get_event_loop().run_until_complete(
-            engine.evaluate_user(user_id)
+        from app.database import db
+        from app.services.badge_engine import badge_engine
+
+        async def _run():
+            if not db.is_connected:
+                await db.connect()
+            return await badge_engine.evaluate_user(user_id, db)
+
+        awarded = asyncio.run(_run())
+        logger.info(
+            "Badges evaluated for %s: %s",
+            user_id,
+            [a["name"] for a in (awarded or [])] or "none earned",
         )
-        logger.info(f"Badges evaluated for {user_id}")
     except Exception as exc:
         logger.error(f"Badge evaluation failed for {user_id}: {exc}")
 

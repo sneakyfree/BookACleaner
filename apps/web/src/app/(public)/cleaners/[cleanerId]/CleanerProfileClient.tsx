@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { CleanerBadges } from '@/components/common/CleanerBadges'
 import AdSlot from '@/components/ads/AdSlot'
 import {
   Star,
@@ -43,6 +44,7 @@ const tierNames: Record<number, string> = {
 
 interface CleanerProfile {
   id: string
+  userId?: string
   businessName: string
   name?: string
   bio?: string
@@ -179,6 +181,10 @@ export default function CleanerProfileClient() {
                             {tierNames[tier] || tierNames[1]}
                           </span>
                         </div>
+                        {/* Earned badges: a trust signal for prospective
+                            clients, so this must render for logged-out
+                            visitors too (the endpoint is public). */}
+                        <CleanerBadges userId={cleaner.userId} size="md" className="mt-3" />
                         <div className="mt-2 flex items-center gap-4">
                           <span className="flex items-center text-amber-500">
                             <Star className="mr-1 h-5 w-5 fill-current" />
