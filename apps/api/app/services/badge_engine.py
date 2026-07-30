@@ -20,9 +20,31 @@ DEFAULT_BADGES = [
     {"name": "Repeat Favorite", "description": "Hired by 5+ repeat clients", "criteria_type": "repeat_clients", "criteria_value": 5, "icon_url": "/badges/repeat-favorite.svg"},
     {"name": "First Job", "description": "Completed your first cleaning job", "criteria_type": "completed_jobs", "criteria_value": 1, "icon_url": "/badges/first-job.svg"},
     {"name": "Top Rated", "description": "In the top 10% of all cleaners by rating", "criteria_type": "top_percentile", "criteria_value": 10, "icon_url": "/badges/top-rated.svg"},
-    {"name": "Community Star", "description": "Received 10+ likes on community posts", "criteria_type": "feed_likes", "criteria_value": 10, "icon_url": "/badges/community-star.svg"},
+    # RETIRED 2026-07-29: "Community Star" — "Received 10+ likes on community
+    # posts". Nobody could ever earn it, and not because of a bug: feed items
+    # are platform announcements and POST /api/v1/feed is admin-only by design,
+    # so users cannot author a post for anyone to like. feed_items has no author
+    # column to attribute a received like to.
+    #
+    # The premise contradicted a deliberate product decision, so the choice was
+    # retire it or build a social feed into a cleaning marketplace. The latter is
+    # the feature-bloat this project is meant to resist. Migration
+    # b2d4a6c8e0f1 removes the seeded row.
     {"name": "Early Adopter", "description": "Among the first 100 users to sign up", "criteria_type": "early_adopter", "criteria_value": 100, "icon_url": "/badges/early-adopter.svg"},
 ]
+
+
+# Criteria _check_criteria actually implements. Anything outside this set can
+# never be awarded, so an unknown value is logged rather than silently ignored.
+_KNOWN_CRITERIA = {
+    "completed_jobs",
+    "avg_rating_min",
+    "verification_tier",
+    "express_jobs",
+    "repeat_clients",
+    "early_adopter",
+    "top_percentile",
+}
 
 
 class BadgeEngine:
@@ -169,22 +191,16 @@ class BadgeEngine:
             cutoff_rating = ratings[min(cutoff_index, len(ratings)) - 1]
             return my_rating >= cutoff_rating
 
-        elif criteria_type == "feed_likes":
-            # NOT IMPLEMENTABLE against the current schema, and saying so
-            # loudly beats returning False forever.
-            #
-            # The badge reads "Received 10+ likes on community posts", but
-            # feed_items has no author column — feed items are platform
-            # announcements, not user posts. There is nothing to attribute a
-            # received like to. This needs a product decision (add authored
-            # posts, or retire the badge), not a silent no-op.
+        # An unrecognised criteria_type is now a warning, not a silent False.
+        # A badge sitting in the catalogue that quietly awards to nobody is
+        # exactly how 'top_percentile' and 'feed_likes' went unnoticed.
+        if criteria_type not in _KNOWN_CRITERIA:
             logger.warning(
-                "Badge '%s' uses criteria_type 'feed_likes', which cannot be "
-                "evaluated: feed_items has no author. Nobody can earn it.",
+                "Badge '%s' has unknown criteria_type '%s' — it can never be "
+                "awarded. Implement it or remove the badge.",
                 badge.get("name"),
+                criteria_type,
             )
-            return False
-
         return False
 
     async def get_user_badges(self, user_id: str, db) -> List[Dict]:

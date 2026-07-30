@@ -114,6 +114,41 @@ test.describe('SEO', () => {
     }
   })
 
+  test('the language switcher is hidden while translations are incomplete', async ({ page }) => {
+    // Spanish is ~26 keys against 200+ hardcoded English strings, so offering
+    // the control gave a translated homepage and an English everything-else.
+    // Re-enable with NEXT_PUBLIC_ENABLE_I18N=true once the strings are done.
+    await page.goto('/')
+    const switcher = page.locator('button:has-text("English"), button:has-text("Español")')
+    expect(await switcher.count()).toBe(0)
+  })
+
+  test('a stale locale cookie no longer forces a half-translated app', async ({
+    context,
+    page,
+  }) => {
+    // A user who already flipped the cookie must not be stranded in a
+    // half-translated state now the control is gone.
+    await context.addCookies([{ name: 'NEXT_LOCALE', value: 'es', url: 'http://localhost:3002' }])
+    // With the flag off, i18n.ts ignores the cookie entirely — so a stale
+    // cookie yields plain English rather than a half-translated app the user
+    // has no control left to escape.
+    await page.goto('/')
+    await expect(page.locator('body')).not.toContainText('Buscar Limpiadores')
+    await page.goto('/pricing')
+    await expect(page.locator('body')).toContainText(/Pricing|Plans|Pay/i)
+  })
+
+  test('an unknown locale cookie does not break the page', async ({ context, page }) => {
+    // The cookie value used to flow straight into import(`../messages/${locale}.json`),
+    // so an arbitrary value threw module-not-found at request time.
+    await context.addCookies([
+      { name: 'NEXT_LOCALE', value: '../../etc/passwd', url: 'http://localhost:3002' },
+    ])
+    const res = await page.goto('/')
+    expect(res?.status()).toBe(200)
+  })
+
   test('public marketing pages have their own titles', async ({ page }) => {
     for (const [path, expected] of [
       ['/cleaners', 'Cleaners'],
