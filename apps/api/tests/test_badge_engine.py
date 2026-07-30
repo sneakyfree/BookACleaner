@@ -251,17 +251,66 @@ async def test_every_seeded_criteria_type_is_handled(client):
     """No badge may sit in the catalogue with logic that never runs.
 
     'top_percentile' and 'feed_likes' both fell through to `return False`, so
-    Top Rated and Community Star could never be earned by anyone.
+    Top Rated and Community Star could never be earned by anyone. This is the
+    guard that stops a ninth badge shipping the same way.
     """
-    import inspect
+    from app.services.badge_engine import _KNOWN_CRITERIA
 
-    src = inspect.getsource(badge_engine._check_criteria)
     unhandled = [
         b["criteria_type"]
         for b in DEFAULT_BADGES
-        if f'"{b["criteria_type"]}"' not in src
+        if b["criteria_type"] not in _KNOWN_CRITERIA
     ]
-    assert not unhandled, f"criteria with no implementation: {unhandled}"
+    assert not unhandled, (
+        f"criteria with no implementation: {unhandled} — implement them in "
+        "_check_criteria (and add to _KNOWN_CRITERIA) or remove the badge"
+    )
+
+
+@pytest.mark.asyncio
+async def test_community_star_is_retired(client):
+    """The unearnable badge must not come back.
+
+    'Received 10+ likes on community posts' cannot be satisfied: feed items are
+    platform announcements, POST /api/v1/feed is admin-only, and feed_items has
+    no author column. Retired rather than growing a social feed to justify it.
+    """
+    assert not any(b["name"] == "Community Star" for b in DEFAULT_BADGES)
+    assert not any(b["criteria_type"] == "feed_likes" for b in DEFAULT_BADGES)
+
+    # And seeding must not reintroduce the row.
+    await badge_engine.seed_badges(db)
+    rows = await db.execute("SELECT name, criteria_type FROM badges")
+    names = {r["name"] for r in rows}
+    criteria = {r["criteria_type"] for r in rows}
+    assert "Community Star" not in names
+    assert "feed_likes" not in criteria
+
+
+@pytest.mark.asyncio
+async def test_unknown_criteria_is_logged_not_silently_ignored(client, caplog):
+    """A badge that can never be awarded must announce itself.
+
+    Silence is how the two broken criteria survived for months.
+    """
+    import logging
+
+    fake_badge = {
+        "id": "fake",
+        "name": "Impossible Badge",
+        "criteria_type": "not_a_real_criterion",
+        "criteria_value": 1,
+    }
+    user, cleaner = await _make_cleaner()
+
+    with caplog.at_level(logging.WARNING, logger="app.services.badge_engine"):
+        earned = await badge_engine._check_criteria(fake_badge, user, cleaner, db)
+
+    assert earned is False
+    assert any(
+        "never be awarded" in r.message or "never be awarded" in r.getMessage()
+        for r in caplog.records
+    ), "an unimplementable badge was silently ignored"
 
 
 @pytest.mark.asyncio
